@@ -30,7 +30,7 @@
 
 1. **Header buttons.** While building, the header replaces «+» with «Готово» and «Отмена» (the spec says «+» is disabled and does not place the buttons). `WidgetBoard` exposes `confirm()` and `cancel()` through `defineExpose`.
 2. **Narrow window.** Below 1280 px the whole UI (header and board) is replaced by «Окно слишком узкое», following base design §7.4 («UI показывает сообщение»), so a usable «+» never sits next to a hidden board.
-3. **Two tabs.** `WidgetBoard` reloads the document on the `storage` event. «Готово» and «×» first re-read the stored document (when it loads without error) and apply the change to it; after a failed save neither the re-read nor the `storage` event replaces the in-memory document, so unsaved changes are never lost; «Готово» then re-checks `isFree`, and a taken place shows «Место занято, переместите виджет». This synchronises sequential changes only: two tabs writing at the same moment are not atomic.
+3. **Two tabs.** `WidgetBoard` reloads the document on the `storage` event. «Готово» and «×» first re-read the stored document (when it loads without error) and apply the change to it; after a failed save neither the re-read nor the `storage` event replaces the in-memory document, so unsaved changes are never lost; «Готово» then re-checks `isFree`, and a taken place shows «Место занято, переместите виджет». This synchronises sequential changes only, and only while the tab has no unsaved changes: two tabs writing at the same moment are not atomic, and a tab whose save failed overwrites other tabs' changes once its writes succeed again (accepted: only placeholder positions are at stake).
 4. **Theme CSS registration.** `widget-theme.css` is registered through `css` in `nuxt.config.ts`.
 5. **Theme attribute.** `WidgetFrame` hardcodes `data-widget-theme="default"`; a theme prop arrives with theme selection.
 6. **Messages.** `WidgetBoard` emits `notice` (`string | null`); the header renders it in an always-present `role="status"` element.
@@ -38,7 +38,7 @@
 ## Review Focus
 
 1. Pointer leaving the grid or a blocked step during drag/resize → the draft keeps its last valid position, never leaves the grid or overlaps (Task 1, `moveTo`/`resizeTo` unchanged-rect tests; Task 3, Step 9).
-2. A second tab changes the board → this tab reloads it; confirming a draft over a place taken meanwhile shows «Место занято, переместите виджет», and neither «Готово» nor «×» drops the other tab's widget (Task 3, Step 9).
+2. A second tab changes the board → this tab reloads it; confirming a draft over a place taken meanwhile shows «Место занято, переместите виджет», and neither «Готово» nor «×» drops the other tab's widget while this tab has no unsaved changes (Task 3, Step 9).
 3. Enter while «Отмена» has focus → cancels, never confirms; Enter on «Готово» confirms once (Task 3, Step 9).
 4. Stored document with extra fields or numbers as strings → extra fields are dropped, string numbers are rejected (Task 2 tests).
 5. A saved document loads back identical (the same document becomes the export format) (Task 2, round-trip test).
