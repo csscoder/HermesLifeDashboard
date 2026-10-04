@@ -38,6 +38,8 @@ const draftEl = useTemplateRef<HTMLElement>('draftBox')
 let drag: { mode: 'move' | 'resize'; grabX: number; grabY: number } | null = null
 // True after a failed save: the in-memory document is then newer than storage and must not be replaced.
 let unsaved = false
+let persistenceNotice: string | null = null
+let placementNotice: string | null = null
 
 const placed = computed(() =>
   doc.value.layout.flatMap((placement) => {
@@ -55,23 +57,32 @@ function area(rect: Rect) {
   return { gridColumn: `${rect.x + 1} / span ${rect.w}`, gridRow: `${rect.y + 1} / span ${rect.h}` }
 }
 
+function emitNotice() {
+  emit('notice', [persistenceNotice, placementNotice].filter(Boolean).join(' · ') || null)
+}
+
 function applyLoad(result: ReturnType<typeof loadBoard>) {
   doc.value = result.doc
-  if (result.error?.kind === 'storage') emit('notice', 'Хранилище недоступно')
-  else if (result.error) console.warn(`Board document ignored: ${result.error.message}`)
+  persistenceNotice = result.error?.kind === 'storage' ? 'Хранилище недоступно' : null
+  emitNotice()
+  if (result.error?.kind === 'invalid-document') console.warn(`Board document ignored: ${result.error.message}`)
 }
 
 function persist() {
   unsaved = !saveBoard(doc.value)
-  emit('notice', unsaved ? 'Не удалось сохранить доску' : null)
+  persistenceNotice = unsaved ? 'Не удалось сохранить доску' : null
+  placementNotice = null
+  emitNotice()
 }
 
 function start() {
-  emit('notice', null)
+  placementNotice = null
+  emitNotice()
   const others = doc.value.layout
   const rect = findFreeRect(sizing.default, others) ?? findFreeRect(sizing.min, others)
   if (!rect) {
-    emit('notice', 'Нет свободного места')
+    placementNotice = 'Нет свободного места'
+    emitNotice()
     building.value = false
     return
   }
@@ -89,7 +100,7 @@ function stop() {
 // Sequential changes only: simultaneous writes from two tabs are not atomic.
 function refresh() {
   const result = loadBoard()
-  if (!unsaved && !result.error) doc.value = result.doc
+  if (!unsaved && !result.error) applyLoad(result)
 }
 
 function confirm() {
@@ -98,7 +109,8 @@ function confirm() {
   refresh()
   // Another tab may have taken the place since the draft was positioned.
   if (!isFree(rect, doc.value.layout)) {
-    emit('notice', 'Место занято, переместите виджет')
+    placementNotice = 'Место занято, переместите виджет'
+    emitNotice()
     return
   }
   const id = crypto.randomUUID()
