@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import WidgetBoard from './board/WidgetBoard.vue'
-import { loadAppearance } from './theme/appearance'
-import { BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
+import { loadAppearance, saveAppearance } from './theme/appearance'
+import { BUILTIN_THEMES, BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
 import { resolveThemeId, themeClass } from './theme/resolve'
 
 type ApiState = 'checking' | 'ok' | 'unavailable'
@@ -19,7 +19,20 @@ const notice = ref<string | null>(null)
 const boardRef = useTemplateRef('board')
 
 // Workspace theme; Rooms (E2) will put their own id in front of it in the chain.
-const themeId = ref(resolveThemeId([loadAppearance().themeId], BUILTIN_THEME_IDS))
+const storedThemeId = loadAppearance().themeId
+const themeId = ref(resolveThemeId([storedThemeId], BUILTIN_THEME_IDS))
+// An unknown stored id (deleted theme) is kept as it is; the default theme is shown meanwhile.
+const themeNotice = ref<string | null>(
+  storedThemeId !== null && !BUILTIN_THEME_IDS.has(storedThemeId) ? 'Тема не найдена, показана тема по умолчанию' : null,
+)
+const headerNotice = computed(() => [notice.value, themeNotice.value].filter(Boolean).join(' · ') || null)
+
+function selectTheme(event: Event) {
+  themeId.value = resolveThemeId([(event.target as HTMLSelectElement).value], BUILTIN_THEME_IDS)
+  // A failed save keeps the theme applied for this session.
+  themeNotice.value = saveAppearance({ schemaVersion: 1, themeId: themeId.value }) ? null : 'Не удалось сохранить тему'
+}
+
 const rootClass = computed(() => [
   'room',
   `room--theme-${themeClass(themeId.value)}`,
@@ -56,7 +69,13 @@ onMounted(async () => {
           <button type="button" class="app__button" @click="boardRef?.cancel()">Отмена</button>
         </template>
         <button v-else type="button" class="app__button" aria-label="Добавить виджет" @click="building = true">+</button>
-        <p class="app__notice" role="status">{{ notice }}</p>
+        <label class="app__theme">
+          Тема
+          <select class="app__select" :value="themeId" @change="selectTheme">
+            <option v-for="theme in BUILTIN_THEMES" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
+          </select>
+        </label>
+        <p class="app__notice" role="status">{{ headerNotice }}</p>
         <p class="app__api">{{ labels[apiState] }}</p>
       </header>
       <main class="app__main">
@@ -104,6 +123,29 @@ html {
 }
 
 .app__button:focus-visible {
+  outline: 0.125rem solid var(--ld-focus-ring);
+  outline-offset: 0.125rem;
+}
+
+.app__theme {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ld-text-muted);
+  font-size: 0.875rem;
+}
+
+.app__select {
+  height: var(--ld-control-height);
+  padding: 0 0.5rem;
+  border: var(--ld-border-width) solid var(--ld-border-default);
+  border-radius: var(--ld-radius-control);
+  background: var(--ld-surface-3);
+  color: var(--ld-text-primary);
+  font: inherit;
+}
+
+.app__select:focus-visible {
   outline: 0.125rem solid var(--ld-focus-ring);
   outline-offset: 0.125rem;
 }

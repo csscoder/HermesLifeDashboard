@@ -12,6 +12,7 @@ import { placeholderManifest } from '../widgets/catalog'
 import { GRID, findFreeRect, isFree, moveTo, resizeTo, type Rect } from '../widgets/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { useDraftMotion } from './draft-motion'
+import { isFormControlTarget } from './keyboard'
 
 const building = defineModel<boolean>('building', { required: true })
 const emit = defineEmits<{ notice: [message: string | null] }>()
@@ -230,7 +231,7 @@ function onPointerUp() {
 
 function onKeydown(event: KeyboardEvent) {
   const rect = draft.value
-  if (!rect) return
+  if (!rect || isFormControlTarget(event.target)) return
   const step = arrows[event.key]
   if (step) {
     event.preventDefault()
