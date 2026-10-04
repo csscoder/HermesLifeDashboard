@@ -1,5 +1,5 @@
 {
-  "name": "@lifegame/api",
+  "name": "@lifedashboard/api",
   "private": true,
   "type": "module",
   "scripts": {

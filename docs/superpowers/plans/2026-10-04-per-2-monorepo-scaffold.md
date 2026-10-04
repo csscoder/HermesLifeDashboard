@@ -15,7 +15,7 @@
 - All dependency versions exact: no `^`, `~`, `latest`.
 - `typescript@6.0.3` everywhere; TypeScript 7 is rejected (`vue-tsc@3.3.12` incompatibility).
 - TypeScript `strict: true` in every package.
-- API host is fixed to `127.0.0.1`; port from `LIFEGAME_API_PORT`, default `3001`.
+- API host is fixed to `127.0.0.1`; port from `LIFEDASHBOARD_API_PORT`, default `3001`.
 - UI dev server `127.0.0.1:3000`; `ssr: false`; `imports: { autoImport: false }`; `components: false`; no files in a Nuxt `server/` directory.
 - Root `.env` is shared by API and UI; variables already in the process environment win over the file.
 - Nuxt telemetry disabled (`telemetry: false`): base design §13.5 requires telemetry off by default, and Nuxt otherwise honors a machine-wide consent.
@@ -34,7 +34,7 @@
 
 1. API stopped or stalled (connection accepted, no response) while the UI is open → page shows «API: недоступен» within 5 seconds, no uncaught error (Task 2, Step 9).
 2. Non-default port in root `.env` → API and proxy both follow it (Task 2, Step 10).
-3. `LIFEGAME_API_PORT=` left empty in `.env` → API exits with `Invalid LIFEGAME_API_PORT: ""` instead of silently picking a port (Task 1, Step 3 test).
+3. `LIFEDASHBOARD_API_PORT=` left empty in `.env` → API exits with `Invalid LIFEDASHBOARD_API_PORT: ""` instead of silently picking a port (Task 1, Step 3 test).
 4. Port already in use → API logs the error and exits with code 1 instead of hanging (Task 1, Step 11).
 5. Ctrl+C on `pnpm dev` → no process keeps listening on 3000/3001 (Task 2, Step 11).
 
@@ -53,7 +53,7 @@
 - Produces:
   - `loadConfig(env: NodeJS.ProcessEnv): ApiConfig`, `interface ApiConfig { host: '127.0.0.1'; port: number }` in `apps/api/src/config.ts`.
   - `buildApp(options?: { logger?: boolean }): FastifyInstance` in `apps/api/src/app.ts`.
-  - HTTP `GET /health` → `200 {"status":"ok"}` on `127.0.0.1:$LIFEGAME_API_PORT` (default 3001).
+  - HTTP `GET /health` → `200 {"status":"ok"}` on `127.0.0.1:$LIFEDASHBOARD_API_PORT` (default 3001).
   - Root scripts `dev`, `build`, `typecheck`, `test` (Task 2 relies on them fanning out to `apps/*`).
 
 - [ ] **Step 1: Create the workspace root files**
@@ -62,7 +62,7 @@
 
 ```json
 {
-  "name": "lifegame",
+  "name": "lifedashboard",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.2",
@@ -130,8 +130,8 @@ dist/
 `.env.example`:
 
 ```dotenv
-# Port of the LifeGame API (Fastify). The UI dev proxy reads the same value.
-LIFEGAME_API_PORT=3001
+# Port of the LifeDashboard API (Fastify). The UI dev proxy reads the same value.
+LIFEDASHBOARD_API_PORT=3001
 ```
 
 `.nvmrc`:
@@ -146,7 +146,7 @@ LIFEGAME_API_PORT=3001
 
 ```json
 {
-  "name": "@lifegame/api",
+  "name": "@lifedashboard/api",
   "private": true,
   "type": "module",
   "scripts": {
@@ -214,13 +214,13 @@ describe('loadConfig', () => {
     expect(loadConfig({})).toEqual({ host: '127.0.0.1', port: 3001 })
   })
 
-  it('reads LIFEGAME_API_PORT', () => {
-    expect(loadConfig({ LIFEGAME_API_PORT: '4010' })).toEqual({ host: '127.0.0.1', port: 4010 })
+  it('reads LIFEDASHBOARD_API_PORT', () => {
+    expect(loadConfig({ LIFEDASHBOARD_API_PORT: '4010' })).toEqual({ host: '127.0.0.1', port: 4010 })
   })
 
   it.each(['', 'abc', '0', '65536', '3001.5', ' 4010', '-1'])('rejects %j', (value) => {
-    expect(() => loadConfig({ LIFEGAME_API_PORT: value })).toThrow(
-      `Invalid LIFEGAME_API_PORT: "${value}"`,
+    expect(() => loadConfig({ LIFEDASHBOARD_API_PORT: value })).toThrow(
+      `Invalid LIFEDASHBOARD_API_PORT: "${value}"`,
     )
   })
 })
@@ -228,7 +228,7 @@ describe('loadConfig', () => {
 
 - [ ] **Step 4: Run the test to verify it fails**
 
-Run: `pnpm --filter @lifegame/api test`
+Run: `pnpm --filter @lifedashboard/api test`
 Expected: FAIL — cannot resolve `../src/config.ts`.
 
 - [ ] **Step 5: Implement `loadConfig`**
@@ -244,12 +244,12 @@ export interface ApiConfig {
 const DEFAULT_PORT = 3001
 
 export function loadConfig(env: NodeJS.ProcessEnv): ApiConfig {
-  const raw = env.LIFEGAME_API_PORT
+  const raw = env.LIFEDASHBOARD_API_PORT
   if (raw === undefined) return { host: '127.0.0.1', port: DEFAULT_PORT }
 
   const port = /^\d+$/.test(raw) ? Number(raw) : Number.NaN
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid LIFEGAME_API_PORT: "${raw}"`)
+    throw new Error(`Invalid LIFEDASHBOARD_API_PORT: "${raw}"`)
   }
   return { host: '127.0.0.1', port }
 }
@@ -273,7 +273,7 @@ it('GET /health returns status ok', async () => {
 })
 ```
 
-Run: `pnpm --filter @lifegame/api test`
+Run: `pnpm --filter @lifedashboard/api test`
 Expected: config tests PASS; health test FAIL — cannot resolve `../src/app.ts`.
 
 - [ ] **Step 7: Implement `buildApp`**
@@ -292,7 +292,7 @@ export function buildApp({ logger = false }: { logger?: boolean } = {}): Fastify
 
 - [ ] **Step 8: Run tests to verify they pass**
 
-Run: `pnpm --filter @lifegame/api test`
+Run: `pnpm --filter @lifedashboard/api test`
 Expected: PASS — 10 tests in 2 files (config: 2 named cases + 7 `it.each` cases; health: 1).
 
 - [ ] **Step 9: Implement the server entry point**
@@ -329,21 +329,21 @@ try {
 
 - [ ] **Step 10: Typecheck and build**
 
-Run: `pnpm --filter @lifegame/api typecheck`
+Run: `pnpm --filter @lifedashboard/api typecheck`
 Expected: exit 0, no output.
 
-Run: `pnpm --filter @lifegame/api build && ls apps/api/dist`
+Run: `pnpm --filter @lifedashboard/api build && ls apps/api/dist`
 Expected: `app.js config.js server.js`; `grep "from './app.js'" apps/api/dist/server.js` prints one line (extension rewritten).
 
 - [ ] **Step 11: Manual checks of the running API**
 
-Run in one terminal: `pnpm --filter @lifegame/api dev`
+Run in one terminal: `pnpm --filter @lifedashboard/api dev`
 Expected: Fastify log line `Server listening at http://127.0.0.1:3001`.
 
 In another terminal:
 - `curl -s http://127.0.0.1:3001/health` → `{"status":"ok"}`.
 - `(cd apps/api && node src/server.ts); echo "exit=$?"` while the dev server is still running → logged `EADDRINUSE` error, `exit=1`, returns promptly.
-- `(cd apps/api && LIFEGAME_API_PORT=abc node src/server.ts); echo "exit=$?"` → `Invalid LIFEGAME_API_PORT: "abc"`, `exit=1`.
+- `(cd apps/api && LIFEDASHBOARD_API_PORT=abc node src/server.ts); echo "exit=$?"` → `Invalid LIFEDASHBOARD_API_PORT: "abc"`, `exit=1`.
 - `(cd apps/api && pnpm start)` after the build, with the dev server stopped (Ctrl+C) → listens on 3001; Ctrl+C exits.
 
 Record the outputs for the task report.
@@ -365,7 +365,7 @@ git commit -m "feat(api): scaffold pnpm workspace and Fastify health API"
 - Modify: `pnpm-lock.yaml` (by `pnpm install`)
 
 **Interfaces:**
-- Consumes: API `GET /health` → `200 {"status":"ok"}` on `127.0.0.1:$LIFEGAME_API_PORT` (Task 1); root scripts from Task 1.
+- Consumes: API `GET /health` → `200 {"status":"ok"}` on `127.0.0.1:$LIFEDASHBOARD_API_PORT` (Task 1); root scripts from Task 1.
 - Produces: UI at `http://127.0.0.1:3000`; dev proxy `/api/*` and `/health` → API; static build in `apps/ui/.output/public`.
 
 - [ ] **Step 1: Create the UI package**
@@ -374,7 +374,7 @@ git commit -m "feat(api): scaffold pnpm workspace and Fastify health API"
 
 ```json
 {
-  "name": "@lifegame/ui",
+  "name": "@lifedashboard/ui",
   "private": true,
   "type": "module",
   "scripts": {
@@ -424,7 +424,7 @@ import { defineNuxtConfig } from 'nuxt/config'
 const rootEnvFile = fileURLToPath(new URL('../../.env', import.meta.url))
 if (existsSync(rootEnvFile)) process.loadEnvFile(rootEnvFile)
 
-const apiOrigin = `http://127.0.0.1:${process.env.LIFEGAME_API_PORT || '3001'}`
+const apiOrigin = `http://127.0.0.1:${process.env.LIFEDASHBOARD_API_PORT || '3001'}`
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-10-04',
@@ -482,7 +482,7 @@ onMounted(async () => {
 
 <template>
   <main>
-    <h1>LifeGame</h1>
+    <h1>LifeDashboard</h1>
     <p>{{ labels[apiState] }}</p>
   </main>
 </template>
@@ -500,14 +500,14 @@ Expected: three `file://…/node_modules/…` URLs, exit 0.
 
 - [ ] **Step 6: Typecheck**
 
-Run: `pnpm --filter @lifegame/ui typecheck`
+Run: `pnpm --filter @lifedashboard/ui typecheck`
 Expected: exit 0, no errors.
 
 Negative check (do not commit): change `const apiState = ref<ApiState>('checking')` to `ref<ApiState>('nope')`, run the typecheck again → a type error for the incompatible argument (TS2345) in `app/app.vue`; revert the change.
 
 - [ ] **Step 7: Build**
 
-Run: `pnpm --filter @lifegame/ui build`
+Run: `pnpm --filter @lifedashboard/ui build`
 Expected: exit 0; `apps/ui/.output/public/index.html` exists.
 
 - [ ] **Step 8: Run both apps through the root script**
@@ -526,7 +526,7 @@ Stalled API: in another terminal run `nc -l 127.0.0.1 3001` (accepts the connect
 
 - [ ] **Step 10: Non-default port from root `.env`**
 
-Run: `test ! -e .env && printf 'LIFEGAME_API_PORT=4010\n' > .env && pnpm dev`
+Run: `test ! -e .env && printf 'LIFEDASHBOARD_API_PORT=4010\n' > .env && pnpm dev`
 (If `.env` already exists, stop and ask the user instead of overwriting it.)
 Expected: API listens on `127.0.0.1:4010`; `curl -s http://127.0.0.1:3000/health` → `{"status":"ok"}`.
 Stop `pnpm dev`, then remove the test file: `rm .env`.
@@ -541,7 +541,7 @@ Expected: no output.
 `README.md`:
 
 ````markdown
-# LifeGameHermes
+# LifeDashboard
 
 Personal AI environment around Hermes Agent: Nuxt UI + Fastify API.
 Design: `docs/base-2026-10-04-lifegamehermes-design.md`.
@@ -571,7 +571,7 @@ cp .env.example .env   # optional; defaults work without it
 
 | Variable | Default | Used by |
 | --- | --- | --- |
-| `LIFEGAME_API_PORT` | `3001` | API listen port and the UI dev proxy target |
+| `LIFEDASHBOARD_API_PORT` | `3001` | API listen port and the UI dev proxy target |
 
 Values from the process environment override the root `.env`.
 
@@ -602,7 +602,7 @@ git commit -m "feat(ui): scaffold Nuxt SPA with API health via dev proxy"
 - [ ] **Step 1: Verify from a clean clone**
 
 ```bash
-CLEAN="$(mktemp -d)/lifegame"
+CLEAN="$(mktemp -d)/lifedashboard"
 git clone --quiet "$(git rev-parse --show-toplevel)" "$CLEAN"
 cd "$CLEAN"
 pnpm install --frozen-lockfile
@@ -611,7 +611,7 @@ pnpm test
 pnpm build
 ```
 
-Expected: every command exits 0; `pnpm test` reports 10 passed tests in `@lifegame/api`.
+Expected: every command exits 0; `pnpm test` reports 10 passed tests in `@lifedashboard/api`.
 
 - [ ] **Step 2: Check exact versions**
 

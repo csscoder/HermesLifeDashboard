@@ -57,11 +57,11 @@ package.json          # root scripts, packageManager, engines.node >= 24
 pnpm-workspace.yaml   # packages: apps/*
 tsconfig.base.json    # shared strict compiler options
 .gitignore
-.env.example          # LIFEGAME_API_PORT=3001
+.env.example          # LIFEDASHBOARD_API_PORT=3001
 .nvmrc                # 24
 README.md             # requirements and commands
 apps/api/
-  package.json        # @lifegame/api
+  package.json        # @lifedashboard/api
   tsconfig.json
   src/config.ts       # loadConfig(env): ApiConfig
   src/app.ts          # buildApp(): FastifyInstance
@@ -69,7 +69,7 @@ apps/api/
   test/config.test.ts
   test/health.test.ts
 apps/ui/
-  package.json        # @lifegame/ui
+  package.json        # @lifedashboard/ui
   tsconfig.json       # references to Nuxt-generated configs
   nuxt.config.ts
   app/app.vue         # placeholder page
@@ -84,8 +84,8 @@ first real consumer.
 
 - **`src/config.ts`** — `loadConfig(env: NodeJS.ProcessEnv): ApiConfig` where
   `ApiConfig = { host: '127.0.0.1'; port: number }`. `host` is fixed to loopback (base design §13.1)
-  and not configurable. `port` comes from `LIFEGAME_API_PORT`, default `3001`. A value that is not an
-  integer in `1..65535` throws `Error('Invalid LIFEGAME_API_PORT: "<value>"')`.
+  and not configurable. `port` comes from `LIFEDASHBOARD_API_PORT`, default `3001`. A value that is not an
+  integer in `1..65535` throws `Error('Invalid LIFEDASHBOARD_API_PORT: "<value>"')`.
 - **`src/app.ts`** — `buildApp(): FastifyInstance` registers `GET /health` returning
   `200 { "status": "ok" }`. No private details (base design §11.2). Logger is off in tests.
 - **`src/server.ts`** — loads config, builds the app with the Fastify logger enabled, listens on
@@ -107,7 +107,7 @@ first real consumer.
   `imports: { autoImport: false }`, `components: false`,
   `devServer: { host: '127.0.0.1', port: 3000 }`, `typescript: { strict: true }`,
   `nitro.devProxy` mapping `/api` → `http://127.0.0.1:<port>/api` and
-  `/health` → `http://127.0.0.1:<port>/health`, where `<port>` is `LIFEGAME_API_PORT` or `3001`.
+  `/health` → `http://127.0.0.1:<port>/health`, where `<port>` is `LIFEDASHBOARD_API_PORT` or `3001`.
   No files in a Nuxt `server/` directory.
 - **`app/app.vue`** — on mount requests `/health` and shows «API: работает» on `200` with
   `status: "ok"`, otherwise «API: недоступен». A network error is caught and rendered as
@@ -130,7 +130,7 @@ listed in `onlyBuiltDependencies` in `pnpm-workspace.yaml`; nothing else is allo
 | Condition | Behavior |
 | --- | --- |
 | API not running while UI is open | UI shows «API: недоступен» |
-| Invalid `LIFEGAME_API_PORT` | API exits with code 1 and the message from `loadConfig` |
+| Invalid `LIFEDASHBOARD_API_PORT` | API exits with code 1 and the message from `loadConfig` |
 | Port already in use | Fastify `listen` error is logged; process exits with code 1 |
 
 ## Testing
@@ -138,13 +138,13 @@ listed in `onlyBuiltDependencies` in `pnpm-workspace.yaml`; nothing else is allo
 - **Vitest, `apps/api`:**
   - `GET /health` via `app.inject` returns `200` and `{ status: 'ok' }`.
   - `loadConfig({})` returns `{ host: '127.0.0.1', port: 3001 }`.
-  - `loadConfig({ LIFEGAME_API_PORT: '4010' })` returns port `4010`.
+  - `loadConfig({ LIFEDASHBOARD_API_PORT: '4010' })` returns port `4010`.
   - `loadConfig` throws for `'abc'`, `'0'`, `'65536'`, `'3001.5'`.
 - **No UI unit tests in this task:** they need `@nuxt/test-utils`, a new dependency outside this scope.
 - **Manual verification (recorded in the task report):**
   - `pnpm install` on a clean checkout;
   - `pnpm dev`, then `curl http://127.0.0.1:3000/health` returns the API response through the proxy;
-  - with `LIFEGAME_API_PORT=4010` in the root `.env`, `pnpm dev` starts the API on 4010 and
+  - with `LIFEDASHBOARD_API_PORT=4010` in the root `.env`, `pnpm dev` starts the API on 4010 and
     `curl http://127.0.0.1:3000/health` still returns the API response;
   - the browser page shows «API: работает»; after stopping the API it shows «API: недоступен» on reload;
   - `pnpm typecheck`, `pnpm test`, `pnpm build` pass.

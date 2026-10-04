@@ -1,4 +1,4 @@
-# LifeGameHermes
+# LifeDashboard
 
 Base application design: `docs/base-2026-10-04-lifegamehermes-design.md`.
 Per-task Superpowers specs and plans live in `docs/superpowers/specs/` and `docs/superpowers/plans/`.
