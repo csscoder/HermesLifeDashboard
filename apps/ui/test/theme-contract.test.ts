@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs'
+import postcss, { type AtRule } from 'postcss'
 import { describe, expect, it } from 'vitest'
+import { parse } from 'vue/compiler-sfc'
 import { BUILTIN_THEMES } from '../app/theme/builtin'
+import { OPTIONAL_TOKENS, SKINS } from '../app/theme/contract'
 import { validateThemeCss } from '../app/theme/validate-theme'
 
 const themeCss = (name: string) => readFileSync(new URL(`../app/theme/styles/themes/${name}.css`, import.meta.url), 'utf8')
@@ -83,4 +86,61 @@ describe('validateThemeCss', () => {
     const css = base.replace(/\s*--ld-shadow-(widget|raised):[^;]*;/g, '')
     expect(validateThemeCss(css, { slug: 'obsidian', mode: 'dark' })).toEqual({ ok: true })
   })
+})
+
+const styleFile = (path: string) => readFileSync(new URL(`../app/theme/styles/${path}`, import.meta.url), 'utf8')
+
+describe('stylesheets', () => {
+  it('layers.css declares the layer order first', () => {
+    const first = postcss.parse(styleFile('layers.css')).nodes.find((node) => node.type !== 'comment')
+    expect(first?.type === 'atrule' && first.name === 'layer' && first.params).toBe(
+      'ld.reset, ld.frame, ld.skin, ld.theme, ld.utilities, ld.widget, ld.comfort',
+    )
+  })
+
+  it('layers.css imports every built-in theme into ld.theme and every skin', () => {
+    const css = styleFile('layers.css')
+    for (const theme of BUILTIN_THEMES) expect(css).toContain(`@import './themes/${nameOf(theme.id)}.css' layer(ld.theme);`)
+    for (const skin of SKINS) expect(css).toContain(`@import './skins/${skin}.css';`)
+  })
+
+  it('comfort.css zeroes motion under prefers-reduced-motion in ld.comfort, and layers.css imports it', () => {
+    expect(styleFile('layers.css')).toContain(`@import './comfort.css';`)
+    const zeroed: string[] = []
+    postcss.parse(styleFile('comfort.css')).walkAtRules('media', (media) => {
+      const parent = media.parent
+      if (media.params !== '(prefers-reduced-motion: reduce)') return
+      if (parent?.type !== 'atrule' || (parent as AtRule).params !== 'ld.comfort') return
+      media.walkDecls((decl) => {
+        if (/^0m?s$/.test(decl.value)) zeroed.push(decl.prop)
+      })
+    })
+    expect([...new Set(zeroed)].sort()).toEqual([
+      '--ld-duration-base',
+      '--ld-duration-fast',
+      '--ld-duration-slow',
+      'animation-duration',
+      'transition-duration',
+    ])
+  })
+
+  it('frame.css resets exactly the optional tokens on every theme scope', () => {
+    const reset: string[] = []
+    postcss.parse(styleFile('frame.css')).walkRules((rule) => {
+      if (rule.selectors.join(',') !== '.room,.widget') return
+      rule.walkDecls((decl) => {
+        if (decl.value === 'initial') reset.push(decl.prop)
+      })
+    })
+    expect(reset.sort()).toEqual(Object.keys(OPTIONAL_TOKENS).map((name) => `--ld-${name}`).sort())
+  })
+
+  it.each(['app.vue', 'board/WidgetBoard.vue', 'widgets/WidgetFrame.vue', 'widgets/WidgetHost.vue'])(
+    '%s styles use theme tokens only',
+    (file) => {
+      const { descriptor } = parse(readFileSync(new URL(`../app/${file}`, import.meta.url), 'utf8'))
+      const colourLiteral = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color-mix)\(|(?<![\w-])(?:white|black)(?![\w-])/i
+      for (const style of descriptor.styles) expect(style.content).not.toMatch(colourLiteral)
+    },
+  )
 })

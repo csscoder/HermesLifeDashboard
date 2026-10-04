@@ -15,6 +15,7 @@ import { useDraftMotion } from './draft-motion'
 
 const building = defineModel<boolean>('building', { required: true })
 const emit = defineEmits<{ notice: [message: string | null] }>()
+defineProps<{ themeId: string }>()
 
 const draftSource: WidgetSource = { kind: 'builtin', type: placeholderManifest.type }
 const sizing = placeholderManifest.sizing
@@ -279,7 +280,7 @@ defineExpose({ confirm, cancel: stop })
         <span v-for="cell in cells" :key="`${cell.x}-${cell.y}`" class="board__dot" :style="area(cell)" />
       </template>
       <div v-for="{ instance, placement } in placed" :key="instance.id" class="board__item" :style="area(placement)">
-        <WidgetHost :source="instance.source" :size="placement" />
+        <WidgetHost :source="instance.source" :size="placement" :theme-id="themeId" />
         <button
           v-if="!draft"
           type="button"
@@ -305,7 +306,7 @@ defineExpose({ confirm, cancel: stop })
         @pointercancel="onPointerUp"
       >
         <div class="board__card" :style="cardStyle">
-          <WidgetHost :source="draftSource" :size="draft" />
+          <WidgetHost :source="draftSource" :size="draft" :theme-id="themeId" />
           <span class="board__resize" aria-hidden="true" @pointerdown.stop="onPointerDown($event, 'resize')" />
         </div>
       </div>
@@ -335,7 +336,7 @@ defineExpose({ confirm, cancel: stop })
   width: 0.25rem;
   height: 0.25rem;
   border-radius: 50%;
-  background: rgb(255 255 255 / 0.35);
+  background: var(--ld-border-strong);
   pointer-events: none;
 }
 
@@ -360,13 +361,22 @@ defineExpose({ confirm, cancel: stop })
   cursor: grabbing;
 }
 
+.board__draft:focus-visible,
+.board__remove:focus-visible {
+  outline: 0.125rem solid var(--ld-focus-ring);
+}
+
+.board__remove:focus-visible {
+  outline-offset: 0.125rem;
+}
+
 /* Landing slot shown while the card floats under the pointer. */
 .board__draft--moving::before {
   content: '';
   position: absolute;
   inset: 0;
-  border: 0.125rem dashed rgb(255 255 255 / 0.45);
-  border-radius: 1rem;
+  border: 0.125rem dashed var(--ld-border-strong);
+  border-radius: var(--ld-radius-widget);
 }
 
 /* Explicit px size (not the grid area) so resize can transition; the transform is driven by GSAP. */
@@ -392,9 +402,9 @@ defineExpose({ confirm, cancel: stop })
   bottom: 0;
   width: 1rem;
   height: 1rem;
-  border-right: 0.1875rem solid #fff;
-  border-bottom: 0.1875rem solid #fff;
-  border-bottom-right-radius: 1rem;
+  border-right: 0.1875rem solid var(--ld-text-primary);
+  border-bottom: 0.1875rem solid var(--ld-text-primary);
+  border-bottom-right-radius: var(--ld-radius-widget);
   cursor: nwse-resize;
 }
 
@@ -404,10 +414,10 @@ defineExpose({ confirm, cancel: stop })
   right: 0.25rem;
   width: 1.5rem;
   height: 1.5rem;
-  border: none;
+  border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: 50%;
-  background: rgb(0 0 0 / 0.45);
-  color: #fff;
+  background: var(--ld-surface-3);
+  color: var(--ld-text-primary);
   font: inherit;
   line-height: 1;
   cursor: pointer;

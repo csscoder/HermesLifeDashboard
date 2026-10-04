@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, useTemplateRef } from 'vue'
+import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import WidgetBoard from './board/WidgetBoard.vue'
+import { loadAppearance } from './theme/appearance'
+import { BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
+import { resolveThemeId, themeClass } from './theme/resolve'
 
 type ApiState = 'checking' | 'ok' | 'unavailable'
 
@@ -14,6 +17,14 @@ const apiState = ref<ApiState>('checking')
 const building = ref(false)
 const notice = ref<string | null>(null)
 const boardRef = useTemplateRef('board')
+
+// Workspace theme; Rooms (E2) will put their own id in front of it in the chain.
+const themeId = ref(resolveThemeId([loadAppearance().themeId], BUILTIN_THEME_IDS))
+const rootClass = computed(() => [
+  'room',
+  `room--theme-${themeClass(themeId.value)}`,
+  `room--skin-${themeMeta(themeId.value).skin}`,
+])
 
 const HEALTH_TIMEOUT_MS = 5000
 
@@ -35,35 +46,31 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="app">
-    <header class="app__header">
-      <h1 class="app__title">LifeDashboard</h1>
-      <template v-if="building">
-        <button type="button" class="app__button" @click="boardRef?.confirm()">Готово</button>
-        <button type="button" class="app__button" @click="boardRef?.cancel()">Отмена</button>
-      </template>
-      <button v-else type="button" class="app__button" aria-label="Добавить виджет" @click="building = true">+</button>
-      <p class="app__notice" role="status">{{ notice }}</p>
-      <p class="app__api">{{ labels[apiState] }}</p>
-    </header>
-    <main class="app__main">
-      <WidgetBoard ref="board" v-model:building="building" @notice="notice = $event" />
-    </main>
+  <div :class="rootClass">
+    <div class="room__backdrop" />
+    <div class="app">
+      <header class="app__header">
+        <h1 class="app__title">LifeDashboard</h1>
+        <template v-if="building">
+          <button type="button" class="app__button" @click="boardRef?.confirm()">Готово</button>
+          <button type="button" class="app__button" @click="boardRef?.cancel()">Отмена</button>
+        </template>
+        <button v-else type="button" class="app__button" aria-label="Добавить виджет" @click="building = true">+</button>
+        <p class="app__notice" role="status">{{ notice }}</p>
+        <p class="app__api">{{ labels[apiState] }}</p>
+      </header>
+      <main class="app__main">
+        <WidgetBoard ref="board" v-model:building="building" :theme-id="themeId" @notice="notice = $event" />
+      </main>
+    </div>
+    <p class="app__narrow">Окно слишком узкое</p>
   </div>
-  <p class="app__narrow">Окно слишком узкое</p>
 </template>
 
 <style>
 /* One scale for the whole UI (base design §7.4): every size is rem, only the root font size changes. */
 html {
   font-size: max(16px, min(1vw, calc(100dvh / 43.75)));
-}
-
-body {
-  margin: 0;
-  background: radial-gradient(circle at 20% 10%, #3a3f6b, #12131c 60%) fixed;
-  color: #f4f4f8;
-  font-family: system-ui, sans-serif;
 }
 
 .app {
@@ -85,27 +92,32 @@ body {
 }
 
 .app__button {
-  height: 2.25rem;
-  min-width: 2.25rem;
+  height: var(--ld-control-height);
+  min-width: var(--ld-control-height);
   padding: 0 0.875rem;
-  border: 0.0625rem solid rgb(255 255 255 / 0.25);
-  border-radius: 0.5rem;
-  background: rgb(255 255 255 / 0.08);
-  color: inherit;
+  border: var(--ld-border-width) solid var(--ld-border-default);
+  border-radius: var(--ld-radius-control);
+  background: var(--ld-surface-3);
+  color: var(--ld-text-primary);
   font: inherit;
   cursor: pointer;
 }
 
+.app__button:focus-visible {
+  outline: 0.125rem solid var(--ld-focus-ring);
+  outline-offset: 0.125rem;
+}
+
 .app__notice {
   margin: 0;
-  color: #ffb4b4;
+  color: var(--ld-danger-text);
   font-size: 0.875rem;
 }
 
 .app__api {
   margin: 0 0 0 auto;
+  color: var(--ld-text-muted);
   font-size: 0.875rem;
-  opacity: 0.7;
 }
 
 .app__main {

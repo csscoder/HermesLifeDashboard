@@ -5,13 +5,13 @@ import type { Size } from './grid'
 import { builtinWidgetRenderers } from './registry'
 import WidgetFrame from './WidgetFrame.vue'
 
-const props = defineProps<{ source: WidgetSource; size: Size }>()
+const props = defineProps<{ source: WidgetSource; size: Size; themeId: string }>()
 
 const renderer = computed(() => builtinWidgetRenderers.get(props.source.type))
 </script>
 
 <template>
-  <WidgetFrame>
+  <WidgetFrame :theme-id="themeId">
     <component :is="renderer" v-if="renderer" :size="size" />
     <div v-else class="widget-host__unknown">Неизвестный виджет</div>
   </WidgetFrame>

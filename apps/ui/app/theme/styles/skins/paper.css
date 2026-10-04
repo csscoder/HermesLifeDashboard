@@ -1,0 +1,12 @@
+/* Paper: opaque sheet with a visible default border and a soft lift. */
+@layer ld.skin {
+  .widget--skin-paper > .widget__wrapper {
+    border-radius: var(--ld-radius-widget);
+    box-shadow: var(--ld-shadow-widget, none);
+  }
+
+  .widget--skin-paper > .widget__wrapper > .widget__box {
+    border: var(--ld-border-width) solid var(--ld-border-default);
+    background: var(--ld-surface-1);
+  }
+}

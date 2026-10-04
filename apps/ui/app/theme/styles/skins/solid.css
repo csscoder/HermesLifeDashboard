@@ -1,0 +1,12 @@
+/* Solid: opaque box with a hairline border and an outer shadow. */
+@layer ld.skin {
+  .widget--skin-solid > .widget__wrapper {
+    border-radius: var(--ld-radius-widget);
+    box-shadow: var(--ld-shadow-widget, none);
+  }
+
+  .widget--skin-solid > .widget__wrapper > .widget__box {
+    border: var(--ld-border-width) solid var(--ld-border-subtle);
+    background: var(--ld-surface-1);
+  }
+}

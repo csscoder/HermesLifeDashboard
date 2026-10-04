@@ -1,0 +1,19 @@
+/* User comfort beats every theme and all widget CSS (spec: Effects and comfort).
+   MVP: prefers-reduced-motion only; ComfortProfile classes arrive with its UI. */
+@layer ld.comfort {
+  @media (prefers-reduced-motion: reduce) {
+    .room,
+    .widget {
+      --ld-duration-fast: 0ms;
+      --ld-duration-base: 0ms;
+      --ld-duration-slow: 0ms;
+    }
+
+    .widget__body *,
+    .widget__body *::before,
+    .widget__body *::after {
+      animation-duration: 0s;
+      transition-duration: 0s;
+    }
+  }
+}

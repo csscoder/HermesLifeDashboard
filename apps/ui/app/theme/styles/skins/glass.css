@@ -1,0 +1,16 @@
+/* Glass: translucent box, backdrop blur, outer shadow and a 1px top edge highlight.
+   Decoration stays at stacking level 0, under .widget__body. */
+@layer ld.skin {
+  .widget--skin-glass > .widget__wrapper {
+    border-radius: var(--ld-radius-widget);
+    box-shadow: var(--ld-shadow-widget, none);
+    -webkit-backdrop-filter: blur(var(--ld-blur, 0));
+    backdrop-filter: blur(var(--ld-blur, 0));
+  }
+
+  .widget--skin-glass > .widget__wrapper > .widget__box {
+    border: var(--ld-border-width) solid var(--ld-border-subtle);
+    background: var(--ld-surface-1);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / var(--ld-edge-highlight, 0));
+  }
+}
