@@ -18,6 +18,7 @@
 - API host is fixed to `127.0.0.1`; port from `LIFEGAME_API_PORT`, default `3001`.
 - UI dev server `127.0.0.1:3000`; `ssr: false`; `imports: { autoImport: false }`; `components: false`; no files in a Nuxt `server/` directory.
 - Root `.env` is shared by API and UI; variables already in the process environment win over the file.
+- Nuxt telemetry disabled (`telemetry: false`): base design §13.5 requires telemetry off by default, and Nuxt otherwise honors a machine-wide consent.
 - User-facing UI strings in Russian; code, comments, commits and docs in English.
 - Commit messages: short conventional subject, no attribution trailers.
 - No new dependencies beyond the spec's version table.
@@ -25,14 +26,15 @@
 ## Deviations from the spec (for review)
 
 1. **`apps/api/tsconfig.build.json` added.** The spec has one `tsconfig.json` for both typecheck and build, which would leave `test/` un-typechecked. Here `tsconfig.json` (noEmit) covers `src` + `test`; `tsconfig.build.json` emits only `src` to `dist/`.
-2. **Empty `LIFEGAME_API_PORT=` is treated as unset** (default `3001`). The spec only defines absent and invalid values; an empty value is common in copied env templates.
-3. **Initial UI label «API: проверка…»** is shown until the first `/health` response.
+2. **Initial UI label «API: проверка…»** is shown until the first `/health` response.
+3. **`telemetry: false` in `nuxt.config.ts`** (base design §13.5); the spec does not mention it.
+4. **`/health` request in the UI has a 5-second timeout** (base design §14.3: every external call has a timeout and an unavailable state).
 
 ## Review Focus
 
-1. API stopped while the UI is open → page shows «API: недоступен», no uncaught error (Task 2, Step 9).
+1. API stopped or stalled (connection accepted, no response) while the UI is open → page shows «API: недоступен» within 5 seconds, no uncaught error (Task 2, Step 9).
 2. Non-default port in root `.env` → API and proxy both follow it (Task 2, Step 10).
-3. `LIFEGAME_API_PORT=` empty, as in a copied template → API starts on `3001` (Task 1, Step 3 test).
+3. `LIFEGAME_API_PORT=` left empty in `.env` → API exits with `Invalid LIFEGAME_API_PORT: ""` instead of silently picking a port (Task 1, Step 3 test).
 4. Port already in use → API logs the error and exits with code 1 instead of hanging (Task 1, Step 11).
 5. Ctrl+C on `pnpm dev` → no process keeps listening on 3000/3001 (Task 2, Step 11).
 
@@ -212,15 +214,11 @@ describe('loadConfig', () => {
     expect(loadConfig({})).toEqual({ host: '127.0.0.1', port: 3001 })
   })
 
-  it('treats an empty LIFEGAME_API_PORT as unset', () => {
-    expect(loadConfig({ LIFEGAME_API_PORT: '' })).toEqual({ host: '127.0.0.1', port: 3001 })
-  })
-
   it('reads LIFEGAME_API_PORT', () => {
     expect(loadConfig({ LIFEGAME_API_PORT: '4010' })).toEqual({ host: '127.0.0.1', port: 4010 })
   })
 
-  it.each(['abc', '0', '65536', '3001.5', ' 4010', '-1'])('rejects %j', (value) => {
+  it.each(['', 'abc', '0', '65536', '3001.5', ' 4010', '-1'])('rejects %j', (value) => {
     expect(() => loadConfig({ LIFEGAME_API_PORT: value })).toThrow(
       `Invalid LIFEGAME_API_PORT: "${value}"`,
     )
@@ -247,7 +245,7 @@ const DEFAULT_PORT = 3001
 
 export function loadConfig(env: NodeJS.ProcessEnv): ApiConfig {
   const raw = env.LIFEGAME_API_PORT
-  if (raw === undefined || raw === '') return { host: '127.0.0.1', port: DEFAULT_PORT }
+  if (raw === undefined) return { host: '127.0.0.1', port: DEFAULT_PORT }
 
   const port = /^\d+$/.test(raw) ? Number(raw) : Number.NaN
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -295,7 +293,7 @@ export function buildApp({ logger = false }: { logger?: boolean } = {}): Fastify
 - [ ] **Step 8: Run tests to verify they pass**
 
 Run: `pnpm --filter @lifegame/api test`
-Expected: PASS — 10 tests in 2 files (config: 3 named cases + 6 `it.each` cases; health: 1).
+Expected: PASS — 10 tests in 2 files (config: 2 named cases + 7 `it.each` cases; health: 1).
 
 - [ ] **Step 9: Implement the server entry point**
 
@@ -344,9 +342,9 @@ Expected: Fastify log line `Server listening at http://127.0.0.1:3001`.
 
 In another terminal:
 - `curl -s http://127.0.0.1:3001/health` → `{"status":"ok"}`.
-- `cd apps/api && node src/server.ts; echo "exit=$?"` while the dev server is still running → logged `EADDRINUSE` error, `exit=1`, returns promptly.
-- `cd apps/api && LIFEGAME_API_PORT=abc node src/server.ts; echo "exit=$?"` → `Invalid LIFEGAME_API_PORT: "abc"`, `exit=1`.
-- `cd apps/api && pnpm start` after the build, with the dev server stopped (Ctrl+C) → listens on 3001; Ctrl+C exits.
+- `(cd apps/api && node src/server.ts); echo "exit=$?"` while the dev server is still running → logged `EADDRINUSE` error, `exit=1`, returns promptly.
+- `(cd apps/api && LIFEGAME_API_PORT=abc node src/server.ts); echo "exit=$?"` → `Invalid LIFEGAME_API_PORT: "abc"`, `exit=1`.
+- `(cd apps/api && pnpm start)` after the build, with the dev server stopped (Ctrl+C) → listens on 3001; Ctrl+C exits.
 
 Record the outputs for the task report.
 
@@ -433,6 +431,7 @@ export default defineNuxtConfig({
   ssr: false,
   imports: { autoImport: false },
   components: false,
+  telemetry: false,
   devServer: { host: '127.0.0.1', port: 3000 },
   typescript: { strict: true },
   nitro: {
@@ -462,10 +461,13 @@ const labels: Record<ApiState, string> = {
 
 const apiState = ref<ApiState>('checking')
 
+const HEALTH_TIMEOUT_MS = 5000
+
 async function isApiHealthy(): Promise<boolean> {
   try {
-    const response = await fetch('/health')
-    if (!response.ok) return false
+    // The signal also aborts reading the body, so a stalled response ends as unavailable.
+    const response = await fetch('/health', { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
+    if (response.status !== 200) return false
     const body: unknown = await response.json()
     return typeof body === 'object' && body !== null && 'status' in body && body.status === 'ok'
   } catch {
@@ -493,7 +495,7 @@ Expected: exit 0; `nuxt prepare` runs in `apps/ui` and creates `apps/ui/.nuxt/`.
 
 - [ ] **Step 5: Verify UI libraries resolve**
 
-Run: `cd apps/ui && node --input-type=module -e "for (const p of ['pixi.js', 'gsap', 'reka-ui']) console.log(import.meta.resolve(p))"`
+Run: `(cd apps/ui && node --input-type=module -e "for (const p of ['pixi.js', 'gsap', 'reka-ui']) console.log(import.meta.resolve(p))")`
 Expected: three `file://…/node_modules/…` URLs, exit 0.
 
 - [ ] **Step 6: Typecheck**
@@ -501,7 +503,7 @@ Expected: three `file://…/node_modules/…` URLs, exit 0.
 Run: `pnpm --filter @lifegame/ui typecheck`
 Expected: exit 0, no errors.
 
-Negative check (do not commit): change `const apiState = ref<ApiState>('checking')` to `ref<ApiState>('nope')`, run the typecheck again → TS2322 error in `app/app.vue`; revert the change.
+Negative check (do not commit): change `const apiState = ref<ApiState>('checking')` to `ref<ApiState>('nope')`, run the typecheck again → a type error for the incompatible argument (TS2345) in `app/app.vue`; revert the change.
 
 - [ ] **Step 7: Build**
 
@@ -518,7 +520,9 @@ Open `http://127.0.0.1:3000` in a browser → «API: работает».
 
 - [ ] **Step 9: API down while UI is open**
 
-Stop only the API: `kill $(lsof -tiTCP:3001 -sTCP:LISTEN)`. Reload the browser page → «API: недоступен»; browser console shows no uncaught error. Stop `pnpm dev` (Ctrl+C).
+Stop only the API: `kill $(lsof -tiTCP:3001 -sTCP:LISTEN)`. Reload the browser page → «API: недоступен»; browser console shows no uncaught error.
+
+Stalled API: in another terminal run `nc -l 127.0.0.1 3001` (accepts the connection, never answers). Reload the page → «API: проверка…», then «API: недоступен» within about 5 seconds. Stop `nc` and `pnpm dev` (Ctrl+C).
 
 - [ ] **Step 10: Non-default port from root `.env`**
 
