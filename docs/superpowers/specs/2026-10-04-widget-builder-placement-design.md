@@ -71,9 +71,11 @@ interface BoardDocument {
 
 `localStorage` key: `lifedashboard.board`. A missing key means an empty board.
 
-- `loadBoard(): { doc: BoardDocument; error?: string }` never throws. Any exception from
-  `localStorage` access or `getItem`, a `JSON.parse` failure or a parser error yields an empty
-  document plus an `error` text.
+- `loadBoard(): { doc: BoardDocument; error?: { kind: 'storage' | 'invalid-document'; message: string } }`
+  never throws. An exception from `localStorage` access or `getItem` yields an empty document and
+  `kind: 'storage'`; a `JSON.parse` failure or a parser error yields an empty document and
+  `kind: 'invalid-document'`. The consumer shows «Хранилище недоступно» in the header for
+  `storage` and calls `console.warn` for `invalid-document`.
 - `saveBoard(doc: BoardDocument): boolean` never throws; it returns `false` when `localStorage`
   access or `setItem` throws.
 
@@ -138,11 +140,13 @@ tokens) is a `rem` token, and only the root font size changes with the viewport.
   `0.75rem`, header `3.5rem`, board padding `1rem`. Board height:
   `3.5 + 2·1 + 8·4 + 7·0.75 = 42.75rem` (684 px at 16 px); board width `12·4 + 11·0.75 + 2·1 =
   58.25rem` (932 px). Both fit the 1280×700 base viewport.
-- Root scale: `html { font-size: max(16px, min(100vw / 1600, 100dvh / 700) * 16px) }`. Up to
+- Root scale: `html { font-size: max(16px, min(1vw, calc(100dvh / 43.75))) }` (`1vw` = 16 px at
+  1600 px width, `100dvh / 43.75` = 16 px at 700 px height). Up to
   1600 px width the font size stays 16 px; above it grows proportionally, capped by the viewport
   height so the board never exceeds the screen. Example: 1920×1080 → 19.2 px.
 - The board is `display: grid` with `grid-template: repeat(8, 4rem) / repeat(12, 4rem)` and
-  `gap: 0.75rem`, centred below a fixed-height header. A 4×4 widget is always square, and text,
+  `gap: 0.75rem`, centred below a fixed-height header. The board padding belongs to a wrapper
+  element, not to the grid, so the grid's bounding rect starts at the first cell. A 4×4 widget is always square, and text,
   paddings and cells keep their ratios at every resolution.
 - Viewport width below 1280 px: the board is replaced by the message «Окно слишком узкое» (§7.4).
   Viewport height below 700 px is outside the base viewport; the page may scroll vertically.
@@ -157,8 +161,10 @@ tokens) is a `rem` token, and only the root font size changes with the viewport.
 - The draft renders through `WidgetHost`, so it looks exactly like the final widget.
 - **Move:** drag the draft body. `pointerdown` calls `setPointerCapture` and stores the grab offset
   in cells. Each `pointermove` converts the pointer to a cell,
-  `floor((px − boardLeft) / (cell + gap))` (cell and gap in px, read from the board's computed
-  style), builds a candidate and applies `moveTo`. The draft jumps
+  `floor((px − gridLeft) / (cell + gap))`, and the same for rows with `gridTop`. `gridLeft` and
+  `gridTop` come from the grid element's `getBoundingClientRect()`, which starts at the first cell
+  (no padding or border on the grid); cell and gap are px values read from the grid's computed
+  style. The grab offset uses the same origin. The pointer step builds a candidate and applies `moveTo`. The draft jumps
   between cells only; an invalid candidate keeps the last valid position.
 - **Resize:** a handle in the bottom-right corner; `resizeTo` enforces `sizing.min/max`, grid bounds
   and occupied cells. Other corners and edges are out of scope.
@@ -194,9 +200,11 @@ TDD (RED → GREEN → REFACTOR) for the pure modules.
   respects `min`, `max`, bounds and occupied cells.
 - **`test/board-document.test.ts`:** a valid document passes; errors for a non-object, a wrong
   `schemaVersion`, duplicate ids, a placement without an instance, an instance without a placement,
+  two non-overlapping placements of one instance,
   out-of-bounds and non-integer coordinates, `w`/`h` below 1, overlapping placements; an unknown
-  `source.type` passes. `loadBoard` returns an empty document with `error` when `localStorage`
-  access or `getItem` throws, and for invalid JSON; `saveBoard` returns `false` when `setItem`
+  `source.type` passes. `loadBoard` returns an empty document with `error.kind: 'storage'` when
+  `localStorage` access or `getItem` throws, and with `error.kind: 'invalid-document'` for invalid
+  JSON and for valid JSON that `parseBoardDocument` rejects; `saveBoard` returns `false` when `setItem`
   throws (stubbed `localStorage`).
 - `pnpm --filter @lifedashboard/ui typecheck` and `pnpm test` pass.
 - **Manual browser check (recorded in the task report):** «+» shows the dot grid and a 4×4 draft;
