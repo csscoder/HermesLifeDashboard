@@ -11,6 +11,7 @@ import {
 import { placeholderManifest } from '../widgets/catalog'
 import { GRID, findFreeRect, isFree, moveTo, resizeTo, type Rect } from '../widgets/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
+import { useDraftMotion } from './draft-motion'
 
 const building = defineModel<boolean>('building', { required: true })
 const emit = defineEmits<{ notice: [message: string | null] }>()
@@ -35,7 +36,13 @@ const draft = ref<Rect | null>(null)
 // Template ref keys must differ from setup bindings: ref="draft" would overwrite the draft rect.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
-let drag: { mode: 'move' | 'resize'; grabX: number; grabY: number } | null = null
+// Move drags the card in free px from its visible pose; the snapped `draft` rect is the landing slot.
+let drag: { mode: 'move'; pointerX: number; pointerY: number; cardX: number; cardY: number } | { mode: 'resize' } | null =
+  null
+const moving = ref(false)
+// Cell + gap pitch in px, read from the grid when a draft starts or a drag begins.
+const metrics = ref({ pitchX: 0, pitchY: 0, colGap: 0, rowGap: 0 })
+const motion = useDraftMotion({ x: 0, y: 0 })
 // True after a failed save: the in-memory document is then newer than storage and must not be replaced.
 let unsaved = false
 let persistenceNotice: string | null = null
@@ -51,6 +58,21 @@ const placed = computed(() =>
 const draftLabel = computed(() => {
   const rect = draft.value
   return rect ? `Виджет ${rect.w}×${rect.h}, колонка ${rect.x + 1}, ряд ${rect.y + 1}` : ''
+})
+
+const cardStyle = computed(() => {
+  const rect = draft.value
+  if (!rect) return {}
+  const { pitchX, pitchY, colGap, rowGap } = metrics.value
+  const p = motion.pose.value
+  // The card is positioned relative to its slot, so the offset is the pose minus the slot origin.
+  return {
+    width: `${rect.w * pitchX - colGap}px`,
+    height: `${rect.h * pitchY - rowGap}px`,
+    transform:
+      `translate3d(${p.x - rect.x * pitchX}px, ${p.y - rect.y * pitchY}px, 0) rotate(${p.rotate}deg) ` +
+      `skew(${p.skewX}deg, ${p.skewY}deg) scale(${p.scaleX}, ${p.scaleY})`,
+  }
 })
 
 function area(rect: Rect) {
@@ -87,12 +109,15 @@ function start() {
     return
   }
   draft.value = rect
+  readMetrics()
+  motion.reset(slotPx(rect))
   void nextTick(() => draftEl.value?.focus())
 }
 
 function stop() {
   draft.value = null
   drag = null
+  moving.value = false
   building.value = false
 }
 
@@ -133,43 +158,73 @@ function remove(id: string) {
   persist()
 }
 
-// Cell under the pointer; the grid has no padding or border, so its box starts at the first cell.
-function pointerCell(event: PointerEvent) {
+// The grid has no padding or border, so its box starts at the first cell.
+function readMetrics() {
   const el = gridEl.value
   if (!el) return null
   const box = el.getBoundingClientRect()
   const style = getComputedStyle(el)
   const colGap = parseFloat(style.columnGap)
   const rowGap = parseFloat(style.rowGap)
-  const cellW = (box.width - colGap * (GRID.cols - 1)) / GRID.cols
-  const cellH = (box.height - rowGap * (GRID.rows - 1)) / GRID.rows
-  return {
-    x: Math.floor((event.clientX - box.left) / (cellW + colGap)),
-    y: Math.floor((event.clientY - box.top) / (cellH + rowGap)),
+  metrics.value = {
+    pitchX: (box.width - colGap * (GRID.cols - 1)) / GRID.cols + colGap,
+    pitchY: (box.height - rowGap * (GRID.rows - 1)) / GRID.rows + rowGap,
+    colGap,
+    rowGap,
   }
+  return box
 }
 
+function slotPx(rect: Rect) {
+  return { x: rect.x * metrics.value.pitchX, y: rect.y * metrics.value.pitchY }
+}
+
+function settle() {
+  if (draft.value) motion.moveTo(slotPx(draft.value), false)
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
 function onPointerDown(event: PointerEvent, mode: 'move' | 'resize') {
-  const rect = draft.value
-  const cell = pointerCell(event)
-  if (!rect || !cell || event.button !== 0) return
+  if (!draft.value || event.button !== 0 || !readMetrics()) return
   event.preventDefault()
   ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-  drag = { mode, grabX: cell.x - rect.x, grabY: cell.y - rect.y }
+  if (mode === 'resize') {
+    drag = { mode }
+    return
+  }
+  // Grabbing a settling card starts from its visible pose, so it does not jump.
+  const { x, y } = motion.pose.value
+  drag = { mode, pointerX: event.clientX, pointerY: event.clientY, cardX: x, cardY: y }
+  moving.value = true
+  motion.moveTo({ x, y }, true)
 }
 
 function onPointerMove(event: PointerEvent) {
   const rect = draft.value
-  const cell = pointerCell(event)
-  if (!drag || !rect || !cell) return
-  draft.value =
-    drag.mode === 'move'
-      ? moveTo(rect, cell.x - drag.grabX, cell.y - drag.grabY, doc.value.layout)
-      : resizeTo(rect, cell.x - rect.x + 1, cell.y - rect.y + 1, sizing, doc.value.layout)
+  if (!drag || !rect) return
+  const { pitchX, pitchY } = metrics.value
+  if (drag.mode === 'resize') {
+    const box = gridEl.value?.getBoundingClientRect()
+    if (!box) return
+    const cellX = Math.floor((event.clientX - box.left) / pitchX)
+    const cellY = Math.floor((event.clientY - box.top) / pitchY)
+    draft.value = resizeTo(rect, cellX - rect.x + 1, cellY - rect.y + 1, sizing, doc.value.layout)
+    return
+  }
+  const free = {
+    x: clamp(drag.cardX + event.clientX - drag.pointerX, 0, (GRID.cols - rect.w) * pitchX),
+    y: clamp(drag.cardY + event.clientY - drag.pointerY, 0, (GRID.rows - rect.h) * pitchY),
+  }
+  motion.moveTo(free, true)
+  // The slot snaps to the nearest cell; an occupied candidate keeps the last valid slot.
+  draft.value = moveTo(rect, Math.round(free.x / pitchX), Math.round(free.y / pitchY), doc.value.layout)
 }
 
 function onPointerUp() {
+  if (drag?.mode === 'move') settle()
   drag = null
+  moving.value = false
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -179,9 +234,12 @@ function onKeydown(event: KeyboardEvent) {
   if (step) {
     event.preventDefault()
     const [dx, dy] = step
-    draft.value = event.shiftKey
-      ? resizeTo(rect, rect.w + dx, rect.h + dy, sizing, doc.value.layout)
-      : moveTo(rect, rect.x + dx, rect.y + dy, doc.value.layout)
+    if (event.shiftKey) {
+      draft.value = resizeTo(rect, rect.w + dx, rect.h + dy, sizing, doc.value.layout)
+    } else {
+      draft.value = moveTo(rect, rect.x + dx, rect.y + dy, doc.value.layout)
+      settle()
+    }
   } else if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) {
     // A focused header button handles Enter itself (Готово confirms, Отмена cancels).
     event.preventDefault()
@@ -236,6 +294,7 @@ defineExpose({ confirm, cancel: stop })
         v-if="draft"
         ref="draftBox"
         class="board__item board__draft"
+        :class="{ 'board__draft--moving': moving }"
         role="group"
         tabindex="0"
         :aria-label="draftLabel"
@@ -245,8 +304,10 @@ defineExpose({ confirm, cancel: stop })
         @pointerup="onPointerUp"
         @pointercancel="onPointerUp"
       >
-        <WidgetHost :source="draftSource" :size="draft" />
-        <span class="board__resize" aria-hidden="true" @pointerdown.stop="onPointerDown($event, 'resize')" />
+        <div class="board__card" :style="cardStyle">
+          <WidgetHost :source="draftSource" :size="draft" />
+          <span class="board__resize" aria-hidden="true" @pointerdown.stop="onPointerDown($event, 'resize')" />
+        </div>
       </div>
     </div>
     <p class="board__live" aria-live="polite">{{ draftLabel }}</p>
@@ -297,6 +358,32 @@ defineExpose({ confirm, cancel: stop })
 
 .board__draft:active {
   cursor: grabbing;
+}
+
+/* Landing slot shown while the card floats under the pointer. */
+.board__draft--moving::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 0.125rem dashed rgb(255 255 255 / 0.45);
+  border-radius: 1rem;
+}
+
+/* Explicit px size (not the grid area) so resize can transition; the transform is driven by GSAP. */
+.board__card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+  transition:
+    width 0.15s ease-out,
+    height 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board__card {
+    transition: none;
+  }
 }
 
 .board__resize {

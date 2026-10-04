@@ -159,13 +159,15 @@ tokens) is a `rem` token, and only the root font size changes with the viewport.
   the mode does not start. While the mode is on, «+» is disabled.
 - The overlay shows a dot in the centre of each of the 96 cells; placed widgets stay visible, dimmed.
 - The draft renders through `WidgetHost`, so it looks exactly like the final widget.
-- **Move:** drag the draft body. `pointerdown` calls `setPointerCapture` and stores the grab offset
-  in cells. Each `pointermove` converts the pointer to a cell,
-  `floor((px − gridLeft) / (cell + gap))`, and the same for rows with `gridTop`. `gridLeft` and
-  `gridTop` come from the grid element's `getBoundingClientRect()`, which starts at the first cell
-  (no padding or border on the grid); cell and gap are px values read from the grid's computed
-  style. The grab offset uses the same origin. The pointer step builds a candidate and applies `moveTo`. The draft jumps
-  between cells only; an invalid candidate keeps the last valid position.
+- **Move:** drag the draft body. `pointerdown` calls `setPointerCapture` and stores the pointer and
+  the card's visible pose in px. The card follows the pointer freely in px (clamped to the grid),
+  eased and deformed by `board/draft-motion.ts` (GSAP, ported from HermesPersonalOS weather motion;
+  `prefers-reduced-motion` disables it). The cell pitch `cell + gap` comes from the grid element's
+  `getBoundingClientRect()` (no padding or border on the grid) and computed gaps. Each
+  `pointermove` snaps the card's px position to the nearest cell, `round(px / pitch)`, and applies
+  `moveTo`; the result is the landing slot, shown dashed while dragging. An invalid candidate keeps
+  the last valid slot. The floating card may pass over placed widgets; only the slot is committed.
+  On release the card springs into the slot. Arrow-key moves animate the same way.
 - **Resize:** a handle in the bottom-right corner; `resizeTo` enforces `sizing.min/max`, grid bounds
   and occupied cells. Other corners and edges are out of scope.
 - **Keyboard:** the draft receives focus on start. Arrows move by one cell, Shift+arrows resize,
