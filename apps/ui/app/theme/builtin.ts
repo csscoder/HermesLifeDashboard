@@ -8,3 +8,12 @@ export const BUILTIN_THEMES: readonly ThemeMeta[] = [
   { id: 'builtin:obsidian', name: 'Обсидиан', mode: 'dark', skin: 'solid' },
   { id: 'builtin:paper', name: 'Бумага', mode: 'light', skin: 'paper' },
 ]
+
+const byId = new Map(BUILTIN_THEMES.map((theme) => [theme.id, theme]))
+
+export const BUILTIN_THEME_IDS: ReadonlySet<string> = new Set(byId.keys())
+
+/** Metadata for an id from resolveThemeId; any other id gets the default theme. */
+export function themeMeta(id: string): ThemeMeta {
+  return byId.get(id) ?? byId.get(DEFAULT_THEME_ID)!
+}
