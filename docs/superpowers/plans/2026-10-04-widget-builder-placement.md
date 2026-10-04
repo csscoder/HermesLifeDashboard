@@ -30,7 +30,7 @@
 
 1. **Header buttons.** While building, the header replaces «+» with «Готово» and «Отмена» (the spec says «+» is disabled and does not place the buttons). `WidgetBoard` exposes `confirm()` and `cancel()` through `defineExpose`.
 2. **Narrow window.** Below 1280 px the whole UI (header and board) is replaced by «Окно слишком узкое», following base design §7.4 («UI показывает сообщение»), so a usable «+» never sits next to a hidden board.
-3. **Two tabs.** `WidgetBoard` reloads the document on the `storage` event. «Готово» and «×» first re-read the stored document (when it loads without error) and apply the change to it; «Готово» then re-checks `isFree`, and a taken place shows «Место занято, переместите виджет». This synchronises sequential changes only: two tabs writing at the same moment are not atomic.
+3. **Two tabs.** `WidgetBoard` reloads the document on the `storage` event. «Готово» and «×» first re-read the stored document (when it loads without error) and apply the change to it; after a failed save neither the re-read nor the `storage` event replaces the in-memory document, so unsaved changes are never lost; «Готово» then re-checks `isFree`, and a taken place shows «Место занято, переместите виджет». This synchronises sequential changes only: two tabs writing at the same moment are not atomic.
 4. **Theme CSS registration.** `widget-theme.css` is registered through `css` in `nuxt.config.ts`.
 5. **Theme attribute.** `WidgetFrame` hardcodes `data-widget-theme="default"`; a theme prop arrives with theme selection.
 6. **Messages.** `WidgetBoard` emits `notice` (`string | null`); the header renders it in an always-present `role="status"` element.
@@ -826,6 +826,8 @@ const draft = ref<Rect | null>(null)
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
 let drag: { mode: 'move' | 'resize'; grabX: number; grabY: number } | null = null
+// True after a failed save: the in-memory document is then newer than storage and must not be replaced.
+let unsaved = false
 
 const placed = computed(() =>
   doc.value.layout.flatMap((placement) => {
@@ -850,7 +852,8 @@ function applyLoad(result: ReturnType<typeof loadBoard>) {
 }
 
 function persist() {
-  emit('notice', saveBoard(doc.value) ? null : 'Не удалось сохранить доску')
+  unsaved = !saveBoard(doc.value)
+  emit('notice', unsaved ? 'Не удалось сохранить доску' : null)
 }
 
 function start() {
@@ -876,7 +879,7 @@ function stop() {
 // Sequential changes only: simultaneous writes from two tabs are not atomic.
 function refresh() {
   const result = loadBoard()
-  if (!result.error) doc.value = result.doc
+  if (!unsaved && !result.error) doc.value = result.doc
 }
 
 function confirm() {
@@ -968,7 +971,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 function onStorage(event: StorageEvent) {
-  if (event.key === BOARD_STORAGE_KEY || event.key === null) applyLoad(loadBoard())
+  if (!unsaved && (event.key === BOARD_STORAGE_KEY || event.key === null)) applyLoad(loadBoard())
 }
 
 watch(building, (on) => {
@@ -1282,8 +1285,9 @@ Open `http://127.0.0.1:3000` at 1280×700, run `localStorage.removeItem('lifedas
 8. In the console: `localStorage.setItem('lifedashboard.board', '{')` and reload → empty board, console warning `Board document ignored: invalid JSON…`. Then set `{"schemaVersion":1,"instances":[{"id":"x","source":{"kind":"builtin","type":"toString"},"config":{}}],"layout":[{"instanceId":"x","x":0,"y":0,"w":3,"h":3}]}` and reload → a 3×3 frame showing «Неизвестный виджет».
 9. No page scroll at 1280×700 and 1920×1080; a 4×4 widget is square at both sizes, and its label and padding keep the same ratio to the widget (the root font size is 16 px and 19.2 px respectively).
 10. Narrow the window below 1280 px: the whole UI is replaced by «Окно слишком узкое»; widening restores it.
+11. Failed save keeps memory: in the console run `Storage.prototype.setItem = () => { throw new Error('quota') }`, then place two widgets one after another → both stay on the board and the header shows «Не удалось сохранить доску»; delete one → it disappears and the other stays. Reload to restore the real `setItem`.
 
-Expected: all ten pass. Fix any failure before committing.
+Expected: all eleven pass. Fix any failure before committing.
 
 - [ ] **Step 10: Commit**
 
@@ -1314,4 +1318,4 @@ Expected: only `"vitest": "5.0.3"` in `devDependencies` and the `"test": "vitest
 
 - [ ] **Step 3: Report**
 
-Report in the final message: commits, the outputs of Step 1, the ten manual results from Task 3 Step 9 (pass/fail each, with the viewport used), the deviations listed at the top of this plan, and the known limitation that test files are not covered by `nuxt typecheck`.
+Report in the final message: commits, the outputs of Step 1, the eleven manual results from Task 3 Step 9 (pass/fail each, with the viewport used), the deviations listed at the top of this plan, and the known limitation that test files are not covered by `nuxt typecheck`.
