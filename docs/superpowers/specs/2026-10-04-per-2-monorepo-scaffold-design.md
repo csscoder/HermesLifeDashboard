@@ -9,6 +9,14 @@
 A runnable, empty application skeleton that later E1 tasks (SQLite, auth, contracts) and E2 tasks
 (widget board) build on. TypeScript (strict) is the primary language for every package.
 
+## Relation to E0
+
+PER-2 is preparatory work that the product owner explicitly scheduled before E0 (2026-10-04),
+consistent with base design §19.3: E0 results are "not reasons to stop preparing the project".
+PER-2 contains nothing E0 can invalidate: no Hermes adapter, no SQLite driver, no packaging.
+It does not unlock any other E1 work: storage, auth, contracts and the remaining E1 tasks still
+start only after E0 acceptance.
+
 ## Decisions
 
 | Topic | Decision | Reason |
@@ -18,7 +26,7 @@ A runnable, empty application skeleton that later E1 tasks (SQLite, auth, contra
 | TypeScript | `typescript@6.0.3` in all packages | `typescript@7.0.2` breaks `vue-tsc@3.3.12` (`ERR_PACKAGE_PATH_NOT_EXPORTED`, verified 2026-10-04); 6.0.3 type-checks `.vue` correctly. Moving to TS 7 is a separate task once `vue-tsc` supports it |
 | API dev runner | `node --watch src/server.ts` via Node 24 native type stripping | No `tsx`/`ts-node` dependency |
 | API build | `tsc` to `dist/` with `rewriteRelativeImportExtensions` and `erasableSyntaxOnly` | Source imports use `.ts` extensions so the same files run in Node and compile with `tsc` |
-| Nuxt auto-imports | Disabled (`imports: { autoImport: false }`) | Explicit imports keep the §4.3 UI import boundary checkable and prepare for `component` widgets that may import only `vue` and the SDK |
+| Nuxt auto-imports | Disabled for composables/utils (`imports: { autoImport: false }`) and for project components (`components: false`, which Nuxt resolves to `{ dirs: [] }`); every Vue component and composable is imported explicitly | Explicit imports keep the §4.3 UI import boundary checkable and prepare for `component` widgets that may import only `vue` and the SDK |
 | UI build | `nuxt generate` (static SPA) | Base design §3.1: static frontend, no Nitro server in production |
 | Dev proxy | `nitro.devProxy` for `/api` and `/health` | Base design §3.1: UI reaches the API through the dev proxy |
 | UI libraries | `pixi.js@8.22.0`, `gsap@3.15.0`, `reka-ui@2.10.5` installed in `apps/ui` | Same versions as the `26_HermesPersonalOS` prototype; first usage comes with E2 tasks |
@@ -92,7 +100,11 @@ first real consumer.
 
 ### `apps/ui`
 
-- **`nuxt.config.ts`** — `ssr: false`, `imports: { autoImport: false }`,
+- **`nuxt.config.ts`** — first loads the repository-root `.env` with Node `process.loadEnvFile`
+  when the file exists, so the API and the proxy read the same file. Variables already present in
+  the process environment take precedence over the file (Node behavior, verified 2026-10-04), the
+  same precedence as the API's `--env-file-if-exists`. Then: `ssr: false`,
+  `imports: { autoImport: false }`, `components: false`,
   `devServer: { host: '127.0.0.1', port: 3000 }`, `typescript: { strict: true }`,
   `nitro.devProxy` mapping `/api` → `http://127.0.0.1:<port>/api` and
   `/health` → `http://127.0.0.1:<port>/health`, where `<port>` is `LIFEGAME_API_PORT` or `3001`.
@@ -132,6 +144,8 @@ listed in `onlyBuiltDependencies` in `pnpm-workspace.yaml`; nothing else is allo
 - **Manual verification (recorded in the task report):**
   - `pnpm install` on a clean checkout;
   - `pnpm dev`, then `curl http://127.0.0.1:3000/health` returns the API response through the proxy;
+  - with `LIFEGAME_API_PORT=4010` in the root `.env`, `pnpm dev` starts the API on 4010 and
+    `curl http://127.0.0.1:3000/health` still returns the API response;
   - the browser page shows «API: работает»; after stopping the API it shows «API: недоступен» on reload;
   - `pnpm typecheck`, `pnpm test`, `pnpm build` pass.
 
