@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "PER-2",
+    "name": "Monorepo scaffold — Nuxt UI + Fastify API (TypeScript)",
+    "slug": "per-2-monorepo-scaffold"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": null,
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "csscoder/feat-widget-builder-add",
+    "commit": "9c5615e10f7a13c68d8ebb7300290b3682e88312",
+    "headDescribe": "9c5615e",
+    "workingTree": "clean",
+    "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "contentStateSha256": "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456",
+    "treeStateSha256": "dc304774a0da81f5189afd897a1bb388730530e4564f848d47cc71790e1935f0",
+    "indexStateSha256": "079357f603c74e4105d785d32a2ad8812616932652c462d38d49dd4e2f82e83c",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-04-per-2-monorepo-scaffold-design.md",
+      "archivePath": "spec.md",
+      "sha256": "87a3010def7ef8aa7087912fa57c0312b1a9f5c206da879ef9198104bb1e0149",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-04-per-2-monorepo-scaffold.md",
+      "archivePath": "plan.md",
+      "sha256": "0df8af41ad6a795db129558f834fe3f29cb7414980d8bcdb029fe2e1b39f05ee",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "4af344c0b3adb102fd3c496a19d2b1e20b5caf879754679ce0acd4b8f9d3db8e"
+    }
+  },
+  "areas": [
+    "apps/api",
+    "apps/ui"
+  ],
+  "tags": [
+    "scaffold",
+    "nuxt",
+    "fastify",
+    "pnpm"
+  ],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "Both documents name Linear PER-2 and the plan links the spec path. Spec is marked 'approved design, 2026-10-04'; both were revised after Codex review (ce7ce67, 6a2b516) and last edited by dcf76d4 (LifeGame -> LifeDashboard rename applied to code and docs together), so the HEAD versions match the committed code. Implementation commits 7f082ba, dcf76d4, fc56d56, e471a19 are on main (HEAD e471a19); tracked files were compared with the plan's file contents. No test/build/manual-check logs, implementation review or task report are in the repo, and Linear PER-2 is in Backlog with 0 comments, so review and verification are not evidenced. No secrets found: .env is gitignored, .env.example holds only the port.",
+    "evidence": [
+      "git-implementation-commits",
+      "code-vs-plan-comparison",
+      "git-doc-history",
+      "linear-per-2"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "git-implementation-commits",
+      "kind": "session",
+      "reference": "Current session: git log / git show --stat for 7f082ba, dcf76d4, fc56d56, e471a19 on main (HEAD e471a19, 2026-10-04)",
+      "inspected": true,
+      "summary": "7f082ba adds workspace root files and apps/api (config, app, server, 2 test files, tsconfig.json + tsconfig.build.json). dcf76d4 renames LifeGame/LIFEGAME_API_PORT/@lifegame to LifeDashboard/LIFEDASHBOARD_API_PORT/@lifedashboard in code, spec, plan and base design. fc56d56 adds apps/ui (package.json, tsconfig.json, nuxt.config.ts, app/app.vue), README.md and lockfile. e471a19 adds /apps/ui/dist to .gitignore ('ignore generated Nuxt dist symlink').",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "code-vs-plan-comparison",
+      "kind": "session",
+      "reference": "Current session: read of tracked files at HEAD e471a19 compared with plan Task 1-2 file contents",
+      "inspected": true,
+      "summary": "config.ts, app.ts, server.ts, config.test.ts, apps/api/package.json, apps/ui/package.json, nuxt.config.ts, app.vue, root package.json and tsconfig.base.json match the plan's code (tsconfig/package JSON differ only in array/object formatting). pnpm-workspace.yaml has no onlyBuiltDependencies. .gitignore has an extra '/apps/ui/dist' line not in the plan.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "git-doc-history",
+      "kind": "session",
+      "reference": "Current session: git log -- docs/superpowers/ (f51cae4, ce7ce67, 7045f66, 6a2b516, dcf76d4)",
+      "inspected": true,
+      "summary": "Spec created f51cae4 and revised ce7ce67 'address Codex review (E0 relation, root .env, components)'. Plan created 7045f66 and revised 6a2b516 'address Codex review (port, timeout, telemetry)'. Only the commit subjects record these reviews; the review reports themselves are not in the repo.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "linear-per-2",
+      "kind": "session",
+      "reference": "Current session: orca linear issue PER-2 --comments (workspace f643af3d-0981-453b-9851-48f9aaa1abe6)",
+      "inspected": true,
+      "summary": "PER-2 'E1.1: Monorepo scaffold — Nuxt UI + Fastify API (TypeScript)', state Backlog, unassigned, 0 comments. No task report posted.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "git-implementation-commits",
+      "code-vs-plan-comparison"
+    ]
+  },
+  "review": {
+    "status": "missing",
+    "evidence": [
+      "git-doc-history"
+    ]
+  },
+  "verification": {
+    "status": "missing",
+    "evidence": [
+      "linear-per-2"
+    ],
+    "checks": [
+      {
+        "command": "pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build (plan Task 3 clean-clone acceptance)",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": []
+      },
+      {
+        "command": "Manual: pnpm dev, curl http://127.0.0.1:3000/health via proxy, browser shows API status, API-down/stalled, non-default port, no orphan listeners (plan Task 2 Steps 8-11)",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": []
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "pnpm workspace root: package.json (packageManager pnpm@10.30.2, engines node >=24, dev/build/typecheck/test fan-out scripts), pnpm-workspace.yaml (apps/*, saveExact), strict tsconfig.base.json, .gitignore, .env.example, .nvmrc.",
+        "evidence": [
+          "git-implementation-commits",
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "apps/api (@lifedashboard/api): Fastify 5.12.5 GET /health -> {status:'ok'}; loadConfig with fixed 127.0.0.1 host and validated LIFEDASHBOARD_API_PORT (default 3001); server entry with SIGINT/SIGTERM close and exit 1 on config/listen errors; Vitest tests for config and health; tsconfig.json (typecheck src+test) and tsconfig.build.json (emit src).",
+        "evidence": [
+          "git-implementation-commits",
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "apps/ui (@lifedashboard/ui): Nuxt 4.5.2 SPA (ssr:false, auto-imports and component auto-registration off, telemetry off, dev server 127.0.0.1:3000, nitro.devProxy for /api and /health reading the root .env); app.vue shows API health with a 5 s timeout; pixi.js, gsap, reka-ui installed at exact versions.",
+        "evidence": [
+          "git-implementation-commits",
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "README.md with requirements, setup, commands, configuration and layout.",
+        "evidence": [
+          "git-implementation-commits"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "TypeScript pinned to 6.0.3 in all packages: typescript@7.0.2 breaks vue-tsc@3.3.12 (ERR_PACKAGE_PATH_NOT_EXPORTED, checked 2026-10-04 per spec). Moving to TS 7 is a separate task.",
+        "evidence": [
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "pnpm only (no Turborepo/Nx): two packages need no build cache. API runs .ts directly via Node 24 type stripping (no tsx/ts-node) and builds with tsc using rewriteRelativeImportExtensions + erasableSyntaxOnly.",
+        "evidence": [
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "Nuxt auto-imports and component auto-registration disabled so the base-design §4.3 UI import boundary stays checkable; UI built with nuxt generate as a static SPA (no Nitro server in production).",
+        "evidence": [
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "One repository-root .env shared by API (--env-file-if-exists) and UI proxy (process.loadEnvFile); process environment wins over the file.",
+        "evidence": [
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "Product and env names changed from LifeGame/LIFEGAME_API_PORT/@lifegame/* to LifeDashboard/LIFEDASHBOARD_API_PORT/@lifedashboard/* mid-implementation; spec and plan were updated in the same commit, so the archived documents carry the new names. Rationale not recorded beyond the commit subject.",
+        "evidence": [
+          "git-implementation-commits"
+        ]
+      },
+      {
+        "text": "Plan-level deviations from the spec accepted after Codex plan review: separate apps/api/tsconfig.build.json so tests are type-checked; initial 'API: проверка…' label; telemetry:false (base design §13.5); 5 s /health timeout (base design §14.3).",
+        "evidence": [
+          "git-doc-history",
+          "code-vs-plan-comparison"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "recorded",
+      "evidence": [
+        "code-vs-plan-comparison",
+        "git-implementation-commits"
+      ],
+      "items": [
+        {
+          "change": "Added '/apps/ui/dist' to .gitignore (commit e471a19).",
+          "reason": "Commit subject: ignore generated Nuxt dist symlink.",
+          "effect": null,
+          "evidence": [
+            "git-implementation-commits"
+          ]
+        },
+        {
+          "change": "No onlyBuiltDependencies entry added to pnpm-workspace.yaml.",
+          "reason": null,
+          "effect": null,
+          "evidence": [
+            "code-vs-plan-comparison"
+          ]
+        }
+      ]
+    },
+    "excludedScope": [
+      {
+        "text": "Per spec: SQLite/Drizzle and migrations, auth/pairing, error envelope, packages/* (contracts, SDK), lint, Playwright e2e, production static serving from Fastify, CI, actual usage of pixi.js/gsap/reka-ui; no UI unit tests (@nuxt/test-utils would be a new dependency).",
+        "evidence": [
+          "code-vs-plan-comparison"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Move to TypeScript 7 once vue-tsc supports it (spec decision).",
+        "evidence": [
+          "code-vs-plan-comparison"
+        ]
+      },
+      {
+        "text": "Linear PER-2 still in Backlog with no task report; plan Task 3 report was not found.",
+        "evidence": [
+          "linear-per-2"
+        ]
+      }
+    ],
+    "risks": []
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "No implementation review, test/build logs or task report exist; implementation evidenced by commits only. User authorized incomplete-evidence archive on 2026-10-04.",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: review, verification, verification checks.",
+    "Completion date not recorded; completedAt remains null.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "7f880b1c6885af63bca914e355b1cf34e9befff1a842aa42f9b50576adf24912",
+  "archivedAt": "2026-10-04T07:48:26Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "38ab31ed5ed2b078cb397e836967910163a78141793608f512b55ca229560394"
+  }
+}
