@@ -40,6 +40,8 @@ describe('validateThemeCss', () => {
     ['an inset shadow', withToken(base, 'shadow-widget', 'inset 0 0 1rem oklch(0 0 0 / 0.5)'), 'value', /no inset/],
     ['a hex colour', withToken(base, 'text-primary', '#fff'), 'value', /--ld-text-primary: "#fff" must be an oklch\(\) literal/],
     ['an unquoted font family', withToken(base, 'font-ui', 'Inter, sans-serif'), 'value', /--ld-font-ui: .* quoted family names/],
+    ['a quoted font family containing a raw newline', withToken(base, 'font-ui', '"x\n} .app__header { display: none } .y { --a: "'), 'value', /--ld-font-ui: .* quoted family names/s],
+    ['a quoted font family containing <', withToken(base, 'font-ui', '"<\/style><x>"'), 'value', /--ld-font-ui: .* quoted family names/],
     ['weights out of order', withToken(base, 'weight-medium', '300'), 'value', /weight-regular < weight-medium < weight-strong/],
     ['a var() in surface-1-solid', withToken(base, 'surface-1-solid', 'var(--ld-surface-2)'), 'value', /surface-1-solid must be an oklch\(\) literal, not var\(\)/],
     [

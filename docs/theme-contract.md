@@ -36,7 +36,8 @@ Reference themes: `apps/ui/app/theme/styles/themes/*.css`.
   `accent`, `accent-hover`, `accent-active`, `accent-text`, `on-accent`, `focus-ring`, and for each
   status `<s>`, `<s>-text`, `on-<s>`. Only `surface-1` may be translucent.
 - `surface-1-solid` must be an `oklch()` literal (not `var()`).
-- **Font stacks:** quoted family names and generic families (`system-ui`, `ui-monospace`,
+- **Font stacks:** family names in double or single quotes containing only `[A-Za-z0-9 _-]+`
+  (ASCII letters, digits, spaces, underscores and hyphens), and generic families (`system-ui`, `ui-monospace`,
   `ui-serif`, `ui-rounded`, `sans-serif`, `serif`, `monospace`, …) only.
 
 ## Required tokens

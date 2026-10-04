@@ -74,9 +74,9 @@ function checkType(value: string, spec: TokenSpec, values: Map<string, string>):
         : 'a colour or a linear-/radial-gradient() of oklch()/var() stops'
     }
     case 'font':
-      return splitTopLevel(value).every((item) => /^"[^"\\]+"$|^'[^'\\]+'$/.test(item) || GENERIC_FONTS.has(item))
+      return splitTopLevel(value).every((item) => /^"[A-Za-z0-9 _-]+"$|^'[A-Za-z0-9 _-]+'$/.test(item) || GENERIC_FONTS.has(item))
         ? null
-        : 'quoted family names and generic families only'
+        : 'quoted family names containing only [A-Za-z0-9 _-] and generic families only'
     case 'easing': {
       if (EASINGS.has(value)) return null
       const args = /^cubic-bezier\(([^)]*)\)$/.exec(value)?.[1]?.split(',').map((arg) => arg.trim())

@@ -1,4 +1,7 @@
-/* Cascade order of the whole app (spec: CSS layers). This file must be the first CSS loaded. */
+/* Cascade order of the whole app (spec: CSS layers). This file must be the first CSS loaded.
+ * This depends on Nuxt's app entry importing #build/css (nuxt.config css, including this file)
+ * before #build/plugins, where @unocss/nuxt injects uno.css.
+ */
 @layer ld.reset, ld.frame, ld.skin, ld.theme, ld.utilities, ld.widget, ld.comfort;
 
 @import './frame.css';
