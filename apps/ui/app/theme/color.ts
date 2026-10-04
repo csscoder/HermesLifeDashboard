@@ -12,7 +12,7 @@ export interface Rgba {
   alpha: number
 }
 
-const NUMBER = String.raw`(-?\d*\.?\d+)(%?)`
+const NUMBER = String.raw`(-?(?:\d+(?:\.\d+)?|\.\d+))(%?)`
 const OKLCH = new RegExp(
   String.raw`^oklch\(\s*${NUMBER}\s+${NUMBER}\s+${NUMBER}(?:deg)?\s*(?:\/\s*${NUMBER}\s*)?\)$`,
   'i',
@@ -33,7 +33,7 @@ export function parseColor(value: string): Oklch | null {
   const alpha = m[7] === undefined ? 1 : part(7, 1)
   const h = Number(m[5])
   if (![l, c, h, alpha].every(Number.isFinite)) return null
-  if (m[6] === '%' || l < 0 || l > 1 || c < 0 || alpha < 0 || alpha > 1) return null
+  if (m[6] === '%' || l < 0 || l > 1 || c < 0 || c > 0.5 || alpha < 0 || alpha > 1) return null
   return { l, c, h, alpha }
 }
 

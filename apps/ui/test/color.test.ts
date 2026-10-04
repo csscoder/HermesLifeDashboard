@@ -8,6 +8,8 @@ describe('parseColor', () => {
     ['oklch(0.5 0.1 200)', { l: 0.5, c: 0.1, h: 200, alpha: 1 }],
     ['oklch(50% 0.1 200 / 0.5)', { l: 0.5, c: 0.1, h: 200, alpha: 0.5 }],
     ['oklch(0.5 0.1 200deg / 50%)', { l: 0.5, c: 0.1, h: 200, alpha: 0.5 }],
+    ['oklch(.5 .5 -200 / .5)', { l: 0.5, c: 0.5, h: -200, alpha: 0.5 }],
+    ['oklch(50% 125% 200)', { l: 0.5, c: 0.5, h: 200, alpha: 1 }],
     ['transparent', { l: 0, c: 0, h: 0, alpha: 0 }],
   ])('parses %s', (value, expected) => {
     expect(parseColor(value)).toEqual(expected)
@@ -19,6 +21,9 @@ describe('parseColor', () => {
     'oklch(1.2 0 0)',
     'oklch(0.5 0.1)',
     'oklch(0.5 0.1 200 / 2)',
+    'oklch(0.5 0.6 200)',
+    `oklch(0.5 ${'9'.repeat(200)} 200)`,
+    'oklch(0.5 0.1 200.)',
     'var(--x)',
     `oklch(0.5 ${'9'.repeat(400)} 200)`, // overflows to Infinity
     `oklch(0.5 0.1 ${'9'.repeat(400)})`,
@@ -28,6 +33,16 @@ describe('parseColor', () => {
       expect(parseColor(value)).toBeNull()
     },
   )
+
+  it('rejects long malformed numbers within 100 ms', () => {
+    const digits = '9'.repeat(400)
+    const value = `oklch(${digits} ${digits} ${digits}x)`
+    const start = performance.now()
+    const result = parseColor(value)
+    const elapsed = performance.now() - start
+    expect(result).toBeNull()
+    expect(elapsed).toBeLessThan(100)
+  })
 })
 
 describe('toRgba', () => {
