@@ -71,6 +71,12 @@ interface BoardDocument {
 
 `localStorage` key: `lifedashboard.board`. A missing key means an empty board.
 
+- `loadBoard(): { doc: BoardDocument; error?: string }` never throws. Any exception from
+  `localStorage` access or `getItem`, a `JSON.parse` failure or a parser error yields an empty
+  document plus an `error` text.
+- `saveBoard(doc: BoardDocument): boolean` never throws; it returns `false` when `localStorage`
+  access or `setItem` throws.
+
 ### `parseBoardDocument(raw: unknown)`
 
 The single validation point for every external input: `localStorage` now, file import later.
@@ -105,7 +111,7 @@ All paths are in `apps/ui/`.
 | --- | --- |
 | `app/widgets/grid.ts` | `GRID = { cols: 12, rows: 8 }`, `Rect { x, y, w, h }`, `Size { w, h }`; `isFree(rect, others)`: inside the grid and no overlap; `findFreeRect(size, others)`: first free position scanning rows top-down, columns left-right, else `null`; `moveTo(rect, x, y, others)` and `resizeTo(rect, w, h, sizing, others)`: return the new `Rect` or the unchanged one when the move is not allowed |
 | `app/widgets/catalog.ts` | `WidgetManifest`, `WidgetSizing { default, min, max }`, placeholder manifest (`type: 'placeholder'`, `title: 'Заглушка'`, `sizing: { default: 4×4, min: 1×1, max: 12×8 }`), `builtinWidgetCatalog`, `findManifest(type)` |
-| `app/widgets/board-document.ts` | Document types, `parseBoardDocument`, `loadBoard()`, `saveBoard(doc)` |
+| `app/widgets/board-document.ts` | Document types, `parseBoardDocument`, `loadBoard()`, `saveBoard(doc)` (never throw, see Data) |
 | `app/widgets/registry.ts` | `builtinWidgetRenderers: Record<string, () => Promise<Component>>` |
 | `app/widgets/WidgetHost.vue` | Wraps content in `WidgetFrame`; resolves the renderer from the registry; fallback «Неизвестный виджет» |
 | `app/widgets/WidgetFrame.vue` | Background, blur, radius, border, text colour, inner padding, `<slot>`; reads only theme tokens |
@@ -125,12 +131,21 @@ registry line, with no board changes.
 
 ## Layout
 
-- Fixed-height header; the board is centred below it.
-- Cells are square, sized by CSS only:
-  `--cell: min((100vw − 2·pad − 11·gap) / 12, (100dvh − header − 2·pad − 7·gap) / 8)`;
-  the board is `display: grid` with `grid-template: repeat(8, var(--cell)) / repeat(12, var(--cell))`.
-  A 4×4 widget is always square, the board fits the viewport without scrolling and scales
-  proportionally (§7.4). Sizes use `rem` tokens.
+One scale for everything, as in §7.4: every size (cells, gaps, paddings, header, typography, frame
+tokens) is a `rem` token, and only the root font size changes with the viewport.
+
+- Tokens (preliminary; §7.4 fixes the exact values after the E2 prototype): cell `4rem`, gap
+  `0.75rem`, header `3.5rem`, board padding `1rem`. Board height:
+  `3.5 + 2·1 + 8·4 + 7·0.75 = 42.75rem` (684 px at 16 px); board width `12·4 + 11·0.75 + 2·1 =
+  58.25rem` (932 px). Both fit the 1280×700 base viewport.
+- Root scale: `html { font-size: max(16px, min(100vw / 1600, 100dvh / 700) * 16px) }`. Up to
+  1600 px width the font size stays 16 px; above it grows proportionally, capped by the viewport
+  height so the board never exceeds the screen. Example: 1920×1080 → 19.2 px.
+- The board is `display: grid` with `grid-template: repeat(8, 4rem) / repeat(12, 4rem)` and
+  `gap: 0.75rem`, centred below a fixed-height header. A 4×4 widget is always square, and text,
+  paddings and cells keep their ratios at every resolution.
+- Viewport width below 1280 px: the board is replaced by the message «Окно слишком узкое» (§7.4).
+  Viewport height below 700 px is outside the base viewport; the page may scroll vertically.
 - A widget occupies `grid-column: x+1 / span w; grid-row: y+1 / span h`.
 
 ## Builder mode
@@ -142,7 +157,8 @@ registry line, with no board changes.
 - The draft renders through `WidgetHost`, so it looks exactly like the final widget.
 - **Move:** drag the draft body. `pointerdown` calls `setPointerCapture` and stores the grab offset
   in cells. Each `pointermove` converts the pointer to a cell,
-  `floor((px − boardLeft) / (cell + gap))`, builds a candidate and applies `moveTo`. The draft jumps
+  `floor((px − boardLeft) / (cell + gap))` (cell and gap in px, read from the board's computed
+  style), builds a candidate and applies `moveTo`. The draft jumps
   between cells only; an invalid candidate keeps the last valid position.
 - **Resize:** a handle in the bottom-right corner; `resizeTo` enforces `sizing.min/max`, grid bounds
   and occupied cells. Other corners and edges are out of scope.
@@ -163,7 +179,8 @@ is out of scope.
 | Condition | Behavior |
 | --- | --- |
 | `localStorage` value fails `JSON.parse` or `parseBoardDocument` | Empty board, `console.warn` with the error. The stored value is not erased on load; the first board change overwrites it (accepted trade-off) |
-| `saveBoard` throws (quota, storage disabled) | Header shows «Не удалось сохранить доску»; in-memory state stays |
+| `localStorage` access or `getItem` throws on load | Empty in-memory board; header shows «Хранилище недоступно»; the board stays usable for the session |
+| `saveBoard` returns `false` (quota, storage disabled) | Header shows «Не удалось сохранить доску»; in-memory state stays |
 | Unknown `source.type` | «Неизвестный виджет» inside the frame; the board keeps working |
 | No free cell even for `sizing.min` | «Нет свободного места»; builder mode does not start |
 
@@ -178,26 +195,34 @@ TDD (RED → GREEN → REFACTOR) for the pure modules.
 - **`test/board-document.test.ts`:** a valid document passes; errors for a non-object, a wrong
   `schemaVersion`, duplicate ids, a placement without an instance, an instance without a placement,
   out-of-bounds and non-integer coordinates, `w`/`h` below 1, overlapping placements; an unknown
-  `source.type` passes.
+  `source.type` passes. `loadBoard` returns an empty document with `error` when `localStorage`
+  access or `getItem` throws, and for invalid JSON; `saveBoard` returns `false` when `setItem`
+  throws (stubbed `localStorage`).
 - `pnpm --filter @lifedashboard/ui typecheck` and `pnpm test` pass.
 - **Manual browser check (recorded in the task report):** «+» shows the dot grid and a 4×4 draft;
   drag snaps to cells; resize respects min/max; the draft never enters occupied cells or leaves the
   board; keyboard move/resize/Enter/Esc work; «Готово» places a placeholder that survives reload;
   «×» deletes it and the deletion survives reload; a full board shows «Нет свободного места»;
   a board without room for 4×4 still starts with a 1×1 draft; a corrupted `localStorage` value gives an empty board and a console warning; the board has no
-  scroll at 1280×700 and 1920×1080.
+  scroll at 1280×700 and 1920×1080, and a 4×4 widget's text and padding keep the same ratio to
+  the widget at both sizes; a window narrower than 1280 px shows «Окно слишком узкое».
 
 Limitation: test files are run by vitest but not covered by `nuxt typecheck`.
 
 ## Acceptance criteria
 
-- «+» opens builder mode with a 12×8 dot grid and a draft of the placeholder's default size.
+- «+» opens builder mode with a 12×8 dot grid and a draft of the placeholder's `sizing.default`
+  size when it fits, otherwise `sizing.min`; when even `sizing.min` does not fit, the mode does not
+  open and «Нет свободного места» is shown.
+- The board fits 1280×700 and larger viewports without scrolling and scales through the root font
+  size only; below 1280 px width «Окно слишком узкое» is shown.
 - The draft moves and resizes cell by cell with the mouse and the keyboard, never overlapping placed
   widgets, leaving the grid, or breaking `sizing.min/max`.
 - «Готово» leaves a placeholder on the board; it survives reload until deleted with «×».
 - All widgets, including the draft, render through `WidgetHost` and `WidgetFrame` using the
   `default` theme tokens.
-- Stored data passes through `parseBoardDocument`; corrupted data does not break the page.
+- Stored data passes through `parseBoardDocument`; corrupted data or unavailable storage does not
+  break the page.
 - `pnpm typecheck` and `pnpm test` pass.
 
 ## Out of scope
