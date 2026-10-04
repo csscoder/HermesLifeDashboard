@@ -1,0 +1,10 @@
+import type { ThemeMeta } from './contract'
+
+export const DEFAULT_THEME_ID = 'builtin:glass'
+
+// The CSS of each theme is styles/themes/<name>.css; styles/layers.css imports it into ld.theme.
+export const BUILTIN_THEMES: readonly ThemeMeta[] = [
+  { id: 'builtin:glass', name: 'Стекло', mode: 'dark', skin: 'glass' },
+  { id: 'builtin:obsidian', name: 'Обсидиан', mode: 'dark', skin: 'solid' },
+  { id: 'builtin:paper', name: 'Бумага', mode: 'light', skin: 'paper' },
+]
