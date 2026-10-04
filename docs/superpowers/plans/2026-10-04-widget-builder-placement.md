@@ -28,18 +28,17 @@
 
 ## Deviations from the spec (for review)
 
-1. **`dragMove` / `dragResize` in `grid.ts`.** Pointer candidates are clamped to the grid and, if the full candidate is blocked, tried along one axis at a time. A fast diagonal drag then slides along obstacles and sticks to the board edge instead of freezing. Keyboard steps use `moveTo` / `resizeTo` exactly as specified.
-2. **Header buttons.** While building, the header replaces «+» with «Готово» and «Отмена» (the spec says «+» is disabled and does not place the buttons). `WidgetBoard` exposes `confirm()` and `cancel()` through `defineExpose`.
-3. **Narrow window.** Below 1280 px the whole UI (header and board) is replaced by «Окно слишком узкое», following base design §7.4 («UI показывает сообщение»), so a usable «+» never sits next to a hidden board.
-4. **Two tabs.** `WidgetBoard` reloads the document on the `storage` event, and «Готово» re-checks `isFree` against the current layout; a taken place shows «Место занято, переместите виджет».
-5. **Theme CSS registration.** `widget-theme.css` is registered through `css` in `nuxt.config.ts`.
-6. **Theme attribute.** `WidgetFrame` hardcodes `data-widget-theme="default"`; a theme prop arrives with theme selection.
-7. **Messages.** `WidgetBoard` emits `notice` (`string | null`); the header renders it in an always-present `role="status"` element.
+1. **Header buttons.** While building, the header replaces «+» with «Готово» and «Отмена» (the spec says «+» is disabled and does not place the buttons). `WidgetBoard` exposes `confirm()` and `cancel()` through `defineExpose`.
+2. **Narrow window.** Below 1280 px the whole UI (header and board) is replaced by «Окно слишком узкое», following base design §7.4 («UI показывает сообщение»), so a usable «+» never sits next to a hidden board.
+3. **Two tabs.** `WidgetBoard` reloads the document on the `storage` event. «Готово» and «×» first re-read the stored document (when it loads without error) and apply the change to it; «Готово» then re-checks `isFree`, and a taken place shows «Место занято, переместите виджет». This synchronises sequential changes only: two tabs writing at the same moment are not atomic.
+4. **Theme CSS registration.** `widget-theme.css` is registered through `css` in `nuxt.config.ts`.
+5. **Theme attribute.** `WidgetFrame` hardcodes `data-widget-theme="default"`; a theme prop arrives with theme selection.
+6. **Messages.** `WidgetBoard` emits `notice` (`string | null`); the header renders it in an always-present `role="status"` element.
 
 ## Review Focus
 
-1. Fast diagonal drag or pointer leaving the grid during drag/resize → the draft sticks to the edge and slides along obstacles instead of freezing (Task 1, `dragMove`/`dragResize` tests).
-2. A second tab changes the board → this tab reloads it; confirming a draft over a place taken meanwhile shows «Место занято, переместите виджет» instead of creating an overlap (Task 3, Step 9).
+1. Pointer leaving the grid or a blocked step during drag/resize → the draft keeps its last valid position, never leaves the grid or overlaps (Task 1, `moveTo`/`resizeTo` unchanged-rect tests; Task 3, Step 9).
+2. A second tab changes the board → this tab reloads it; confirming a draft over a place taken meanwhile shows «Место занято, переместите виджет», and neither «Готово» nor «×» drops the other tab's widget (Task 3, Step 9).
 3. Enter while «Отмена» has focus → cancels, never confirms; Enter on «Готово» confirms once (Task 3, Step 9).
 4. Stored document with extra fields or numbers as strings → extra fields are dropped, string numbers are rejected (Task 2 tests).
 5. A saved document loads back identical (the same document becomes the export format) (Task 2, round-trip test).
@@ -64,8 +63,6 @@
   - `findFreeRect(size: Size, others: readonly Rect[]): Rect | null`
   - `moveTo(rect: Rect, x: number, y: number, others: readonly Rect[]): Rect`
   - `resizeTo(rect: Rect, w: number, h: number, limits: SizeLimits, others: readonly Rect[]): Rect`
-  - `dragMove(rect: Rect, x: number, y: number, others: readonly Rect[]): Rect`
-  - `dragResize(rect: Rect, w: number, h: number, limits: SizeLimits, others: readonly Rect[]): Rect`
 
 - [ ] **Step 1: Install workspace dependencies**
 
@@ -96,8 +93,6 @@ Create `apps/ui/test/grid.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
 import {
-  dragMove,
-  dragResize,
   findFreeRect,
   isFree,
   moveTo,
@@ -190,37 +185,6 @@ describe('resizeTo', () => {
     expect(resizeTo(rect, 5, 4, limits, [block])).toBe(rect)
   })
 })
-
-describe('dragMove', () => {
-  it('clamps a target outside the grid to the edge', () => {
-    expect(dragMove({ x: 0, y: 0, w: 4, h: 4 }, -3, 10, [])).toEqual({ x: 0, y: 4, w: 4, h: 4 })
-  })
-
-  it('slides along an obstacle when the diagonal step is blocked', () => {
-    expect(dragMove({ x: 0, y: 4, w: 4, h: 4 }, 1, 3, [block])).toEqual({ x: 1, y: 4, w: 4, h: 4 })
-  })
-
-  it('stays in place when every option is blocked', () => {
-    const rect: Rect = { x: 0, y: 4, w: 4, h: 4 }
-    expect(dragMove(rect, 1, 4, [{ x: 4, y: 4, w: 4, h: 4 }])).toEqual(rect)
-  })
-})
-
-describe('dragResize', () => {
-  it('clamps to the grid and to min size', () => {
-    expect(dragResize({ x: 10, y: 7, w: 1, h: 1 }, 5, -2, limits, [])).toEqual({ x: 10, y: 7, w: 2, h: 1 })
-  })
-
-  it('clamps to max size', () => {
-    const small = { min: { w: 1, h: 1 }, max: { w: 3, h: 3 } }
-    expect(dragResize({ x: 0, y: 0, w: 1, h: 1 }, 6, 6, small, [])).toEqual({ x: 0, y: 0, w: 3, h: 3 })
-  })
-
-  it('grows along one axis when the diagonal is blocked', () => {
-    const obstacle: Rect = { x: 3, y: 6, w: 1, h: 2 }
-    expect(dragResize({ x: 0, y: 4, w: 2, h: 2 }, 4, 4, limits, [obstacle])).toEqual({ x: 0, y: 4, w: 4, h: 2 })
-  })
-})
 ```
 
 - [ ] **Step 4: Run the tests to verify they fail**
@@ -288,28 +252,6 @@ export function resizeTo(rect: Rect, w: number, h: number, limits: SizeLimits, o
   if (w < limits.min.w || w > limits.max.w || h < limits.min.h || h > limits.max.h) return rect
   const next = { ...rect, w, h }
   return isFree(next, others) ? next : rect
-}
-
-// Pointer steps: clamp to the grid, then try both axes, then each axis alone,
-// so a fast diagonal drag slides along obstacles instead of freezing.
-export function dragMove(rect: Rect, x: number, y: number, others: readonly Rect[]): Rect {
-  const cx = clamp(x, 0, GRID.cols - rect.w)
-  const cy = clamp(y, 0, GRID.rows - rect.h)
-  return firstFree([{ ...rect, x: cx, y: cy }, { ...rect, x: cx }, { ...rect, y: cy }], others) ?? rect
-}
-
-export function dragResize(rect: Rect, w: number, h: number, limits: SizeLimits, others: readonly Rect[]): Rect {
-  const cw = clamp(w, limits.min.w, Math.min(limits.max.w, GRID.cols - rect.x))
-  const ch = clamp(h, limits.min.h, Math.min(limits.max.h, GRID.rows - rect.y))
-  return firstFree([{ ...rect, w: cw, h: ch }, { ...rect, w: cw }, { ...rect, h: ch }], others) ?? rect
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
-function firstFree(candidates: Rect[], others: readonly Rect[]): Rect | undefined {
-  return candidates.find((candidate) => isFree(candidate, others))
 }
 ```
 
@@ -430,6 +372,7 @@ describe('parseBoardDocument', () => {
     ['a non-integer coordinate', mutated((d) => { d.layout[1].x = 1.5 }), /inside the 12x8 grid/],
     ['a string coordinate', mutated((d) => { d.layout[1].x = '4' }), /inside the 12x8 grid/],
     ['a zero width', mutated((d) => { d.layout[1].w = 0 }), /inside the 12x8 grid/],
+    ['a zero height', mutated((d) => { d.layout[1].h = 0 }), /inside the 12x8 grid/],
     ['overlapping placements', mutated((d) => { d.layout[1] = { instanceId: 'b', x: 2, y: 2, w: 2, h: 2 } }), /overlaps/],
   ])('rejects %s', (_name, raw, message) => {
     const result = parseBoardDocument(raw)
@@ -699,7 +642,7 @@ git commit -m "feat(ui): add widget catalog and versioned board document"
 
 **Interfaces:**
 - Consumes:
-  - Task 1: `GRID`, `Rect`, `Size`, `isFree`, `findFreeRect`, `moveTo`, `resizeTo`, `dragMove`, `dragResize` from `../widgets/grid`.
+  - Task 1: `GRID`, `Rect`, `Size`, `isFree`, `findFreeRect`, `moveTo`, `resizeTo` from `../widgets/grid`.
   - Task 2: `placeholderManifest` from `../widgets/catalog`; `BOARD_STORAGE_KEY`, `BoardDocument`, `WidgetSource`, `emptyBoard`, `loadBoard`, `saveBoard` from `../widgets/board-document`.
 - Produces:
   - Renderer contract: a widget renderer receives the prop `size: Size`.
@@ -856,7 +799,7 @@ import {
   type WidgetSource,
 } from '../widgets/board-document'
 import { placeholderManifest } from '../widgets/catalog'
-import { GRID, dragMove, dragResize, findFreeRect, isFree, moveTo, resizeTo, type Rect } from '../widgets/grid'
+import { GRID, findFreeRect, isFree, moveTo, resizeTo, type Rect } from '../widgets/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
 
 const building = defineModel<boolean>('building', { required: true })
@@ -929,9 +872,17 @@ function stop() {
   building.value = false
 }
 
+// Applies changes to the latest stored document so another tab's saved widgets are kept.
+// Sequential changes only: simultaneous writes from two tabs are not atomic.
+function refresh() {
+  const result = loadBoard()
+  if (!result.error) doc.value = result.doc
+}
+
 function confirm() {
   const rect = draft.value
   if (!rect) return
+  refresh()
   // Another tab may have taken the place since the draft was positioned.
   if (!isFree(rect, doc.value.layout)) {
     emit('notice', 'Место занято, переместите виджет')
@@ -948,6 +899,7 @@ function confirm() {
 }
 
 function remove(id: string) {
+  refresh()
   doc.value = {
     schemaVersion: 1,
     instances: doc.value.instances.filter((item) => item.id !== id),
@@ -987,8 +939,8 @@ function onPointerMove(event: PointerEvent) {
   if (!drag || !rect || !cell) return
   draft.value =
     drag.mode === 'move'
-      ? dragMove(rect, cell.x - drag.grabX, cell.y - drag.grabY, doc.value.layout)
-      : dragResize(rect, cell.x - rect.x + 1, cell.y - rect.y + 1, sizing, doc.value.layout)
+      ? moveTo(rect, cell.x - drag.grabX, cell.y - drag.grabY, doc.value.layout)
+      : resizeTo(rect, cell.x - rect.x + 1, cell.y - rect.y + 1, sizing, doc.value.layout)
 }
 
 function onPointerUp() {
@@ -1321,12 +1273,12 @@ Expected: UI on `http://127.0.0.1:3000`, API on `127.0.0.1:3001`; the page shows
 Open `http://127.0.0.1:3000` at 1280×700, run `localStorage.removeItem('lifedashboard.board')` in the console and reload. Check and record each result:
 
 1. «+» shows 96 dots and a 4×4 draft at the top-left; the draft has focus; the header shows «Готово» and «Отмена».
-2. Dragging the draft body moves it cell by cell; dragging far outside the board keeps it at the edge; a fast diagonal drag past a placed widget slides along it.
+2. Dragging the draft body moves it cell by cell; with the pointer outside the board or over a placed widget the draft stays at its last valid position and never overlaps.
 3. The bottom-right handle resizes cell by cell, never below 1×1, never into a placed widget or past the board edge.
 4. Arrows move the draft, Shift+arrows resize it; Esc cancels; Enter confirms. Tab to «Отмена» and press Enter: the draft is discarded and nothing is placed. Tab to «Готово» and press Enter: exactly one widget is placed.
 5. «Готово» leaves a placeholder labelled with its size; reload keeps it; «×» (visible on hover and on Tab focus) deletes it, and reload keeps the deletion.
 6. Fill the board until no 4×4 fits but a 1×1 does: «+» starts a 1×1 draft. Fill the board completely: «+» shows «Нет свободного места» and no draft appears.
-7. Two tabs: start a draft in tab A; in tab B place a widget on the same spot; in tab A the placed widget appears; «Готово» in tab A shows «Место занято, переместите виджет» and places nothing until the draft is moved.
+7. Two tabs: start a draft in tab A; in tab B place a widget on the same spot; in tab A the placed widget appears; «Готово» in tab A shows «Место занято, переместите виджет» and places nothing until the draft is moved. Then place a widget in tab B and, before switching, delete another widget in tab A: tab B's new widget survives in both tabs.
 8. In the console: `localStorage.setItem('lifedashboard.board', '{')` and reload → empty board, console warning `Board document ignored: invalid JSON…`. Then set `{"schemaVersion":1,"instances":[{"id":"x","source":{"kind":"builtin","type":"toString"},"config":{}}],"layout":[{"instanceId":"x","x":0,"y":0,"w":3,"h":3}]}` and reload → a 3×3 frame showing «Неизвестный виджет».
 9. No page scroll at 1280×700 and 1920×1080; a 4×4 widget is square at both sizes, and its label and padding keep the same ratio to the widget (the root font size is 16 px and 19.2 px respectively).
 10. Narrow the window below 1280 px: the whole UI is replaced by «Окно слишком узкое»; widening restores it.
