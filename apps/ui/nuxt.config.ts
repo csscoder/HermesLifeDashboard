@@ -13,6 +13,7 @@ export default defineNuxtConfig({
   ssr: false,
   imports: { autoImport: false },
   components: false,
+  css: ['~/widgets/widget-theme.css'],
   telemetry: false,
   devServer: { host: '127.0.0.1', port: 3000 },
   typescript: { strict: true },
