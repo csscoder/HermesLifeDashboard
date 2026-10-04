@@ -10,6 +10,9 @@ const apiOrigin = `http://127.0.0.1:${process.env.LIFEDASHBOARD_API_PORT || '300
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-10-04',
+  modules: ['@unocss/nuxt'],
+  // wind3 is the module default and would bring the palette back; uno.config.ts defines the presets.
+  unocss: { wind3: false, components: false, configFile: fileURLToPath(new URL('./uno.config.ts', import.meta.url)) },
   ssr: false,
   imports: { autoImport: false },
   components: false,

@@ -13,17 +13,6 @@ const renderer = computed(() => builtinWidgetRenderers.get(props.source.type))
 <template>
   <WidgetFrame :theme-id="themeId">
     <component :is="renderer" v-if="renderer" :size="size" />
-    <div v-else class="widget-host__unknown">Неизвестный виджет</div>
+    <div v-else class="grid place-items-center h-full text-center text-sm text-muted">Неизвестный виджет</div>
   </WidgetFrame>
 </template>
-
-<style scoped>
-.widget-host__unknown {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  font-size: 0.875rem;
-  opacity: 0.7;
-  text-align: center;
-}
-</style>
