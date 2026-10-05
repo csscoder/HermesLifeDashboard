@@ -14,8 +14,8 @@ rooms and screens, so steps 2 and 3 add UI and routes, not a storage redesign.
 Success:
 
 - a clean start creates the database with one room «Главная» and one screen;
-- a browser pairs once with the terminal code and stays signed in while it is used at least once
-  in 30 days;
+- a browser pairs once with the terminal code and stays signed in while the gap between two uses
+  never exceeds 29 days (sliding 30-day expiry renewed at most once a day, see Security);
 - added, moved and deleted widgets survive an API restart and a browser reload;
 - a request without a session gets `401`; a request with a foreign `Origin` or `Host` gets `403`;
 - two tabs never silently overwrite each other: the stale save gets `409` and a notice.
@@ -59,7 +59,7 @@ Assumptions accepted by the user:
 | Write API | One `PUT /api/v1/rooms/:roomId/board` replaces the room's widgets | Build and edit are already batch replacements guarded by a snapshot; this maps them 1:1 |
 | Shared code | New workspace package `packages/contracts` | API and UI validate the board with the same code (§4.1) |
 | Auth | Pairing code → HttpOnly session cookie, sessions in SQLite | §13.1; sessions survive API restarts |
-| Session expiry | Sliding 30 days, renewed at most once a day | No re-pairing while the dashboard is used; at most one session write per day |
+| Session expiry | Sliding 30 days, renewed at most once a day | No re-pairing while the dashboard is used at least once in 29 days; at most one session write per day |
 | CSRF | No CSRF token; `SameSite=Strict` + required allowlisted `Origin` + required `Content-Type: application/json` | See deviations |
 | Cookies and rate limits | Hand-written cookie parsing and in-memory counters | A few lines each; no `@fastify/cookie` or `@fastify/rate-limit` |
 | `localStorage` board | Not read anymore; no import | It holds only placeholder widgets |
@@ -114,6 +114,7 @@ CREATE TABLE widgets (
   source_kind TEXT NOT NULL,
   source_type TEXT NOT NULL,
   config TEXT NOT NULL,
+  config_version INTEGER NOT NULL,
   x INTEGER NOT NULL,
   y INTEGER NOT NULL,
   w INTEGER NOT NULL,
@@ -130,7 +131,11 @@ CREATE TABLE sessions (
 ```
 
 - Ids are UUIDs (DATA-01); timestamps are UTC ISO 8601 strings (DATA-02).
-- `config` is a JSON object serialized as text.
+- `config` is a JSON object serialized as text; `config_version` is its schema version (§12.2),
+  `1` for every widget type in this step. Conversions between versions arrive with the first
+  widget type that changes its config; until then the API stores and returns the value unchanged.
+- Versions are separate by purpose: `PRAGMA user_version` versions the storage schema, the
+  `/api/v1` prefix versions the HTTP contract, `config_version` versions each widget's config.
 - `sessions.token_hash` is the hex SHA-256 of the session token; the token itself is never stored.
 - Migration 1 also seeds one room (`title = 'Главная'`, `position = 0`, `revision = 1`) with one
   screen (`position = 0`).
@@ -176,8 +181,9 @@ interface RoomBoard {
 `parseScreenBoard(raw: unknown)` keeps the checks of today's `parseBoardDocument`: object shape,
 non-empty unique instance ids, `builtin` source with a non-empty type, object config, every
 placement refers to a known instance exactly once, integer rect inside the grid, no overlap, every
-instance placed. It drops `schemaVersion`, which moves to the API version (`/api/v1`). Instance
-ids must also be UUIDs.
+instance placed. It drops the document-level `schemaVersion`: the board is no longer stored as one
+JSON document. `WidgetInstance` gains `configVersion: number` (positive integer, required).
+Instance ids must also be UUIDs.
 
 ## API
 
@@ -242,6 +248,11 @@ token and looks the session up. A missing or expired session returns `401`; an e
 deleted. When `expires_at < now + 29 days`, the hook sets `expires_at = now + 30 days` and
 re-sends the cookie with a fresh `Max-Age`. There is no absolute session limit.
 
+A session therefore expires 30 days after its last renewal, not after its last request: a request
+made less than a day after a renewal does not move `expires_at`. The guaranteed idle gap is 29
+days; it is up to 30 days depending on the time of the last renewal. Renewing on every request
+would make it exactly 30 days at the cost of a write per request.
+
 ### Request checks
 
 The same hook runs before the session check, for all `/api` requests:
@@ -276,7 +287,7 @@ Invalid values stop the API on start with a message naming the variable, like th
 | `apps/api/src/rooms.ts` (new) | Room list and board routes |
 | `apps/api/src/app.ts` | `buildApp({ db, config, logger })` wires the modules; tests pass an in-memory database |
 | `apps/api/src/server.ts` | Opens the database before `buildApp` |
-| `apps/ui/app/api.ts` (new) | `fetch` wrapper: envelopes, typed failures `unauthorized`, `conflict`, `unavailable`, `invalid` |
+| `apps/ui/app/api.ts` (new) | `fetch` wrapper: envelopes, typed failures `unauthorized`, `conflict`, `unavailable`, `invalid`; 5000 ms timeout per request |
 | `apps/ui/app/PairingForm.vue` (new) | Code input, «Войти», «Новый код» |
 | `apps/ui/app/app.vue` | States `checking → pairing → ready \| unavailable` |
 | `apps/ui/app/board/WidgetBoard.vue` | Load and save through `api.ts` |
@@ -301,21 +312,32 @@ builds with `tsc`. Importing `.ts` sources from the workspace package must work 
   `checking`. «Новый код» calls `pair-code` and says «Новый код выведен в терминал API». `429`
   shows «Подождите несколько секунд».
 - `ready`: the board of the first room is shown.
-- `unavailable`: network error or `5xx`. The header shows «API: недоступен», the board shows an
-  error with «Повторить»; «+» and «Изменить» are disabled.
+- `unavailable`: a load request (`GET`) failed with a network error, timeout or `5xx`. The header
+  shows «API: недоступен», the board shows an error with «Повторить»; «+» and «Изменить» are
+  disabled. «Повторить» returns to `checking`.
 
-A `401` from any later request switches to `pairing`.
+A `401` from any later request switches to `pairing`; an unsaved working copy is discarded.
+
+Every request in `api.ts` uses `AbortSignal.timeout(5000)`, which also covers reading the body,
+like today's `/health` check. A timeout is an `unavailable` failure.
+
+The UI notices that the API stopped only on its next request: start, «Повторить», a
+`visibilitychange` reload or «Готово». There is no polling.
 
 ### Board (`WidgetBoard.vue`)
 
 - Load: `GET /rooms/:roomId/board`; the board edits `screens[0]`.
 - «Готово» in build and edit modes sends `PUT` with the loaded `revision` and the working copy.
-  While the request runs the header buttons are disabled.
+  While the request runs, a `saving` flag disables the header buttons, makes the board `inert`
+  (no pointer or focus interaction) and makes the keydown handler ignore every key, so the working
+  copy cannot change before the response arrives.
   - `200`: the response becomes the document; the mode ends.
   - `409`: reload the board, end the mode, show «Доска изменена в другой вкладке».
   - `400`: keep the mode and the working copy, show «Не удалось сохранить: данные отклонены»;
     the API log has the details.
-  - network or `5xx`: keep the mode and the working copy, show «Не удалось сохранить, повторите».
+  - network error, timeout or `5xx`: keep the mode and the working copy, show «Не удалось
+    сохранить, повторите» and «API: недоступен» in the header. The user can press «Готово» again
+    or «Отмена»; the app does not switch to the `unavailable` state while a mode is active.
   The UI never shows an unsaved change as saved (DATA-05).
 - Build mode no longer checks free space against a fresh read before saving; the server decides
   through the revision.
@@ -338,15 +360,19 @@ TDD with Vitest: a failing test precedes each behaviour change.
     expired code and a code burnt by five wrong attempts fail; `pair-code` is rate limited and
     invalidates the previous code; no cookie gives `401`; foreign `Host` or `Origin` gives `403`;
     a mutation without `Origin` or with a non-JSON content type gives `403`; renewal happens after
-    a day and not before; an expired session gives `401`;
+    a day and not before; an expired session gives `401`; boundary: after pairing at `t` and a request
+    at `t + 12 h` (no renewal), a request at `t + 29 d 23 h` succeeds and renews, while in a
+    separate run a request at `t + 30 d 1 h` gives `401`;
   - `rooms`: the seed board is returned; `PUT` with the current revision saves and increments it;
     a stale revision gives `409` and changes nothing; overlap, out-of-grid rect, duplicate id and a
     mismatched screen set give `400` and change nothing; an unknown room gives `404`;
   - `config`: `dataDir` and `uiOrigins` defaults and invalid values.
 - `apps/ui`: `api.ts` with a stubbed `fetch` maps envelopes and `401`, `409`, `400`, network
-  errors; `edit-session.test.ts` follows the `confirmOutcome` change.
+  errors, and a response whose headers or body never arrive to `unavailable` after the timeout;
+  `edit-session.test.ts` follows the `confirmOutcome` change.
 - Manual check in Orca's built-in browser with `pnpm dev`: pairing, add/move/delete surviving an
-  API restart and reload, `409` notice with two tabs, API stopped.
+  API restart and reload, `409` notice with two tabs, API stopped before load and during «Готово», keys and pointer
+  ignored while a save is pending (throttled network).
 
 ## Acceptance criteria
 
@@ -358,10 +384,12 @@ TDD with Vitest: a failing test precedes each behaviour change.
 4. A request without a session returns `401`; with a foreign `Origin` or `Host`, `403`.
 5. Saving from a tab with a stale revision shows «Доска изменена в другой вкладке» and loses no
    data of the other tab.
-6. With the API stopped the UI shows «API: недоступен» and disables «+» and «Изменить».
-7. A database with a newer schema stops the API with a clear error and stays unchanged.
-8. `pnpm typecheck`, `pnpm test` and `pnpm build` pass.
-9. README and `.env.example` describe the new variables and pairing.
+6. With the API stopped, the next request makes the UI show «API: недоступен»: a failed load
+   disables «+» and «Изменить»; a failed «Готово» keeps the mode and the working copy for a retry.
+7. While a save is pending, keyboard and pointer input does not change the board.
+8. A database with a newer schema stops the API with a clear error and stays unchanged.
+9. `pnpm typecheck`, `pnpm test` and `pnpm build` pass.
+10. README and `.env.example` describe the new variables and pairing.
 
 ## Out of scope
 
