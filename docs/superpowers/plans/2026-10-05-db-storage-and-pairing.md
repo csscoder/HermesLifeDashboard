@@ -27,10 +27,11 @@
 ## Review Focus
 
 1. **API restart with a paired browser** — the session must survive a restart because it lives in SQLite. Pinned in Task 5 (`session survives a rebuilt app on the same database`).
-2. **Pairing code with leading zeros or surrounding spaces** — `randomInt` can produce `000123`; the user may paste ` 000123 `. Pinned in Task 5 (code format check, trimmed code accepted).
-3. **Saved board reads back in the sent order with nested config intact** — the UI compares its working copy with the loaded document by JSON; a reordered or re-serialized response would break «unchanged» detection. Pinned in Task 6 (`PUT round-trips order and nested config`).
+2. **Pairing code with leading zeros or surrounding spaces** — `randomInt` can produce `000123`; the user may paste ` 000123 `. Pinned in Task 5 (`randomInt` mocked to `123`: the code is `000123` and ` 000123 ` is accepted).
+3. **Saved board reads back with nested config intact, `instances` in the sent order and `layout` in instance order** — the UI compares its working copy with the loaded document by JSON. The UI never orders `layout` differently from `instances` (`setPlacement` maps in place, `removeInstance` filters both, a new widget is appended to both), and the working copy always starts from the server's response. Pinned in Task 6 (`round-trips order and nested config`, `returns the layout in instance order`).
 4. **Malformed JSON body on PUT** — must be a `400 VALIDATION_ERROR` envelope, not a `500` or a bare Fastify error. Pinned in Task 6.
 5. **Widget id already used by another room** — must be `400` and leave both rooms unchanged, not a `500` from the primary key. Pinned in Task 6.
+6. **A background reload finishing after a mode was opened** — it must not replace the snapshot the working copy came from, or a save would carry a newer revision with older content and overwrite another tab (DATA-06). Pinned in Task 8 (`room-sync`: a late load is ignored and the save keeps the old revision).
 
 ---
 
@@ -53,6 +54,7 @@
 | `apps/api/test/helpers.ts` | 5 | Test app and request helpers |
 | `README.md`, `.env.example` | 6 | Variables and pairing |
 | `apps/ui/app/api.ts` | 7 | `fetch` wrapper |
+| `apps/ui/app/board/room-sync.ts` | 8 | First room lookup, board load and save outcomes, ignoring late loads |
 | `apps/ui/app/PairingForm.vue`, `app.vue` | 8, 9 | App states and pairing |
 | `apps/ui/app/board/edit-session.ts`, `WidgetBoard.vue` | 9 | Board on the API |
 | `apps/ui/app/widgets/board-document.ts` | 9 | Deleted |
@@ -726,11 +728,19 @@ describe('openDatabase', () => {
     saved.close()
   })
 
-  it('rolls back a failing migration and keeps the previous version', async () => {
+  it('rolls back a failing migration whole and keeps the previous version', async () => {
     ;(await openDatabase(file, [MIGRATIONS[0]!])).close()
-    await expect(openDatabase(file, [MIGRATIONS[0]!, 'CREATE TABLE broken (;'])).rejects.toThrow()
+    // The first two statements succeed; the third fails, so all three must be undone.
+    const failing = `
+      CREATE TABLE half (id INTEGER);
+      UPDATE rooms SET title = 'changed';
+      CREATE TABLE broken (;
+    `
+    await expect(openDatabase(file, [MIGRATIONS[0]!, failing])).rejects.toThrow()
     const check = new DatabaseSync(file)
     expect(userVersion(check)).toBe(1)
+    expect(tables(check)).not.toContain('half')
+    expect(check.prepare('SELECT title FROM rooms').all()).toEqual([{ title: 'Главная' }])
     check.close()
   })
 })
@@ -895,12 +905,16 @@ import { ApiError, newRequestId, ok, registerErrorHandling } from '../src/errors
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-async function appWithRoutes() {
-  const app = Fastify({ genReqId: newRequestId })
+async function appWithRoutes(log?: string[]) {
+  const logger = log ? { level: 'warn', stream: { write: (line: string) => log.push(line) } } : false
+  const app = Fastify({ genReqId: newRequestId, logger })
   registerErrorHandling(app)
   app.get('/ok', async (request) => ok(request, { a: 1 }))
   app.get('/conflict', async () => {
     throw new ApiError('REVISION_CONFLICT', 'changed')
+  })
+  app.get('/invalid', async () => {
+    throw new ApiError('VALIDATION_ERROR', 'Widgets overlap')
   })
   app.get('/boom', async () => {
     throw new Error('secret detail')
@@ -948,6 +962,20 @@ describe('error handling', () => {
     const response = await app.inject({ method: 'POST', url: '/echo', payload, headers: { 'content-type': contentType } })
     expect(response.statusCode).toBe(400)
     expect(response.json().error.code).toBe('VALIDATION_ERROR')
+    await app.close()
+  })
+
+  it('logs the reason of a VALIDATION_ERROR with its request id, without the body', async () => {
+    const log: string[] = []
+    const app = await appWithRoutes(log)
+    const invalid = await app.inject({ url: '/invalid' })
+    await app.inject({ method: 'POST', url: '/echo', payload: '{"n":"secret-value"}', headers: { 'content-type': 'application/json' } })
+    const entries = log.map((line) => JSON.parse(line))
+    expect(entries).toContainEqual(
+      expect.objectContaining({ code: 'VALIDATION_ERROR', reason: 'Widgets overlap', reqId: invalid.json().error.requestId }),
+    )
+    expect(entries.filter((entry) => entry.code === 'VALIDATION_ERROR')).toHaveLength(2)
+    expect(log.join('')).not.toContain('secret-value')
     await app.close()
   })
 
@@ -1015,16 +1043,24 @@ function statusOf(error: unknown): number | undefined {
     : undefined
 }
 
+// The UI shows a generic text for a rejected save; the reason is in the API log (spec «UI flow»).
+// Only the message is logged: never the body, cookies or a pairing code.
+function logRejection(request: FastifyRequest, reason: string): void {
+  request.log.warn({ code: 'VALIDATION_ERROR', reason }, 'request rejected')
+}
+
 // Base design §11.1: one envelope for every error, no stack traces or internal details.
 export function registerErrorHandling(app: FastifyInstance): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
+      if (error.code === 'VALIDATION_ERROR') logRejection(request, error.message)
       return reply.status(STATUS[error.code]).send(envelope(error.code, error.message, request.id))
     }
     const status = statusOf(error)
     // Fastify's own client errors: malformed JSON, schema validation, body too large.
     if (status !== undefined && status >= 400 && status < 500) {
       const message = error instanceof Error ? error.message : 'Invalid request'
+      logRejection(request, message)
       return reply.status(400).send(envelope('VALIDATION_ERROR', message, request.id))
     }
     request.log.error(error)
@@ -1191,8 +1227,15 @@ export function errorCode(response: LightMyRequestResponse): string {
 
 ```ts
 import { createHash } from 'node:crypto'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DAY, HOUR, ORIGIN, T0, call, errorCode, pair, sessionCookie, testApp, type TestApp } from './helpers.ts'
+
+// Queued values make pairing codes deterministic; an empty queue uses the real generator.
+const nextCodes = vi.hoisted(() => [] as number[])
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>()
+  return { ...actual, randomInt: (min: number, max: number) => nextCodes.shift() ?? actual.randomInt(min, max) }
+})
 
 // Any authenticated /api path: unknown routes answer 404 after the session check, 401 before it.
 const PROBE = '/api/v1/probe'
@@ -1207,6 +1250,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await t.close()
+  nextCodes.length = 0
 })
 
 function storedExpiry(cookie: string): string {
@@ -1275,9 +1319,13 @@ describe('pairing', () => {
     expect((await call(t.app, { url: PROBE, cookie })).statusCode).toBe(404)
   })
 
-  it('accepts the code with surrounding spaces', async () => {
-    const response = await call(t.app, { method: 'POST', url: PAIR, payload: { code: ` ${t.codes[0]} ` } })
+  it('keeps leading zeros and accepts the code with surrounding spaces', async () => {
+    nextCodes.push(123)
+    const fresh = await testApp()
+    expect(fresh.codes).toEqual(['000123'])
+    const response = await call(fresh.app, { method: 'POST', url: PAIR, payload: { code: ' 000123 ' } })
     expect(response.statusCode).toBe(200)
+    await fresh.close()
   })
 
   it('accepts a code only once', async () => {
@@ -1301,10 +1349,11 @@ describe('pairing', () => {
   })
 
   it('issues a new code that replaces the old one, at most once per 10 seconds', async () => {
+    nextCodes.push(111111, 222222)
     const first = await call(t.app, { method: 'POST', url: PAIR_CODE, payload: {} })
     expect(first.statusCode).toBe(200)
-    expect(first.body).not.toContain(t.codes[1]!)
-    expect(t.codes).toHaveLength(2)
+    expect(first.body).not.toContain('111111')
+    expect(t.codes.slice(1)).toEqual(['111111'])
 
     const tooSoon = await call(t.app, { method: 'POST', url: PAIR_CODE, payload: {} })
     expect(tooSoon.statusCode).toBe(429)
@@ -1312,11 +1361,10 @@ describe('pairing', () => {
 
     t.clock.now += 10_000
     expect((await call(t.app, { method: 'POST', url: PAIR_CODE, payload: {} })).statusCode).toBe(200)
-    expect(t.codes).toHaveLength(3)
+    expect(t.codes.slice(1)).toEqual(['111111', '222222'])
 
-    // ponytail: two random codes collide with probability 1e-6; the test accepts that flake rate.
-    expect((await call(t.app, { method: 'POST', url: PAIR, payload: { code: t.codes[1] } })).statusCode).toBe(401)
-    expect((await call(t.app, { method: 'POST', url: PAIR, payload: { code: t.codes[2] } })).statusCode).toBe(200)
+    expect((await call(t.app, { method: 'POST', url: PAIR, payload: { code: '111111' } })).statusCode).toBe(401)
+    expect((await call(t.app, { method: 'POST', url: PAIR, payload: { code: '222222' } })).statusCode).toBe(200)
   })
 })
 
@@ -1692,8 +1740,10 @@ const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
 const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
+const EMPTY_SCREEN = { id: SEED_SCREEN_ID, instances: [], layout: [] }
 
 // B is listed before A on purpose: the saved order must read back unchanged.
+// The layout follows the instance order, as every board the UI produces does.
 const screen: ScreenBoard = {
   id: SEED_SCREEN_ID,
   instances: [
@@ -1762,6 +1812,13 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
     expect(await getBoard()).toEqual(saved)
   })
 
+  it('returns the layout in instance order', async () => {
+    const swapped = { ...screen, layout: [screen.layout[1]!, screen.layout[0]!] }
+    const response = await put({ expectedRevision: 1, screens: [swapped] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.screens).toEqual([screen])
+  })
+
   it('replaces the previous widgets', async () => {
     await put({ expectedRevision: 1, screens: [screen] })
     const empty = { id: SEED_SCREEN_ID, instances: [], layout: [] }
@@ -1785,26 +1842,31 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
   duplicate.instances[1]!.id = B
   const otherScreen = { ...structuredClone(screen), id: '00000000-0000-4000-8000-0000000000ff' }
 
+  // Each rejected payload targets a non-empty saved board (revision 2): a rejection must keep
+  // every stored widget, not only the revision.
   it.each([
-    ['an overlap', { expectedRevision: 1, screens: [overlapping] }],
-    ['a rect outside the grid', { expectedRevision: 1, screens: [outside] }],
-    ['a duplicate instance id', { expectedRevision: 1, screens: [duplicate] }],
-    ['an unknown screen', { expectedRevision: 1, screens: [otherScreen] }],
-    ['a missing screen', { expectedRevision: 1, screens: [] }],
-    ['an extra screen', { expectedRevision: 1, screens: [screen, otherScreen] }],
-    ['a missing expectedRevision', { screens: [screen] }],
-    ['a non-integer expectedRevision', { expectedRevision: 1.5, screens: [screen] }],
+    ['an overlap', { expectedRevision: 2, screens: [overlapping] }],
+    ['a rect outside the grid', { expectedRevision: 2, screens: [outside] }],
+    ['a duplicate instance id', { expectedRevision: 2, screens: [duplicate] }],
+    ['an unknown screen', { expectedRevision: 2, screens: [otherScreen] }],
+    ['a missing screen', { expectedRevision: 2, screens: [] }],
+    ['an extra screen', { expectedRevision: 2, screens: [screen, otherScreen] }],
+    ['a missing expectedRevision', { screens: [EMPTY_SCREEN] }],
+    ['a non-integer expectedRevision', { expectedRevision: 1.5, screens: [EMPTY_SCREEN] }],
   ])('answers 400 for %s and changes nothing', async (_name, payload) => {
+    const before = (await put({ expectedRevision: 1, screens: [screen] })).json().data
     const response = await put(payload)
     expect(response.statusCode).toBe(400)
     expect(errorCode(response)).toBe('VALIDATION_ERROR')
-    expect((await getBoard()).revision).toBe(1)
+    expect(await getBoard()).toEqual(before)
   })
 
-  it('answers 400 for malformed JSON', async () => {
+  it('answers 400 for malformed JSON and changes nothing', async () => {
+    const before = (await put({ expectedRevision: 1, screens: [screen] })).json().data
     const response = await call(t.app, { method: 'PUT', url: BOARD, cookie, payload: '{"expectedRevision":', contentType: 'application/json' })
     expect(response.statusCode).toBe(400)
     expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(await getBoard()).toEqual(before)
   })
 
   it('answers 400 when a widget id belongs to another room and changes neither room', async () => {
@@ -1816,10 +1878,13 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
       INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
       VALUES ('${A}', '${otherRoomScreen}', 'builtin', 'placeholder', '{}', 1, 0, 0, 1, 1);
     `)
-    const response = await put({ expectedRevision: 1, screens: [screen] })
+    // The target room already holds B, so a partial replacement would be visible.
+    const onlyB: ScreenBoard = { id: SEED_SCREEN_ID, instances: [screen.instances[0]!], layout: [screen.layout[0]!] }
+    const before = (await put({ expectedRevision: 1, screens: [onlyB] })).json().data
+    const response = await put({ expectedRevision: 2, screens: [screen] })
     expect(response.statusCode).toBe(400)
     expect(response.json().error.message).toContain(A)
-    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 1, screens: [{ id: SEED_SCREEN_ID, instances: [], layout: [] }] })
+    expect(await getBoard()).toEqual(before)
     expect(t.db.prepare('SELECT screen_id FROM widgets WHERE id = ?').get(A)).toEqual({ screen_id: otherRoomScreen })
   })
 
@@ -1920,7 +1985,7 @@ function screenIds(db: DatabaseSync, roomId: string): string[] {
 
 function readBoard(db: DatabaseSync, roomId: string): RoomBoard {
   const revision = roomRevision(db, roomId)
-  // rowid keeps the insertion order, so a saved board reads back in the order it was sent.
+  // rowid keeps the insertion order: instances read back in the sent order, the layout follows them.
   const widgets = db
     .prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.room_id = ? ORDER BY w.rowid')
     .all(roomId) as unknown as WidgetRow[]
@@ -2302,19 +2367,276 @@ git commit -m "feat(ui): api client with typed failures and timeout"
 
 ---
 
-### Task 8: App states and the pairing form
+### Task 8: Room sync, app states and the pairing form
 
 **Files:**
-- Create: `apps/ui/app/PairingForm.vue`
-- Modify: `apps/ui/app/app.vue`
+- Create: `apps/ui/app/board/room-sync.ts`, `apps/ui/test/room-sync.test.ts`, `apps/ui/app/PairingForm.vue`
+- Modify: `apps/ui/app/app.vue`, `apps/ui/app/board/WidgetBoard.vue` (exposed stubs only)
 
 **Interfaces:**
-- Consumes: `api.rooms`, `api.pair`, `api.pairCode` (Task 7).
-- Produces: `app.vue` state `'checking' | 'pairing' | 'ready' | 'unavailable'` and `roomId: Ref<string | null>`; `PairingForm` emits `paired`. Task 9 adds the board props and events.
+- Consumes: `api` and `ApiResult` (Task 7); `RoomBoard`, `ScreenBoard` (Task 1).
+- Produces:
+  ```ts
+  // room-sync.ts
+  type ConnectResult = { state: 'ready'; roomId: string } | { state: 'pairing' | 'unavailable' }
+  type LoadOutcome = 'loaded' | 'ignored' | 'unauthorized' | 'unavailable'
+  type SaveOutcome = 'saved' | 'skipped' | 'conflict' | 'unauthorized' | 'invalid' | 'unavailable'
+  function connect(client: Pick<typeof api, 'rooms'>): Promise<ConnectResult>
+  function useRoomSync(client: Pick<typeof api, 'board' | 'saveBoard'>, roomId: () => string, idle: () => boolean): {
+    room: Ref<RoomBoard | null>; saving: Ref<boolean>; loaded: ComputedRef<boolean>
+    load(): Promise<LoadOutcome>; save(next: ScreenBoard): Promise<SaveOutcome>
+  }
+  ```
+  `app.vue` state `'checking' | 'pairing' | 'ready' | 'unavailable'` and `roomId: Ref<string | null>`; `PairingForm` emits `paired`. Task 9 adds the board props and events.
 
-There is no component test harness in this repository (no `@vue/test-utils`); this task is verified by typecheck and the browser checks in Task 10.
+The load and save decisions live in `room-sync.ts`, which uses only Vue reactivity and runs in the existing Vitest node environment. There is no component test harness (no DOM environment, no `@vue/test-utils`), so the components themselves — template wiring and the `PairingForm` texts — are verified by typecheck and the browser checks in Task 10.
 
-- [ ] **Step 1: Create `PairingForm.vue`**
+- [ ] **Step 1: Write the failing room-sync tests**
+
+`apps/ui/test/room-sync.test.ts`:
+
+```ts
+import type { RoomBoard, ScreenBoard } from '@lifedashboard/contracts/board'
+import { describe, expect, it, vi } from 'vitest'
+import { connect, useRoomSync } from '../app/board/room-sync'
+
+const ROOM = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
+const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
+const OTHER_SCREEN = '00000000-0000-4000-8000-0000000000ff'
+const A = '00000000-0000-4000-8000-00000000000a'
+
+function screen(ids: string[]): ScreenBoard {
+  return {
+    id: SCREEN,
+    instances: ids.map((id) => ({ id, source: { kind: 'builtin', type: 'placeholder' }, configVersion: 1, config: {} })),
+    layout: ids.map((id, index) => ({ instanceId: id, x: index, y: 0, w: 1, h: 1 })),
+  }
+}
+
+function board(revision: number, ids: string[] = []): RoomBoard {
+  return { roomId: ROOM, revision, screens: [screen(ids), { id: OTHER_SCREEN, instances: [], layout: [] }] }
+}
+
+const ok = <T>(data: T) => ({ ok: true as const, data })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function setup() {
+  const client = { board: vi.fn(), saveBoard: vi.fn() }
+  const view = { idle: true }
+  const sync = useRoomSync(client, () => ROOM, () => view.idle)
+  return { client, view, sync }
+}
+
+async function loaded(revision = 1) {
+  const s = setup()
+  s.client.board.mockResolvedValueOnce(ok(board(revision)))
+  expect(await s.sync.load()).toBe('loaded')
+  return s
+}
+
+describe('connect', () => {
+  it('is ready with the first room', async () => {
+    const rooms = vi.fn().mockResolvedValue(ok([{ id: 'r1' }, { id: 'r2' }]))
+    expect(await connect({ rooms })).toEqual({ state: 'ready', roomId: 'r1' })
+  })
+
+  it('asks for pairing on 401', async () => {
+    const rooms = vi.fn().mockResolvedValue({ ok: false, kind: 'unauthorized' })
+    expect(await connect({ rooms })).toEqual({ state: 'pairing' })
+  })
+
+  it.each([
+    ['no room', ok([])],
+    ['an unavailable API', { ok: false, kind: 'unavailable' }],
+    ['a rejected request', { ok: false, kind: 'invalid', message: 'm' }],
+  ])('is unavailable for %s', async (_name, result) => {
+    expect(await connect({ rooms: vi.fn().mockResolvedValue(result) })).toEqual({ state: 'unavailable' })
+  })
+})
+
+describe('load', () => {
+  it('stores the board of the room', async () => {
+    const { client, sync } = setup()
+    client.board.mockResolvedValueOnce(ok(board(1)))
+    expect(sync.loaded.value).toBe(false)
+    expect(await sync.load()).toBe('loaded')
+    expect(client.board).toHaveBeenCalledWith(ROOM)
+    expect(sync.room.value).toEqual(board(1))
+    expect(sync.loaded.value).toBe(true)
+  })
+
+  it.each([
+    ['unauthorized', 'unauthorized'],
+    ['unavailable', 'unavailable'],
+    ['rate-limited', 'unavailable'],
+  ])('reports a failed %s load as %s and keeps nothing', async (kind, outcome) => {
+    const { client, sync } = setup()
+    client.board.mockResolvedValueOnce({ ok: false, kind })
+    expect(await sync.load()).toBe(outcome)
+    expect(sync.room.value).toBeNull()
+  })
+
+  it('replaces the board on a later load in view mode', async () => {
+    const { client, sync } = await loaded(1)
+    client.board.mockResolvedValueOnce(ok(board(2, [A])))
+    expect(await sync.load()).toBe('loaded')
+    expect(sync.room.value?.revision).toBe(2)
+  })
+
+  it('ignores a load that finishes after a mode was opened, so the save keeps the old revision', async () => {
+    const { client, view, sync } = await loaded(1)
+    const late = deferred<unknown>()
+    client.board.mockReturnValueOnce(late.promise)
+    const pending = sync.load() // the tab became visible in view mode
+    view.idle = false // «Изменить» was pressed before the response
+    late.resolve(ok(board(2, [A])))
+    expect(await pending).toBe('ignored')
+    expect(sync.room.value).toEqual(board(1))
+
+    client.saveBoard.mockResolvedValueOnce({ ok: false, kind: 'conflict' })
+    expect(await sync.save(screen([]))).toBe('conflict')
+    expect(client.saveBoard.mock.calls[0]![1].expectedRevision).toBe(1)
+  })
+
+  it('ignores a failed load while a mode is open', async () => {
+    const { client, view, sync } = await loaded(1)
+    view.idle = false
+    client.board.mockResolvedValueOnce({ ok: false, kind: 'unavailable' })
+    expect(await sync.load()).toBe('ignored')
+    expect(sync.room.value).toEqual(board(1))
+  })
+})
+
+describe('save', () => {
+  it('is skipped before the first load', async () => {
+    const { client, sync } = setup()
+    expect(await sync.save(screen([A]))).toBe('skipped')
+    expect(client.saveBoard).not.toHaveBeenCalled()
+  })
+
+  it('sends the loaded revision with only the given screen replaced and stores the response', async () => {
+    const { client, sync } = await loaded(1)
+    client.saveBoard.mockResolvedValueOnce(ok(board(2, [A])))
+    expect(await sync.save(screen([A]))).toBe('saved')
+    expect(client.saveBoard).toHaveBeenCalledWith(ROOM, { expectedRevision: 1, screens: board(2, [A]).screens })
+    expect(sync.room.value).toEqual(board(2, [A]))
+    expect(sync.saving.value).toBe(false)
+  })
+
+  it('is saving while the request runs and skips a second save', async () => {
+    const { client, sync } = await loaded(1)
+    const reply = deferred<unknown>()
+    client.saveBoard.mockReturnValueOnce(reply.promise)
+    const first = sync.save(screen([A]))
+    expect(sync.saving.value).toBe(true)
+    expect(await sync.save(screen([A]))).toBe('skipped')
+    reply.resolve(ok(board(2, [A])))
+    expect(await first).toBe('saved')
+    expect(sync.saving.value).toBe(false)
+    expect(client.saveBoard).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['conflict', 'conflict'],
+    ['unauthorized', 'unauthorized'],
+    ['invalid', 'invalid'],
+    ['unavailable', 'unavailable'],
+    ['rate-limited', 'unavailable'],
+  ])('reports a failed %s save as %s and keeps the loaded board', async (kind, outcome) => {
+    const { client, sync } = await loaded(1)
+    client.saveBoard.mockResolvedValueOnce({ ok: false, kind, message: 'm' })
+    expect(await sync.save(screen([A]))).toBe(outcome)
+    expect(sync.room.value).toEqual(board(1))
+    expect(sync.saving.value).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+```bash
+pnpm -C apps/ui exec vitest run test/room-sync.test.ts
+```
+
+Expected: FAIL — cannot resolve `../app/board/room-sync`.
+
+- [ ] **Step 3: Implement `room-sync.ts`**
+
+`apps/ui/app/board/room-sync.ts`:
+
+```ts
+import { computed, ref } from 'vue'
+import type { RoomBoard, ScreenBoard } from '@lifedashboard/contracts/board'
+import type { api } from '../api'
+
+export type ConnectResult = { state: 'ready'; roomId: string } | { state: 'pairing' | 'unavailable' }
+export type LoadOutcome = 'loaded' | 'ignored' | 'unauthorized' | 'unavailable'
+export type SaveOutcome = 'saved' | 'skipped' | 'conflict' | 'unauthorized' | 'invalid' | 'unavailable'
+
+/** The first room decides the app state: 401 asks for pairing; no room or no API is unavailable. */
+export async function connect(client: Pick<typeof api, 'rooms'>): Promise<ConnectResult> {
+  const result = await client.rooms()
+  if (result.ok) return result.data[0] ? { state: 'ready', roomId: result.data[0].id } : { state: 'unavailable' }
+  return { state: result.kind === 'unauthorized' ? 'pairing' : 'unavailable' }
+}
+
+/**
+ * The loaded board of one room. `idle()` is true while no build or edit mode is open. A load that
+ * finishes after a mode opened is dropped, so a working copy is always saved with the revision of
+ * the snapshot it was taken from (DATA-06); the save then meets any conflict or error itself.
+ */
+export function useRoomSync(client: Pick<typeof api, 'board' | 'saveBoard'>, roomId: () => string, idle: () => boolean) {
+  const room = ref<RoomBoard | null>(null)
+  // True while a PUT runs: the board ignores input so the working copy cannot change meanwhile.
+  const saving = ref(false)
+  const loaded = computed(() => room.value !== null)
+
+  async function load(): Promise<LoadOutcome> {
+    const result = await client.board(roomId())
+    if (room.value !== null && (!idle() || saving.value)) return 'ignored'
+    if (!result.ok) return result.kind === 'unauthorized' ? 'unauthorized' : 'unavailable'
+    room.value = result.data
+    return 'loaded'
+  }
+
+  // Saves one screen with the loaded revision; the server decides about conflicts.
+  async function save(next: ScreenBoard): Promise<SaveOutcome> {
+    const current = room.value
+    if (!current || saving.value) return 'skipped'
+    saving.value = true
+    const result = await client.saveBoard(roomId(), {
+      expectedRevision: current.revision,
+      screens: current.screens.map((screen) => (screen.id === next.id ? next : screen)),
+    })
+    saving.value = false
+    if (result.ok) {
+      room.value = result.data
+      return 'saved'
+    }
+    if (result.kind === 'conflict' || result.kind === 'unauthorized' || result.kind === 'invalid') return result.kind
+    return 'unavailable'
+  }
+
+  return { room, saving, loaded, load, save }
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+```bash
+pnpm -C apps/ui exec vitest run test/room-sync.test.ts && pnpm -C apps/ui typecheck
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Create `PairingForm.vue`**
 
 `apps/ui/app/PairingForm.vue`:
 
@@ -2434,7 +2756,7 @@ async function requestCode() {
 </style>
 ```
 
-- [ ] **Step 2: Replace the health check in `app.vue` with app states**
+- [ ] **Step 6: Replace the health check in `app.vue` with app states**
 
 Replace the whole `<script setup>` block of `apps/ui/app/app.vue`:
 
@@ -2444,6 +2766,7 @@ import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import { api } from './api'
 import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
+import { connect } from './board/room-sync'
 import PairingForm from './PairingForm.vue'
 import { loadAppearance, saveAppearance } from './theme/appearance'
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
@@ -2491,13 +2814,9 @@ async function check() {
   mode.value = 'view'
   notice.value = null
   apiDown.value = false
-  const result = await api.rooms()
-  if (result.ok && result.data[0]) {
-    roomId.value = result.data[0].id
-    state.value = 'ready'
-  } else {
-    state.value = !result.ok && result.kind === 'unauthorized' ? 'pairing' : 'unavailable'
-  }
+  const result = await connect(api)
+  if (result.state === 'ready') roomId.value = result.roomId
+  state.value = result.state
 }
 
 onMounted(check)
@@ -2523,7 +2842,16 @@ Replace the `<template>` block:
             </button>
           </template>
           <template v-else>
-            <button type="button" class="app__button" aria-label="Добавить виджет" @click="mode = 'build'">+</button>
+            <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
+            <button
+              type="button"
+              class="app__button"
+              aria-label="Добавить виджет"
+              :disabled="!boardRef?.loaded"
+              @click="mode = 'build'"
+            >
+              +
+            </button>
             <button type="button" class="app__button" :disabled="!boardRef?.hasWidgets" @click="mode = 'edit'">
               Изменить
             </button>
@@ -2565,18 +2893,19 @@ In the `<style>` block add after `.app__main`:
 }
 ```
 
-`WidgetBoard` still uses `localStorage` in this task, so `boardRef?.saving` is `undefined` (falsy) until Task 9 exposes it. Add `saving: ref(false)` to its `defineExpose` now to keep the template typed:
+`WidgetBoard` still uses `localStorage` in this task: it is always loaded and never saving. Expose both flags now to keep the template typed:
 
 In `apps/ui/app/board/WidgetBoard.vue`, change the import line `import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'` (unchanged) and replace `defineExpose({ confirm, cancel, hasWidgets })` with:
 
 ```ts
-// Replaced by the real save flag in the next step of the plan (board on the API).
+// Replaced by room-sync in the next task of the plan (board on the API).
 const saving = ref(false)
+const loaded = ref(true)
 
-defineExpose({ confirm, cancel, hasWidgets, saving })
+defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
 ```
 
-- [ ] **Step 3: Typecheck and run the UI suite**
+- [ ] **Step 7: Typecheck and run the UI suite**
 
 ```bash
 pnpm -C apps/ui typecheck && pnpm -C apps/ui exec vitest run
@@ -2584,11 +2913,11 @@ pnpm -C apps/ui typecheck && pnpm -C apps/ui exec vitest run
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add apps/ui/app/PairingForm.vue apps/ui/app/app.vue apps/ui/app/board/WidgetBoard.vue
-git commit -m "feat(ui): pairing form and api connection states"
+git add apps/ui/app/board/room-sync.ts apps/ui/test/room-sync.test.ts apps/ui/app/PairingForm.vue apps/ui/app/app.vue apps/ui/app/board/WidgetBoard.vue
+git commit -m "feat(ui): room sync, pairing form and api connection states"
 ```
 
 ---
@@ -2602,10 +2931,10 @@ git commit -m "feat(ui): pairing form and api connection states"
 - Test: `apps/ui/test/edit-session.test.ts`
 
 **Interfaces:**
-- Consumes: `api.board`, `api.saveBoard` (Task 7); `ScreenBoard`, `RoomBoard`, `WidgetInstance`, `WidgetSource`, `WidgetPlacement`, `parseScreenBoard` (Task 1); `app.vue` states (Task 8).
+- Consumes: `api` (Task 7); `useRoomSync` (Task 8); `ScreenBoard`, `WidgetInstance`, `WidgetSource`, `WidgetPlacement`, `parseScreenBoard` (Task 1); `app.vue` states (Task 8).
 - Produces:
   - `edit-session.ts`: `BoardMode`, `setPlacement(doc: ScreenBoard, id, rect): ScreenBoard`, `removeInstance(doc: ScreenBoard, id): ScreenBoard`, `isSameBoard(a: ScreenBoard, b: ScreenBoard): boolean`, `readingOrder`, `focusAfterRemoval`. `ConfirmOutcome` and `confirmOutcome` are removed.
-  - `WidgetBoard.vue`: props `{ roomId: string; themeId: string }`; model `mode`; emits `notice: [string | null]`, `api: ['ok' | 'down']`, `unauthorized: []`, `unavailable: []`; exposes `{ confirm, cancel, hasWidgets, saving }`.
+  - `WidgetBoard.vue`: props `{ roomId: string; themeId: string }`; model `mode`; emits `notice: [string | null]`, `api: ['ok' | 'down']`, `unauthorized: []`, `unavailable: []`; exposes `{ confirm, cancel, hasWidgets, saving, loaded }`.
 
 - [ ] **Step 1: Rewrite the edit-session tests for `ScreenBoard`**
 
@@ -2732,7 +3061,7 @@ describe('catalog', () => {
 pnpm -C apps/ui exec vitest run test/edit-session.test.ts test/catalog.test.ts
 ```
 
-Expected: both PASS. This step is a type port, not a behaviour change: the helpers are type-agnostic at runtime, and `nuxt typecheck` does not cover `apps/ui/test`. The guard for Steps 3–5 is `pnpm -C apps/ui typecheck` in Step 6, which fails while `WidgetBoard.vue` and `edit-session.ts` still use `BoardDocument`. The save and load behaviour of `WidgetBoard.vue` has no component test harness in this repository; the spec assigns it to the browser checks in Task 10.
+Expected: both PASS. This step is a type port, not a behaviour change: the helpers are type-agnostic at runtime, and `nuxt typecheck` does not cover `apps/ui/test`. The guard for Steps 3–5 is `pnpm -C apps/ui typecheck` in Step 6, which fails while `WidgetBoard.vue` and `edit-session.ts` still use `BoardDocument`. The load and save decisions were driven by failing tests in Task 8 (`room-sync`); this task only wires them into the component, which typecheck and the browser checks in Task 10 cover.
 
 - [ ] **Step 3: Port `edit-session.ts` to `ScreenBoard`**
 
@@ -2788,13 +3117,14 @@ Replace the whole `<script setup>` block of `apps/ui/app/board/WidgetBoard.vue`:
 ```vue
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import type { RoomBoard, ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
+import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID, findFreeRect, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
 import { findManifest, placeholderManifest } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
+import { useRoomSync } from './room-sync'
 import { useActiveRect } from './use-active-rect'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
@@ -2826,14 +3156,17 @@ const arrows: Record<string, [number, number]> = {
 const fill = { width: '100%', height: '100%' }
 const emptyScreen: ScreenBoard = { id: '', instances: [], layout: [] }
 
-const room = ref<RoomBoard | null>(null)
+// A load that finishes while a mode is open is dropped (DATA-06); `saving` blocks input during a PUT.
+const { room, saving, loaded, load: loadRoom, save: saveRoom } = useRoomSync(
+  api,
+  () => props.roomId,
+  () => mode.value === 'view',
+)
 // The board shows the first screen; screens get their own UI in step 3 of GO-3.
 const doc = computed<ScreenBoard>(() => room.value?.screens[0] ?? emptyScreen)
 // Edit mode changes a working copy; `doc` keeps the loaded screen for the «unchanged» check.
 const working = ref<ScreenBoard>(emptyScreen)
 const activeId = ref<string | null>(null)
-// True while a PUT runs: input is ignored so the working copy cannot change before the response.
-const saving = ref(false)
 // Template ref keys must differ from setup bindings: ref="draft" would overwrite a setup binding.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
@@ -2895,42 +3228,29 @@ function area(rect: Rect) {
 }
 
 async function load() {
-  const result = await api.board(props.roomId)
-  if (result.ok) {
-    room.value = result.data
-    emit('api', 'ok')
-  } else if (result.kind === 'unauthorized') {
-    emit('unauthorized')
-  } else {
-    emit('unavailable')
-  }
+  const outcome = await loadRoom()
+  if (outcome === 'loaded') emit('api', 'ok')
+  else if (outcome === 'unauthorized') emit('unauthorized')
+  else if (outcome === 'unavailable') emit('unavailable')
 }
 
-// Saves one screen with the loaded revision; the server decides about conflicts (DATA-06).
 async function save(next: ScreenBoard) {
-  const current = room.value
-  if (!current || saving.value) return
-  saving.value = true
-  const result = await api.saveBoard(props.roomId, {
-    expectedRevision: current.revision,
-    screens: current.screens.map((screen) => (screen.id === next.id ? next : screen)),
-  })
-  saving.value = false
-  if (result.ok) {
-    room.value = result.data
+  const outcome = await saveRoom(next)
+  if (outcome === 'saved') {
     emit('api', 'ok')
     emit('notice', null)
     stop()
-  } else if (result.kind === 'conflict') {
+  } else if (outcome === 'conflict') {
+    // Leaving the mode first makes the reload apply.
     stop()
     emit('notice', 'Доска изменена в другой вкладке')
     await load()
-  } else if (result.kind === 'unauthorized') {
+  } else if (outcome === 'unauthorized') {
     emit('unauthorized')
-  } else if (result.kind === 'invalid') {
+  } else if (outcome === 'invalid') {
     // The mode and the working copy stay: nothing unsaved is shown as saved (DATA-05).
     emit('notice', 'Не удалось сохранить: данные отклонены')
-  } else {
+  } else if (outcome === 'unavailable') {
     emit('api', 'down')
     emit('notice', 'Не удалось сохранить, повторите')
   }
@@ -3065,7 +3385,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
-defineExpose({ confirm, cancel, hasWidgets, saving })
+defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
 </script>
 ```
 
@@ -3167,11 +3487,11 @@ Load the `orca-cli` skill and control Orca's built-in browser through `orca` (pr
 2. The current code opens the board; the header shows «API: работает»; reloading the page does not ask for a code (acceptance 2).
 3. Add two widgets, move and resize one in «Изменить», delete one, «Готово». Restart `pnpm dev` (Ctrl+C, start again) and reload: the board is unchanged and no code is asked (acceptance 3, Review Focus 1).
 4. `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3001/api/v1/rooms -H 'Host: 127.0.0.1:3001'` prints `401`; adding `-H 'Origin: http://evil.test'` prints `403`, and `-H 'Host: evil.test:3001'` instead prints `403` (acceptance 4). The Host/Origin check runs before the session check, so no cookie is needed.
-5. Open a second tab, change the board there and save; in the first tab enter «Изменить», change something, «Готово»: the notice is «Доска изменена в другой вкладке» and the first tab shows the second tab's board (acceptance 5).
+5. In the first tab enter «Изменить» and move a widget, without saving. Open a second tab, move a widget there and press «Готово». Return to the first tab (still in edit mode, so it does not reload) and press «Готово»: the notice is «Доска изменена в другой вкладке» and the first tab shows the second tab's board (acceptance 5).
 6. Stop only the API (`pkill -f 'src/server.ts'`; `pnpm dev` starts it as `node --watch … src/server.ts`), switch tabs away and back: «API: недоступен» with «Повторить», no «+»/«Изменить». Start the API again (`pnpm -C apps/api dev`), press «Повторить»: the board returns (acceptance 6).
-7. With the API running, enter «Изменить», stop the API, press «Готово»: the mode and the working copy stay, the notice is «Не удалось сохранить, повторите», the header shows «API: недоступен». Start the API, press «Готово» again: saved (acceptance 6).
-8. With network throttling or a paused API process (`kill -STOP <api pid>`), press «Готово» in edit mode and try arrows, Enter, Escape and dragging: nothing changes until the 5-second timeout reports «Не удалось сохранить, повторите»; then `kill -CONT <api pid>` (acceptance 7).
-9. Raise the schema version of a copy of the database (the running dev API keeps the original) and start the API on the copy:
+7. With the API running, enter «Изменить» and move a widget (an unchanged board does not send a `PUT`). Stop the API, press «Готово»: the mode and the moved widget stay, the notice is «Не удалось сохранить, повторите», the header shows «API: недоступен». Start the API, press «Готово» again: saved, and a reload shows the moved widget (acceptance 6).
+8. Enter «Изменить» and move a widget. Pause the API process (`kill -STOP <api pid>`), press «Готово» and confirm in the browser's network panel that the `PUT` is pending and «Готово»/«Отмена» are disabled. Try arrows, Enter, Escape and dragging: nothing changes until the 5-second timeout reports «Не удалось сохранить, повторите»; then `kill -CONT <api pid>` (acceptance 7).
+9. Stop `pnpm dev` (Ctrl+C) and wait for it to exit, so the database is closed and its WAL is checkpointed. Raise the schema version of a copy of the database and start the API on the copy:
    ```bash
    COPY="$(mktemp -d)"
    cp "$LIFEDASHBOARD_DATA_DIR/lifedashboard.db" "$COPY/"
