@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { registerAuth } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { newRequestId, registerErrorHandling } from './errors.ts'
+import { registerRooms } from './rooms.ts'
 
 export interface AppDeps {
   db: DatabaseSync
@@ -17,5 +18,6 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   registerErrorHandling(app)
   app.get('/health', async () => ({ status: 'ok' as const }))
   registerAuth(app, { db, config, now, onPairingCode })
+  registerRooms(app, { db, now })
   return app
 }
