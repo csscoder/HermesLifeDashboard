@@ -244,8 +244,8 @@ delete screens.
 ### Session check and sliding renewal
 
 For every `/api/v1` route except the two pairing routes, an `onRequest` hook hashes the cookie
-token and looks the session up. A missing or expired session returns `401`; an expired row is
-deleted. When `expires_at < now + 29 days`, the hook sets `expires_at = now + 30 days` and
+token and looks the session up. A missing or expired session (`expires_at <= now`) returns `401`; an
+expired row is deleted. When `expires_at <= now + 29 days`, the hook sets `expires_at = now + 30 days` and
 re-sends the cookie with a fresh `Max-Age`. There is no absolute session limit.
 
 A session therefore expires 30 days after its last renewal, not after its last request: a request
@@ -362,7 +362,8 @@ TDD with Vitest: a failing test precedes each behaviour change.
     a mutation without `Origin` or with a non-JSON content type gives `403`; renewal happens after
     a day and not before; an expired session gives `401`; boundary: after pairing at `t` and a request
     at `t + 12 h` (no renewal), a request at `t + 29 d 23 h` succeeds and renews, while in a
-    separate run a request at `t + 30 d 1 h` gives `401`;
+    separate run a request at `t + 30 d 1 h` gives `401`; exactly one day after pairing a request
+    renews, and a request exactly 29 days after that one succeeds;
   - `rooms`: the seed board is returned; `PUT` with the current revision saves and increments it;
     a stale revision gives `409` and changes nothing; overlap, out-of-grid rect, duplicate id and a
     mismatched screen set give `400` and change nothing; an unknown room gives `404`;
