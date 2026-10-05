@@ -2386,10 +2386,14 @@ git commit -m "feat(ui): api client with typed failures and timeout"
     room: Ref<RoomBoard | null>; saving: Ref<boolean>; loaded: ComputedRef<boolean>
     load(): Promise<LoadOutcome>; save(next: ScreenBoard): Promise<SaveOutcome>
   }
+  // What the board does after an outcome; WidgetBoard.vue applies it without further decisions.
+  interface Reaction { leaveMode?: true; notice?: string | null; api?: 'ok' | 'down'; reload?: true; app?: 'pairing' | 'unavailable' }
+  function afterLoad(outcome: LoadOutcome): Reaction
+  function afterSave(outcome: SaveOutcome): Reaction
   ```
   `app.vue` state `'checking' | 'pairing' | 'ready' | 'unavailable'` and `roomId: Ref<string | null>`; `PairingForm` emits `paired`. Task 9 adds the board props and events.
 
-The load and save decisions live in `room-sync.ts`, which uses only Vue reactivity and runs in the existing Vitest node environment. There is no component test harness (no DOM environment, no `@vue/test-utils`), so the components themselves — template wiring and the `PairingForm` texts — are verified by typecheck and the browser checks in Task 10.
+The load and save decisions — including what happens to the mode, the notice, the API label and the app state after each outcome — live in `room-sync.ts`, which uses only Vue reactivity and runs in the existing Vitest node environment. There is no component test harness (no DOM environment, no `@vue/test-utils`), so the components themselves — applying a `Reaction`, template wiring and the `PairingForm` texts — are verified by typecheck and the browser checks in Task 10.
 
 - [ ] **Step 1: Write the failing room-sync tests**
 
@@ -2398,7 +2402,7 @@ The load and save decisions live in `room-sync.ts`, which uses only Vue reactivi
 ```ts
 import type { RoomBoard, ScreenBoard } from '@lifedashboard/contracts/board'
 import { describe, expect, it, vi } from 'vitest'
-import { connect, useRoomSync } from '../app/board/room-sync'
+import { afterLoad, afterSave, connect, useRoomSync } from '../app/board/room-sync'
 
 const ROOM = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
@@ -2512,6 +2516,16 @@ describe('load', () => {
     expect(await sync.load()).toBe('ignored')
     expect(sync.room.value).toEqual(board(1))
   })
+
+  it('reports 401 even when it arrives after a mode was opened', async () => {
+    const { client, view, sync } = await loaded(1)
+    const late = deferred<unknown>()
+    client.board.mockReturnValueOnce(late.promise)
+    const pending = sync.load()
+    view.idle = false
+    late.resolve({ ok: false, kind: 'unauthorized' })
+    expect(await pending).toBe('unauthorized')
+  })
 })
 
 describe('save', () => {
@@ -2557,6 +2571,30 @@ describe('save', () => {
     expect(sync.saving.value).toBe(false)
   })
 })
+
+describe('reactions', () => {
+  it.each([
+    ['loaded', { api: 'ok' }],
+    ['ignored', {}],
+    // A 401 discards an open working copy and shows pairing (spec «App states»).
+    ['unauthorized', { leaveMode: true, app: 'pairing' }],
+    ['unavailable', { leaveMode: true, app: 'unavailable' }],
+  ] as const)('after a %s load: %o', (outcome, reaction) => {
+    expect(afterLoad(outcome)).toEqual(reaction)
+  })
+
+  it.each([
+    ['saved', { leaveMode: true, notice: null, api: 'ok' }],
+    ['skipped', {}],
+    ['conflict', { leaveMode: true, notice: 'Доска изменена в другой вкладке', reload: true }],
+    ['unauthorized', { leaveMode: true, app: 'pairing' }],
+    // The mode and the working copy stay so the user can retry or cancel (DATA-05).
+    ['invalid', { notice: 'Не удалось сохранить: данные отклонены' }],
+    ['unavailable', { notice: 'Не удалось сохранить, повторите', api: 'down' }],
+  ] as const)('after a %s save: %o', (outcome, reaction) => {
+    expect(afterSave(outcome)).toEqual(reaction)
+  })
+})
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -2580,6 +2618,15 @@ export type ConnectResult = { state: 'ready'; roomId: string } | { state: 'pairi
 export type LoadOutcome = 'loaded' | 'ignored' | 'unauthorized' | 'unavailable'
 export type SaveOutcome = 'saved' | 'skipped' | 'conflict' | 'unauthorized' | 'invalid' | 'unavailable'
 
+/** What the board does after an outcome. A missing `notice` keeps the current one; `null` clears it. */
+export interface Reaction {
+  leaveMode?: true
+  notice?: string | null
+  api?: 'ok' | 'down'
+  reload?: true
+  app?: 'pairing' | 'unavailable'
+}
+
 /** The first room decides the app state: 401 asks for pairing; no room or no API is unavailable. */
 export async function connect(client: Pick<typeof api, 'rooms'>): Promise<ConnectResult> {
   const result = await client.rooms()
@@ -2600,8 +2647,10 @@ export function useRoomSync(client: Pick<typeof api, 'board' | 'saveBoard'>, roo
 
   async function load(): Promise<LoadOutcome> {
     const result = await client.board(roomId())
+    // An expired session always wins: pairing discards the working copy anyway.
+    if (!result.ok && result.kind === 'unauthorized') return 'unauthorized'
     if (room.value !== null && (!idle() || saving.value)) return 'ignored'
-    if (!result.ok) return result.kind === 'unauthorized' ? 'unauthorized' : 'unavailable'
+    if (!result.ok) return 'unavailable'
     room.value = result.data
     return 'loaded'
   }
@@ -2625,6 +2674,30 @@ export function useRoomSync(client: Pick<typeof api, 'board' | 'saveBoard'>, roo
   }
 
   return { room, saving, loaded, load, save }
+}
+
+export function afterLoad(outcome: LoadOutcome): Reaction {
+  if (outcome === 'loaded') return { api: 'ok' }
+  if (outcome === 'ignored') return {}
+  return { leaveMode: true, app: outcome === 'unauthorized' ? 'pairing' : 'unavailable' }
+}
+
+export function afterSave(outcome: SaveOutcome): Reaction {
+  switch (outcome) {
+    case 'saved':
+      return { leaveMode: true, notice: null, api: 'ok' }
+    case 'skipped':
+      return {}
+    case 'conflict':
+      // Leaving the mode first makes the reload apply.
+      return { leaveMode: true, notice: 'Доска изменена в другой вкладке', reload: true }
+    case 'unauthorized':
+      return { leaveMode: true, app: 'pairing' }
+    case 'invalid':
+      return { notice: 'Не удалось сохранить: данные отклонены' }
+    case 'unavailable':
+      return { notice: 'Не удалось сохранить, повторите', api: 'down' }
+  }
 }
 ```
 
@@ -2931,7 +3004,7 @@ git commit -m "feat(ui): room sync, pairing form and api connection states"
 - Test: `apps/ui/test/edit-session.test.ts`
 
 **Interfaces:**
-- Consumes: `api` (Task 7); `useRoomSync` (Task 8); `ScreenBoard`, `WidgetInstance`, `WidgetSource`, `WidgetPlacement`, `parseScreenBoard` (Task 1); `app.vue` states (Task 8).
+- Consumes: `api` (Task 7); `useRoomSync`, `afterLoad`, `afterSave`, `Reaction` (Task 8); `ScreenBoard`, `WidgetInstance`, `WidgetSource`, `WidgetPlacement`, `parseScreenBoard` (Task 1); `app.vue` states (Task 8).
 - Produces:
   - `edit-session.ts`: `BoardMode`, `setPlacement(doc: ScreenBoard, id, rect): ScreenBoard`, `removeInstance(doc: ScreenBoard, id): ScreenBoard`, `isSameBoard(a: ScreenBoard, b: ScreenBoard): boolean`, `readingOrder`, `focusAfterRemoval`. `ConfirmOutcome` and `confirmOutcome` are removed.
   - `WidgetBoard.vue`: props `{ roomId: string; themeId: string }`; model `mode`; emits `notice: [string | null]`, `api: ['ok' | 'down']`, `unauthorized: []`, `unavailable: []`; exposes `{ confirm, cancel, hasWidgets, saving, loaded }`.
@@ -3061,7 +3134,7 @@ describe('catalog', () => {
 pnpm -C apps/ui exec vitest run test/edit-session.test.ts test/catalog.test.ts
 ```
 
-Expected: both PASS. This step is a type port, not a behaviour change: the helpers are type-agnostic at runtime, and `nuxt typecheck` does not cover `apps/ui/test`. The guard for Steps 3–5 is `pnpm -C apps/ui typecheck` in Step 6, which fails while `WidgetBoard.vue` and `edit-session.ts` still use `BoardDocument`. The load and save decisions were driven by failing tests in Task 8 (`room-sync`); this task only wires them into the component, which typecheck and the browser checks in Task 10 cover.
+Expected: both PASS. This step is a type port, not a behaviour change: the helpers are type-agnostic at runtime, and `nuxt typecheck` does not cover `apps/ui/test`. The guard for Steps 3–5 is `pnpm -C apps/ui typecheck` in Step 6, which fails while `WidgetBoard.vue` and `edit-session.ts` still use `BoardDocument`. The load and save decisions were driven by failing tests in Task 8 (`room-sync`); including the mode, notice and app-state reaction to every outcome (`afterLoad`, `afterSave`). This task only applies those reactions in the component, which typecheck and the browser checks in Task 10 cover.
 
 - [ ] **Step 3: Port `edit-session.ts` to `ScreenBoard`**
 
@@ -3124,7 +3197,7 @@ import { findManifest, placeholderManifest } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
-import { useRoomSync } from './room-sync'
+import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
@@ -3227,33 +3300,22 @@ function area(rect: Rect) {
   return { gridColumn: `${rect.x + 1} / span ${rect.w}`, gridRow: `${rect.y + 1} / span ${rect.h}` }
 }
 
+// Applies a tested reaction (room-sync); no decisions here.
+async function apply(reaction: Reaction) {
+  if (reaction.leaveMode) stop()
+  if (reaction.notice !== undefined) emit('notice', reaction.notice)
+  if (reaction.api) emit('api', reaction.api)
+  if (reaction.app === 'pairing') emit('unauthorized')
+  else if (reaction.app === 'unavailable') emit('unavailable')
+  if (reaction.reload) await load()
+}
+
 async function load() {
-  const outcome = await loadRoom()
-  if (outcome === 'loaded') emit('api', 'ok')
-  else if (outcome === 'unauthorized') emit('unauthorized')
-  else if (outcome === 'unavailable') emit('unavailable')
+  await apply(afterLoad(await loadRoom()))
 }
 
 async function save(next: ScreenBoard) {
-  const outcome = await saveRoom(next)
-  if (outcome === 'saved') {
-    emit('api', 'ok')
-    emit('notice', null)
-    stop()
-  } else if (outcome === 'conflict') {
-    // Leaving the mode first makes the reload apply.
-    stop()
-    emit('notice', 'Доска изменена в другой вкладке')
-    await load()
-  } else if (outcome === 'unauthorized') {
-    emit('unauthorized')
-  } else if (outcome === 'invalid') {
-    // The mode and the working copy stay: nothing unsaved is shown as saved (DATA-05).
-    emit('notice', 'Не удалось сохранить: данные отклонены')
-  } else if (outcome === 'unavailable') {
-    emit('api', 'down')
-    emit('notice', 'Не удалось сохранить, повторите')
-  }
+  await apply(afterSave(await saveRoom(next)))
 }
 
 function start() {
@@ -3491,7 +3553,7 @@ Load the `orca-cli` skill and control Orca's built-in browser through `orca` (pr
 6. Stop only the API (`pkill -f 'src/server.ts'`; `pnpm dev` starts it as `node --watch … src/server.ts`), switch tabs away and back: «API: недоступен» with «Повторить», no «+»/«Изменить». Start the API again (`pnpm -C apps/api dev`), press «Повторить»: the board returns (acceptance 6).
 7. With the API running, enter «Изменить» and move a widget (an unchanged board does not send a `PUT`). Stop the API, press «Готово»: the mode and the moved widget stay, the notice is «Не удалось сохранить, повторите», the header shows «API: недоступен». Start the API, press «Готово» again: saved, and a reload shows the moved widget (acceptance 6).
 8. Enter «Изменить» and move a widget. Pause the API process (`kill -STOP <api pid>`), press «Готово» and confirm in the browser's network panel that the `PUT` is pending and «Готово»/«Отмена» are disabled. Try arrows, Enter, Escape and dragging: nothing changes until the 5-second timeout reports «Не удалось сохранить, повторите»; then `kill -CONT <api pid>` (acceptance 7).
-9. Stop `pnpm dev` (Ctrl+C) and wait for it to exit, so the database is closed and its WAL is checkpointed. Raise the schema version of a copy of the database and start the API on the copy:
+9. Stop the API started separately in steps 6–7 (Ctrl+C in its terminal) and `pnpm dev`, and wait until `pgrep -f 'src/server.ts'` prints nothing: the database is then closed and its WAL checkpointed. Raise the schema version of a copy of the database and start the API on the copy:
    ```bash
    COPY="$(mktemp -d)"
    cp "$LIFEDASHBOARD_DATA_DIR/lifedashboard.db" "$COPY/"
