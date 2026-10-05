@@ -9,10 +9,10 @@ import {
   type WidgetSource,
 } from '../widgets/board-document'
 import { placeholderManifest } from '../widgets/catalog'
-import { GRID, findFreeRect, isFree, moveTo, resizeTo, type Rect } from '../widgets/grid'
+import { GRID, findFreeRect, isFree, type Rect } from '../widgets/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { useDraftMotion } from './draft-motion'
 import { isFormControlTarget } from './keyboard'
+import { useActiveRect } from './use-active-rect'
 
 const building = defineModel<boolean>('building', { required: true })
 const emit = defineEmits<{ notice: [message: string | null] }>()
@@ -34,17 +34,20 @@ const arrows: Record<string, [number, number]> = {
 }
 
 const doc = ref<BoardDocument>(emptyBoard())
-const draft = ref<Rect | null>(null)
 // Template ref keys must differ from setup bindings: ref="draft" would overwrite the draft rect.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
-// Move drags the card in free px from its visible pose; the snapped `draft` rect is the landing slot.
-let drag: { mode: 'move'; pointerX: number; pointerY: number; cardX: number; cardY: number } | { mode: 'resize' } | null =
-  null
-const moving = ref(false)
-// Cell + gap pitch in px, read from the grid when a draft starts or a drag begins.
-const metrics = ref({ pitchX: 0, pitchY: 0, colGap: 0, rowGap: 0 })
-const motion = useDraftMotion({ x: 0, y: 0 })
+const {
+  rect: draft,
+  moving,
+  cardStyle,
+  activate,
+  deactivate,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  step,
+} = useActiveRect({ gridEl, others: () => doc.value.layout, sizing: () => sizing })
 // True after a failed save: the in-memory document is then newer than storage and must not be replaced.
 let unsaved = false
 let persistenceNotice: string | null = null
@@ -60,21 +63,6 @@ const placed = computed(() =>
 const draftLabel = computed(() => {
   const rect = draft.value
   return rect ? `Виджет ${rect.w}×${rect.h}, колонка ${rect.x + 1}, ряд ${rect.y + 1}` : ''
-})
-
-const cardStyle = computed(() => {
-  const rect = draft.value
-  if (!rect) return {}
-  const { pitchX, pitchY, colGap, rowGap } = metrics.value
-  const p = motion.pose.value
-  // The card is positioned relative to its slot, so the offset is the pose minus the slot origin.
-  return {
-    width: `${rect.w * pitchX - colGap}px`,
-    height: `${rect.h * pitchY - rowGap}px`,
-    transform:
-      `translate3d(${p.x - rect.x * pitchX}px, ${p.y - rect.y * pitchY}px, 0) rotate(${p.rotate}deg) ` +
-      `skew(${p.skewX}deg, ${p.skewY}deg) scale(${p.scaleX}, ${p.scaleY})`,
-  }
 })
 
 function area(rect: Rect) {
@@ -110,16 +98,12 @@ function start() {
     building.value = false
     return
   }
-  draft.value = rect
-  readMetrics()
-  motion.reset(slotPx(rect))
+  activate(rect)
   void nextTick(() => draftEl.value?.focus())
 }
 
 function stop() {
-  draft.value = null
-  drag = null
-  moving.value = false
+  deactivate()
   building.value = false
 }
 
@@ -160,88 +144,12 @@ function remove(id: string) {
   persist()
 }
 
-// The grid has no padding or border, so its box starts at the first cell.
-function readMetrics() {
-  const el = gridEl.value
-  if (!el) return null
-  const box = el.getBoundingClientRect()
-  const style = getComputedStyle(el)
-  const colGap = parseFloat(style.columnGap)
-  const rowGap = parseFloat(style.rowGap)
-  metrics.value = {
-    pitchX: (box.width - colGap * (GRID.cols - 1)) / GRID.cols + colGap,
-    pitchY: (box.height - rowGap * (GRID.rows - 1)) / GRID.rows + rowGap,
-    colGap,
-    rowGap,
-  }
-  return box
-}
-
-function slotPx(rect: Rect) {
-  return { x: rect.x * metrics.value.pitchX, y: rect.y * metrics.value.pitchY }
-}
-
-function settle() {
-  if (draft.value) motion.moveTo(slotPx(draft.value), false)
-}
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
-
-function onPointerDown(event: PointerEvent, mode: 'move' | 'resize') {
-  if (!draft.value || event.button !== 0 || !readMetrics()) return
-  event.preventDefault()
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-  if (mode === 'resize') {
-    drag = { mode }
-    return
-  }
-  // Grabbing a settling card starts from its visible pose, so it does not jump.
-  const { x, y } = motion.pose.value
-  drag = { mode, pointerX: event.clientX, pointerY: event.clientY, cardX: x, cardY: y }
-  moving.value = true
-  motion.moveTo({ x, y }, true)
-}
-
-function onPointerMove(event: PointerEvent) {
-  const rect = draft.value
-  if (!drag || !rect) return
-  const { pitchX, pitchY } = metrics.value
-  if (drag.mode === 'resize') {
-    const box = gridEl.value?.getBoundingClientRect()
-    if (!box) return
-    const cellX = Math.floor((event.clientX - box.left) / pitchX)
-    const cellY = Math.floor((event.clientY - box.top) / pitchY)
-    draft.value = resizeTo(rect, cellX - rect.x + 1, cellY - rect.y + 1, sizing, doc.value.layout)
-    return
-  }
-  const free = {
-    x: clamp(drag.cardX + event.clientX - drag.pointerX, 0, (GRID.cols - rect.w) * pitchX),
-    y: clamp(drag.cardY + event.clientY - drag.pointerY, 0, (GRID.rows - rect.h) * pitchY),
-  }
-  motion.moveTo(free, true)
-  // The slot snaps to the nearest cell; an occupied candidate keeps the last valid slot.
-  draft.value = moveTo(rect, Math.round(free.x / pitchX), Math.round(free.y / pitchY), doc.value.layout)
-}
-
-function onPointerUp() {
-  if (drag?.mode === 'move') settle()
-  drag = null
-  moving.value = false
-}
-
 function onKeydown(event: KeyboardEvent) {
-  const rect = draft.value
-  if (!rect || isFormControlTarget(event.target)) return
-  const step = arrows[event.key]
-  if (step) {
+  if (!draft.value || isFormControlTarget(event.target)) return
+  const arrow = arrows[event.key]
+  if (arrow) {
     event.preventDefault()
-    const [dx, dy] = step
-    if (event.shiftKey) {
-      draft.value = resizeTo(rect, rect.w + dx, rect.h + dy, sizing, doc.value.layout)
-    } else {
-      draft.value = moveTo(rect, rect.x + dx, rect.y + dy, doc.value.layout)
-      settle()
-    }
+    step(arrow[0], arrow[1], event.shiftKey)
   } else if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) {
     // A focused header button handles Enter itself (Готово confirms, Отмена cancels).
     event.preventDefault()
