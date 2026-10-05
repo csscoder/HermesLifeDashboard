@@ -288,7 +288,7 @@ Moves the draft mechanics out of `WidgetBoard.vue` without behaviour changes. Th
     - `rect: Ref<Rect | null>`: the snapped landing slot, always a plain `{ x, y, w, h }`;
     - `moving: Ref<boolean>`: true while a pointer move drag is held;
     - `cardStyle: ComputedRef<Record<string, string>>`: `width`, `height`, `transform` of the card, `{}` without a rect;
-    - `activate(rect: Rect): void`: sets the rect, reads metrics, snaps the card to the slot without animation. Call it only when the active widget changes;
+    - `activate(rect: Rect): void`: drops a held drag, sets the rect, reads metrics, snaps the card to the slot without animation. Call it only when the active widget changes;
     - `deactivate(): void`;
     - `onPointerDown(event: PointerEvent, mode: 'move' | 'resize'): void`, `onPointerMove(event: PointerEvent): void`, `onPointerUp(): void`;
     - `step(dx: number, dy: number, resize: boolean): void`: arrow keys; moves animate into the slot.
@@ -339,6 +339,12 @@ function advance(ms: number, interval = 1000 / 60) {
     gsap.updateRoot(time / 1000)
     gsap.ticker.sleep()
   }
+}
+
+// The card's absolute x in px: its offset from the slot plus the slot origin.
+function cardX(active: ReturnType<typeof setup>) {
+  const offset = /translate3d\(([^p]+)px/.exec(active.cardStyle.value.transform ?? '')
+  return Number(offset![1]) + active.rect.value!.x * PITCH
 }
 
 beforeEach(() => {
@@ -441,9 +447,25 @@ describe('useActiveRect', () => {
     active.onPointerUp()
     advance(80)
     const settling = active.cardStyle.value.transform
-    expect(settling).not.toMatch(/^translate3d\(0px, 0px/)
+    const visibleX = cardX(active)
+    // Still on its way to the slot at x = 4 (304 px), so the slot and the visible pose differ.
+    expect(Math.abs(visibleX - 4 * PITCH)).toBeGreaterThan(1)
     active.onPointerDown(pointer(0, 0), 'move')
     expect(active.cardStyle.value.transform).toBe(settling)
+    // A move without pointer offset holds the card where it was grabbed, not at the slot.
+    active.onPointerMove(pointer(0, 0))
+    advance(2400)
+    expect(cardX(active)).toBeCloseTo(visibleX, 0)
+  })
+
+  it('switching the active rect during a drag ignores the old drag', () => {
+    const active = setup()
+    active.activate({ x: 0, y: 0, w: 1, h: 1 })
+    active.onPointerDown(pointer(0, 0), 'move')
+    active.activate({ x: 5, y: 5, w: 1, h: 1 })
+    expect(active.moving.value).toBe(false)
+    active.onPointerMove(pointer(3 * PITCH, 0))
+    expect(active.rect.value).toEqual({ x: 5, y: 5, w: 1, h: 1 })
   })
 })
 ```
@@ -455,7 +477,7 @@ Expected: FAIL — `Failed to resolve import "../app/board/use-active-rect"`.
 
 - [ ] **Step 3: Write the composable**
 
-`apps/ui/app/board/use-active-rect.ts` (the logic is moved from `WidgetBoard.vue`; only `activate`, `deactivate`, `step` and the `sizing() === null` guard are new):
+`apps/ui/app/board/use-active-rect.ts` (the logic is moved from `WidgetBoard.vue`; only `activate`, `deactivate`, `step` and the `sizing() === null` guard are new; `activate` also drops a held drag):
 
 ```ts
 import { computed, ref, type Ref } from 'vue'
@@ -533,6 +555,9 @@ export function useActiveRect({ gridEl, others, sizing }: ActiveRectOptions) {
 
   /** Call only when the active widget changes: it places the card on the slot without animation. */
   function activate(next: Rect) {
+    // A drag still held on the previous rect must not move the new one.
+    drag = null
+    moving.value = false
     rect.value = { x: next.x, y: next.y, w: next.w, h: next.h }
     readMetrics()
     motion.reset(slotPx(next))
@@ -604,7 +629,7 @@ export function useActiveRect({ gridEl, others, sizing }: ActiveRectOptions) {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @lifedashboard/ui exec vitest run test/use-active-rect.test.ts`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Switch the builder to the composable**
 
@@ -1413,7 +1438,18 @@ Expected: both exit 0 for all packages.
 
 - [ ] **Step 6: Start the app in Orca's built-in browser**
 
-From the repository root run `pnpm dev` (UI at `http://127.0.0.1:3000`). Open the UI in Orca's built-in browser through `orca-cli`. Clear the board first: in the page console run `localStorage.removeItem('lifedashboard.board')` and reload. Place three placeholders with «+» (resize two of them smaller so free space remains).
+From the repository root run `pnpm dev` (UI at `http://127.0.0.1:3000`). Open the UI in Orca's built-in browser through `orca-cli`. Clear the board first: in the page console run `localStorage.removeItem('lifedashboard.board')` and reload. Place three placeholders with «+» (resize two of them smaller so free space remains). Then install a write counter for the board key in the console:
+
+```js
+window.__writes = 0
+const setItem = Storage.prototype.setItem
+Storage.prototype.setItem = function (key, value) {
+  if (key === 'lifedashboard.board') window.__writes++
+  return setItem.call(this, key, value)
+}
+```
+
+The counter resets on reload; reinstall it after each reload that a check depends on.
 
 - [ ] **Step 7: Run the manual check and record each result**
 
@@ -1422,11 +1458,15 @@ From the repository root run `pnpm dev` (UI at `http://127.0.0.1:3000`). Open th
 3. **Resize.** The corner handle resizes within the placeholder limits and never into occupied cells.
 4. **Delete by click.** Hover a widget: «×» appears; one click deletes it (no drag starts) (Review Focus 3).
 5. **Keyboard.** Tab to a widget: arrows move, Shift+arrows resize, the live region announces «Виджет W×H, колонка X, ряд Y». Delete removes the focused widget and focus moves to the next widget. Focus «Готово» in the header and press Backspace: nothing is deleted. Open the theme select and press Delete/arrows: the board does not react (Review Focus 4).
-6. **Cancel and save.** Move one widget and delete another, then «Отмена» (and separately Esc): the board returns to its state before the mode. Repeat and press «Готово» (and separately Enter on a focused widget): the changes stay; reload the page: they persist.
+6. **Cancel and save.** Set `window.__writes = 0`. Move one widget and delete another: `__writes` stays 0 while editing. «Отмена» (and separately Esc): the board returns to its state before the mode and `__writes` is still 0. Repeat and press «Готово» (and separately Enter on a focused widget): the changes stay and `__writes` grows by exactly 1 per confirm; reload the page: they persist. Enter the mode and press «Готово» without changes: `__writes` does not grow.
 7. **Delete all.** Delete every widget, then «Отмена»: all widgets return and «Изменить» is enabled. Delete every widget again, then «Готово»: the board is empty and «Изменить» is disabled (Review Focus 5).
 8. **Two-tab conflict.** Open a second tab with the UI. In tab 1 press «Изменить» and move a widget. In tab 2 delete a widget through its own edit mode and press «Готово». In tab 1 press «Готово»: the header shows «Доска изменена в другой вкладке», tab 1 shows tab 2's board, and tab 2's change is not overwritten (reload tab 2 to confirm).
 9. **Missed storage events.** In tab 1 press «Изменить»; in tab 2 make and save a change; in tab 1 press «Отмена»: tab 1 now shows tab 2's change.
 10. **Builder regression.** «+» still works as in Task 2, Step 7; during the builder «Изменить» is hidden and placed widgets have no «×».
+11. **Storage failures.**
+    - *Read fails at «Готово».* Press «Изменить» and move a widget. Then run `const getItem = Storage.prototype.getItem; Storage.prototype.getItem = function () { throw new Error('denied') }` and press «Готово»: the board shows the moved layout (never an empty board) and the write counter grows by 1. Run `Storage.prototype.getItem = getItem` and reload: the moved layout persists.
+    - *Save fails.* Run `const savedSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error('quota') }`. Press «Изменить», move a widget, press «Готово»: the header shows «Не удалось сохранить доску», the moved layout stays on screen and the mode closes. Press «Изменить»: the moved layout is shown (not the stored one); press «Отмена»: the moved layout still stays. Run `Storage.prototype.setItem = savedSetItem` and reload: the layout from before the failed save is shown, because nothing was written.
+12. **Unknown widget type.** Run `localStorage.setItem('lifedashboard.board', JSON.stringify({ schemaVersion: 1, instances: [{ id: 'u1', source: { kind: 'builtin', type: 'weather' }, config: {} }], layout: [{ instanceId: 'u1', x: 0, y: 0, w: 2, h: 2 }] }))` and reload: the board shows «Неизвестный виджет». Press «Изменить»: the widget has no resize handle; it moves by pointer and by arrows; Shift+arrows do not change its size; Delete removes it; «Отмена» brings it back.
 
 Stop the dev servers afterwards. Record every result (pass/fail with a note) in the task report.
 
