@@ -1,4 +1,4 @@
-import type { Size, SizeLimits } from './grid'
+import type { Size, SizeLimits } from '@lifedashboard/contracts/grid'
 
 export interface WidgetSizing extends SizeLimits {
   default: Size

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, shallowRef } from 'vue'
 import { gsap } from 'gsap'
 import { useActiveRect } from '../app/board/use-active-rect'
-import type { Rect, SizeLimits } from '../app/widgets/grid'
+import type { Rect, SizeLimits } from '@lifedashboard/contracts/grid'
 
 // A 12×8 grid of 64 px cells with 12 px gaps: the pitch is 76 px on both axes.
 const PITCH = 76

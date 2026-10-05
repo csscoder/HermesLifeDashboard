@@ -5,7 +5,7 @@ import {
   moveTo,
   resizeTo,
   type Rect,
-} from '../app/widgets/grid'
+} from '../src/grid.ts'
 
 const limits = { min: { w: 1, h: 1 }, max: { w: 12, h: 8 } }
 const block: Rect = { x: 4, y: 0, w: 4, h: 4 }

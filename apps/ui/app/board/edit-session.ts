@@ -1,5 +1,5 @@
 import type { BoardDocument, LoadError, WidgetPlacement } from '../widgets/board-document'
-import type { Rect } from '../widgets/grid'
+import type { Rect } from '@lifedashboard/contracts/grid'
 
 /** Board interaction mode: display only, the builder draft, or editing the placed widgets. */
 export type BoardMode = 'view' | 'build' | 'edit'

@@ -1,10 +1,12 @@
-import { GRID, inBounds, overlaps, type Rect } from '@lifedashboard/contracts/grid'
+import { GRID, inBounds, overlaps, type Rect } from './grid.ts'
 
 export type WidgetSource = { kind: 'builtin'; type: string }
 
 export interface WidgetInstance {
   id: string
   source: WidgetSource
+  // Schema version of `config` (base design §12.2); every widget type starts at 1.
+  configVersion: number
   config: Record<string, unknown>
 }
 
@@ -12,45 +14,61 @@ export interface WidgetPlacement extends Rect {
   instanceId: string
 }
 
-// The stored document is also the future export/import format.
-export interface BoardDocument {
-  schemaVersion: 1
+export interface ScreenBoard {
+  id: string
   instances: WidgetInstance[]
   layout: WidgetPlacement[]
 }
 
-export type ParseResult = { ok: true; doc: BoardDocument } | { ok: false; error: string }
-
-export interface LoadError {
-  kind: 'storage' | 'invalid-document'
-  message: string
+export interface RoomBoard {
+  roomId: string
+  revision: number
+  // Ordered by screen position.
+  screens: ScreenBoard[]
 }
 
-export const BOARD_STORAGE_KEY = 'lifedashboard.board'
-
-export function emptyBoard(): BoardDocument {
-  return { schemaVersion: 1, instances: [], layout: [] }
+export interface RoomSummary {
+  id: string
+  title: string
+  position: number
+  revision: number
 }
 
-// Single validation point for every external input: localStorage now, file import later.
-// A future schemaVersion gets a migration branch here.
-export function parseBoardDocument(raw: unknown): ParseResult {
-  if (!isRecord(raw)) return fail('document must be an object')
-  if (raw.schemaVersion !== 1) return fail(`unsupported schemaVersion: ${JSON.stringify(raw.schemaVersion)}`)
+export interface SaveBoardRequest {
+  expectedRevision: number
+  screens: ScreenBoard[]
+}
+
+export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID.test(value)
+}
+
+// Single validation point for a screen from outside the process: API requests now, file import later.
+export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
+  if (!isRecord(raw)) return fail('screen must be an object')
+  if (!isUuid(raw.id)) return fail('screen id must be a UUID')
   if (!Array.isArray(raw.instances) || !Array.isArray(raw.layout)) return fail('instances and layout must be arrays')
 
   const instances: WidgetInstance[] = []
   const ids = new Set<string>()
   for (const [index, item] of raw.instances.entries()) {
-    if (!isRecord(item) || !isNonEmptyString(item.id)) return fail(`instances[${index}]: id must be a non-empty string`)
+    if (!isRecord(item) || !isUuid(item.id)) return fail(`instances[${index}]: id must be a UUID`)
     if (ids.has(item.id)) return fail(`instances[${index}]: duplicate id "${item.id}"`)
     const source = item.source
     if (!isRecord(source) || source.kind !== 'builtin' || !isNonEmptyString(source.type)) {
       return fail(`instances[${index}]: invalid source`)
     }
+    const version = item.configVersion
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+      return fail(`instances[${index}]: configVersion must be a positive integer`)
+    }
     if (!isRecord(item.config)) return fail(`instances[${index}]: config must be an object`)
     ids.add(item.id)
-    instances.push({ id: item.id, source: { kind: 'builtin', type: source.type }, config: item.config })
+    instances.push({ id: item.id, source: { kind: 'builtin', type: source.type }, configVersion: version, config: item.config })
   }
 
   const layout: WidgetPlacement[] = []
@@ -72,40 +90,10 @@ export function parseBoardDocument(raw: unknown): ParseResult {
   const unplaced = instances.find((instance) => !placed.has(instance.id))
   if (unplaced) return fail(`instance "${unplaced.id}" has no placement`)
 
-  return { ok: true, doc: { schemaVersion: 1, instances, layout } }
+  return { ok: true, value: { id: raw.id, instances, layout } }
 }
 
-export function loadBoard(): { doc: BoardDocument; error?: LoadError } {
-  let text: string | null
-  try {
-    text = localStorage.getItem(BOARD_STORAGE_KEY)
-  } catch (error) {
-    return { doc: emptyBoard(), error: { kind: 'storage', message: String(error) } }
-  }
-  if (text === null) return { doc: emptyBoard() }
-
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch (error) {
-    return { doc: emptyBoard(), error: { kind: 'invalid-document', message: `invalid JSON: ${String(error)}` } }
-  }
-  const result = parseBoardDocument(raw)
-  return result.ok
-    ? { doc: result.doc }
-    : { doc: emptyBoard(), error: { kind: 'invalid-document', message: result.error } }
-}
-
-export function saveBoard(doc: BoardDocument): boolean {
-  try {
-    localStorage.setItem(BOARD_STORAGE_KEY, JSON.stringify(doc))
-    return true
-  } catch {
-    return false
-  }
-}
-
-function fail(error: string): ParseResult {
+function fail(error: string): { ok: false; error: string } {
   return { ok: false, error }
 }
 

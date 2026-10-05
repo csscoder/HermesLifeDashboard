@@ -10,7 +10,7 @@ import {
   type WidgetSource,
 } from '../widgets/board-document'
 import { findManifest, placeholderManifest } from '../widgets/catalog'
-import { GRID, findFreeRect, isFree, type Rect } from '../widgets/grid'
+import { GRID, findFreeRect, isFree, type Rect } from '@lifedashboard/contracts/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import {
   confirmOutcome,

@@ -1,5 +1,5 @@
 import { computed, ref, type Ref } from 'vue'
-import { GRID, moveTo, resizeTo, type Rect, type SizeLimits } from '../widgets/grid'
+import { GRID, moveTo, resizeTo, type Rect, type SizeLimits } from '@lifedashboard/contracts/grid'
 import { useDraftMotion } from './draft-motion'
 
 export interface ActiveRectOptions {

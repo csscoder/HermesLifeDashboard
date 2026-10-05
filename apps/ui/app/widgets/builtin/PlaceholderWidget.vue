@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Size } from '../grid'
+import type { Size } from '@lifedashboard/contracts/grid'
 
 defineProps<{ size: Size }>()
 </script>

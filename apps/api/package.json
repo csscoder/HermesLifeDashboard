@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@lifedashboard/contracts": "workspace:*",
     "fastify": "5.12.5"
   },
   "devDependencies": {
