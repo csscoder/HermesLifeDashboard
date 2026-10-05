@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { WidgetSource } from './board-document'
+import type { WidgetSource } from '@lifedashboard/contracts/board'
 import type { Size } from '@lifedashboard/contracts/grid'
 import { builtinWidgetRenderers } from './registry'
 import WidgetFrame from './WidgetFrame.vue'

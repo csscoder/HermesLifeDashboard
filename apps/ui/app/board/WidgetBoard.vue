@@ -1,31 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import {
-  BOARD_STORAGE_KEY,
-  emptyBoard,
-  loadBoard,
-  saveBoard,
-  type BoardDocument,
-  type WidgetInstance,
-  type WidgetSource,
-} from '../widgets/board-document'
+import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
+import { GRID, findFreeRect, type Rect } from '@lifedashboard/contracts/grid'
+import { api } from '../api'
 import { findManifest, placeholderManifest } from '../widgets/catalog'
-import { GRID, findFreeRect, isFree, type Rect } from '@lifedashboard/contracts/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import {
-  confirmOutcome,
-  focusAfterRemoval,
-  readingOrder,
-  removeInstance,
-  setPlacement,
-  type BoardMode,
-} from './edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
+import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
-const emit = defineEmits<{ notice: [message: string | null] }>()
-defineProps<{ themeId: string }>()
+const props = defineProps<{ roomId: string; themeId: string }>()
+const emit = defineEmits<{
+  notice: [message: string | null]
+  // 'down' after a failed save: the board stays, the header shows the API as unavailable.
+  api: [status: 'ok' | 'down']
+  unauthorized: []
+  // A load failed: the app replaces the board with «Повторить».
+  unavailable: []
+}>()
 
 const draftSource: WidgetSource = { kind: 'builtin', type: placeholderManifest.type }
 const sizing = placeholderManifest.sizing
@@ -43,19 +37,22 @@ const arrows: Record<string, [number, number]> = {
 }
 // A card that is not active fills its grid area.
 const fill = { width: '100%', height: '100%' }
+const emptyScreen: ScreenBoard = { id: '', instances: [], layout: [] }
 
-const doc = ref<BoardDocument>(emptyBoard())
-// Edit mode changes a working copy. `doc` keeps the document loaded on entry (storage events are
-// ignored meanwhile), so it is also the snapshot for the conflict check on «Готово».
-const working = ref<BoardDocument>(emptyBoard())
+// A load that finishes while a mode is open is dropped (DATA-06); `saving` blocks input during a PUT.
+const { room, saving, loaded, load: loadRoom, save: saveRoom } = useRoomSync(
+  api,
+  () => props.roomId,
+  () => mode.value === 'view',
+)
+// The board shows the first screen; screens get their own UI in step 3 of GO-3.
+const doc = computed<ScreenBoard>(() => room.value?.screens[0] ?? emptyScreen)
+// Edit mode changes a working copy; `doc` keeps the loaded screen for the «unchanged» check.
+const working = ref<ScreenBoard>(emptyScreen)
 const activeId = ref<string | null>(null)
 // Template ref keys must differ from setup bindings: ref="draft" would overwrite a setup binding.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
-// True after a failed save: the in-memory document is then newer than storage and must not be replaced.
-let unsaved = false
-let persistenceNotice: string | null = null
-let placementNotice: string | null = null
 
 const editing = computed(() => mode.value === 'edit')
 const hasWidgets = computed(() => doc.value.layout.length > 0)
@@ -113,39 +110,30 @@ function area(rect: Rect) {
   return { gridColumn: `${rect.x + 1} / span ${rect.w}`, gridRow: `${rect.y + 1} / span ${rect.h}` }
 }
 
-function emitNotice() {
-  emit('notice', [persistenceNotice, placementNotice].filter(Boolean).join(' · ') || null)
+// Applies a tested reaction (room-sync); no decisions here.
+async function apply(reaction: Reaction) {
+  if (reaction.leaveMode) stop()
+  if (reaction.notice !== undefined) emit('notice', reaction.notice)
+  if (reaction.api) emit('api', reaction.api)
+  if (reaction.app === 'pairing') emit('unauthorized')
+  else if (reaction.app === 'unavailable') emit('unavailable')
+  if (reaction.reload) await load()
 }
 
-function applyLoad(result: ReturnType<typeof loadBoard>) {
-  doc.value = result.doc
-  persistenceNotice = result.error?.kind === 'storage' ? 'Хранилище недоступно' : null
-  emitNotice()
-  if (result.error?.kind === 'invalid-document') console.warn(`Board document ignored: ${result.error.message}`)
+async function load() {
+  await apply(afterLoad(await loadRoom()))
 }
 
-function persist() {
-  unsaved = !saveBoard(doc.value)
-  persistenceNotice = unsaved ? 'Не удалось сохранить доску' : null
-  placementNotice = null
-  emitNotice()
-}
-
-// Applies changes to the latest stored document so another tab's saved widgets are kept.
-// Sequential changes only: simultaneous writes from two tabs are not atomic.
-function refresh() {
-  const result = loadBoard()
-  if (!unsaved && !result.error) applyLoad(result)
+async function save(next: ScreenBoard) {
+  await apply(afterSave(await saveRoom(next)))
 }
 
 function start() {
-  placementNotice = null
-  emitNotice()
+  emit('notice', null)
   const others = doc.value.layout
   const rect = findFreeRect(sizing.default, others) ?? findFreeRect(sizing.min, others)
   if (!rect) {
-    placementNotice = 'Нет свободного места'
-    emitNotice()
+    emit('notice', 'Нет свободного места')
     mode.value = 'view'
     return
   }
@@ -154,9 +142,7 @@ function start() {
 }
 
 function enterEdit() {
-  placementNotice = null
-  emitNotice()
-  refresh()
+  emit('notice', null)
   working.value = doc.value
   activeId.value = null
   const first = readingOrder(working.value.layout)[0]
@@ -200,53 +186,31 @@ function removeWidget(id: string) {
 function confirmBuild() {
   const rect = activeRect.value
   if (!rect) return
-  refresh()
-  // Another tab may have taken the place since the draft was positioned.
-  if (!isFree(rect, doc.value.layout)) {
-    placementNotice = 'Место занято, переместите виджет'
-    emitNotice()
-    return
-  }
   const id = crypto.randomUUID()
-  doc.value = {
-    schemaVersion: 1,
-    instances: [...doc.value.instances, { id, source: { ...draftSource }, config: {} }],
+  void save({
+    ...doc.value,
+    instances: [...doc.value.instances, { id, source: { ...draftSource }, configVersion: 1, config: {} }],
     layout: [...doc.value.layout, { instanceId: id, ...rect }],
-  }
-  persist()
-  stop()
+  })
 }
 
 function confirmEdit() {
-  // After a failed save memory is newer than storage, so there is nothing to compare against.
-  const stored = unsaved ? null : loadBoard()
-  const outcome = confirmOutcome(working.value, doc.value, stored)
-  if (outcome === 'unchanged') {
-    refresh()
-  } else if (outcome === 'conflict' && stored) {
-    applyLoad(stored)
-    placementNotice = 'Доска изменена в другой вкладке'
-    emitNotice()
-  } else {
-    doc.value = working.value
-    persist()
-  }
-  stop()
+  if (isSameBoard(working.value, doc.value)) stop()
+  else void save(working.value)
 }
 
 function confirm() {
+  if (saving.value) return
   if (editing.value) confirmEdit()
   else confirmBuild()
 }
 
 function cancel() {
-  // Picks up saves from other tabs whose storage events were ignored during the edit session.
-  if (editing.value) refresh()
-  stop()
+  if (!saving.value) stop()
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (mode.value === 'view' || isFormControlTarget(event.target)) return
+  if (saving.value || mode.value === 'view' || isFormControlTarget(event.target)) return
   const arrow = arrows[event.key]
   if (arrow) {
     if (!activeRect.value) return
@@ -272,8 +236,9 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-function onStorage(event: StorageEvent) {
-  if (!editing.value && !unsaved && (event.key === BOARD_STORAGE_KEY || event.key === null)) applyLoad(loadBoard())
+// Picks up saves from other tabs; the API is not polled (spec «UI flow»).
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible' && mode.value === 'view' && !saving.value) void load()
 }
 
 watch(mode, (next) => {
@@ -282,26 +247,27 @@ watch(mode, (next) => {
 })
 
 onMounted(() => {
-  applyLoad(loadBoard())
+  void load()
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('storage', onStorage)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('storage', onStorage)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
-
-// Replaced by room-sync in the next task of the plan (board on the API).
-const saving = ref(false)
-const loaded = ref(true)
 
 defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
 </script>
 
 <template>
   <div class="board">
-    <div ref="gridBox" class="board__grid" :class="{ 'board__grid--building': mode === 'build' }">
+    <div
+      ref="gridBox"
+      class="board__grid"
+      :class="{ 'board__grid--building': mode === 'build' }"
+      :inert="saving"
+    >
       <template v-if="mode !== 'view'">
         <span v-for="cell in cells" :key="`${cell.x}-${cell.y}`" class="board__dot" :style="area(cell)" />
       </template>

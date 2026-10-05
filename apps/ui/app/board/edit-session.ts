@@ -1,19 +1,16 @@
-import type { BoardDocument, LoadError, WidgetPlacement } from '../widgets/board-document'
+import type { ScreenBoard, WidgetPlacement } from '@lifedashboard/contracts/board'
 import type { Rect } from '@lifedashboard/contracts/grid'
 
 /** Board interaction mode: display only, the builder draft, or editing the placed widgets. */
 export type BoardMode = 'view' | 'build' | 'edit'
 
-/** What «Готово» does with an edit session. */
-export type ConfirmOutcome = 'unchanged' | 'conflict' | 'save'
-
-export function setPlacement(doc: BoardDocument, id: string, rect: Rect): BoardDocument {
+export function setPlacement(doc: ScreenBoard, id: string, rect: Rect): ScreenBoard {
   // Only the rect fields are copied: callers may pass a placement or a rect with extra keys.
   const placement = { instanceId: id, x: rect.x, y: rect.y, w: rect.w, h: rect.h }
   return { ...doc, layout: doc.layout.map((item) => (item.instanceId === id ? placement : item)) }
 }
 
-export function removeInstance(doc: BoardDocument, id: string): BoardDocument {
+export function removeInstance(doc: ScreenBoard, id: string): ScreenBoard {
   return {
     ...doc,
     instances: doc.instances.filter((item) => item.id !== id),
@@ -21,9 +18,9 @@ export function removeInstance(doc: BoardDocument, id: string): BoardDocument {
   }
 }
 
-// ponytail: JSON comparison is key-order sensitive; every document comes from parseBoardDocument or
-// the helpers above, which keep one key order. Switch to a structural compare if other sources appear.
-export function isSameBoard(a: BoardDocument, b: BoardDocument): boolean {
+// ponytail: JSON comparison is key-order sensitive; both sides come from the API response or the
+// helpers above, which keep its key order. Switch to a structural compare if other sources appear.
+export function isSameBoard(a: ScreenBoard, b: ScreenBoard): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
@@ -38,20 +35,4 @@ export function focusAfterRemoval(layout: readonly WidgetPlacement[], id: string
   const index = order.findIndex((item) => item.instanceId === id)
   if (index < 0) return null
   return (order[index + 1] ?? order[index - 1])?.instanceId ?? null
-}
-
-/**
- * Decides «Готово» for an edit session. `doc` is the document the session started from; `stored`
- * is a fresh storage read, or null when an earlier save failed and memory is newer than storage
- * (known limitation: another tab's save made meanwhile is then overwritten). A failed read cannot
- * prove a conflict, so it never blocks the save — the builder's refresh() rule.
- */
-export function confirmOutcome(
-  working: BoardDocument,
-  doc: BoardDocument,
-  stored: { doc: BoardDocument; error?: LoadError } | null,
-): ConfirmOutcome {
-  if (isSameBoard(working, doc)) return 'unchanged'
-  if (stored && !stored.error && !isSameBoard(stored.doc, doc)) return 'conflict'
-  return 'save'
 }

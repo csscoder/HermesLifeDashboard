@@ -56,6 +56,18 @@ async function check() {
   state.value = result.state
 }
 
+function onUnauthorized() {
+  // An unsaved working copy is discarded; pairing starts over (spec «App states»).
+  mode.value = 'view'
+  notice.value = null
+  state.value = 'pairing'
+}
+
+function onUnavailable() {
+  mode.value = 'view'
+  state.value = 'unavailable'
+}
+
 onMounted(check)
 </script>
 
@@ -106,7 +118,17 @@ onMounted(check)
           <p>API: недоступен</p>
           <button type="button" class="app__button" @click="check">Повторить</button>
         </div>
-        <WidgetBoard v-else ref="board" v-model:mode="mode" :theme-id="themeId" @notice="notice = $event" />
+        <WidgetBoard
+          v-else-if="roomId"
+          ref="board"
+          v-model:mode="mode"
+          :room-id="roomId"
+          :theme-id="themeId"
+          @notice="notice = $event"
+          @api="apiDown = $event === 'down'"
+          @unauthorized="onUnauthorized"
+          @unavailable="onUnavailable"
+        />
       </main>
     </div>
     <p class="app__narrow">Окно слишком узкое</p>
