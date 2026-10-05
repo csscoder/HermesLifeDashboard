@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import WidgetBoard from './board/WidgetBoard.vue'
+import type { BoardMode } from './board/edit-session'
 import { loadAppearance, saveAppearance } from './theme/appearance'
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
 import { resolveThemeId, themeClass } from './theme/resolve'
@@ -14,7 +15,7 @@ const labels: Record<ApiState, string> = {
 }
 
 const apiState = ref<ApiState>('checking')
-const building = ref(false)
+const mode = ref<BoardMode>('view')
 const notice = ref<string | null>(null)
 const boardRef = useTemplateRef('board')
 
@@ -64,11 +65,16 @@ onMounted(async () => {
     <div class="app">
       <header class="app__header">
         <h1 class="app__title">LifeDashboard</h1>
-        <template v-if="building">
+        <template v-if="mode !== 'view'">
           <button type="button" class="app__button" @click="boardRef?.confirm()">Готово</button>
           <button type="button" class="app__button" @click="boardRef?.cancel()">Отмена</button>
         </template>
-        <button v-else type="button" class="app__button" aria-label="Добавить виджет" @click="building = true">+</button>
+        <template v-else>
+          <button type="button" class="app__button" aria-label="Добавить виджет" @click="mode = 'build'">+</button>
+          <button type="button" class="app__button" :disabled="!boardRef?.hasWidgets" @click="mode = 'edit'">
+            Изменить
+          </button>
+        </template>
         <label class="app__theme">
           Тема
           <select class="app__select" :value="themeId" @change="selectTheme">
@@ -79,7 +85,7 @@ onMounted(async () => {
         <p class="app__api">{{ labels[apiState] }}</p>
       </header>
       <main class="app__main">
-        <WidgetBoard ref="board" v-model:building="building" :theme-id="themeId" @notice="notice = $event" />
+        <WidgetBoard ref="board" v-model:mode="mode" :theme-id="themeId" @notice="notice = $event" />
       </main>
     </div>
     <p class="app__narrow">Окно слишком узкое</p>
@@ -125,6 +131,11 @@ html {
 .app__button:focus-visible {
   outline: 0.125rem solid var(--ld-focus-ring);
   outline-offset: 0.125rem;
+}
+
+.app__button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .app__theme {

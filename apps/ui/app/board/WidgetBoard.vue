@@ -6,15 +6,24 @@ import {
   loadBoard,
   saveBoard,
   type BoardDocument,
+  type WidgetInstance,
   type WidgetSource,
 } from '../widgets/board-document'
-import { placeholderManifest } from '../widgets/catalog'
+import { findManifest, placeholderManifest } from '../widgets/catalog'
 import { GRID, findFreeRect, isFree, type Rect } from '../widgets/grid'
 import WidgetHost from '../widgets/WidgetHost.vue'
+import {
+  confirmOutcome,
+  focusAfterRemoval,
+  readingOrder,
+  removeInstance,
+  setPlacement,
+  type BoardMode,
+} from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { useActiveRect } from './use-active-rect'
 
-const building = defineModel<boolean>('building', { required: true })
+const mode = defineModel<BoardMode>('mode', { required: true })
 const emit = defineEmits<{ notice: [message: string | null] }>()
 defineProps<{ themeId: string }>()
 
@@ -32,13 +41,44 @@ const arrows: Record<string, [number, number]> = {
   ArrowUp: [0, -1],
   ArrowDown: [0, 1],
 }
+// A card that is not active fills its grid area.
+const fill = { width: '100%', height: '100%' }
 
 const doc = ref<BoardDocument>(emptyBoard())
-// Template ref keys must differ from setup bindings: ref="draft" would overwrite the draft rect.
+// Edit mode changes a working copy. `doc` keeps the document loaded on entry (storage events are
+// ignored meanwhile), so it is also the snapshot for the conflict check on «Готово».
+const working = ref<BoardDocument>(emptyBoard())
+const activeId = ref<string | null>(null)
+// Template ref keys must differ from setup bindings: ref="draft" would overwrite a setup binding.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
+// True after a failed save: the in-memory document is then newer than storage and must not be replaced.
+let unsaved = false
+let persistenceNotice: string | null = null
+let placementNotice: string | null = null
+
+const editing = computed(() => mode.value === 'edit')
+const hasWidgets = computed(() => doc.value.layout.length > 0)
+
+const placed = computed(() => {
+  const shown = editing.value ? working.value : doc.value
+  return shown.layout.flatMap((placement) => {
+    const instance = shown.instances.find((item) => item.id === placement.instanceId)
+    return instance ? [{ instance, placement }] : []
+  })
+})
+
+function sizingOf(instance: WidgetInstance) {
+  return findManifest(instance.source.type)?.sizing ?? null
+}
+
+const activeSizing = computed(() => {
+  const instance = working.value.instances.find((item) => item.id === activeId.value)
+  return instance ? sizingOf(instance) : null
+})
+
 const {
-  rect: draft,
+  rect: activeRect,
   moving,
   cardStyle,
   activate,
@@ -47,23 +87,27 @@ const {
   onPointerMove,
   onPointerUp,
   step,
-} = useActiveRect({ gridEl, others: () => doc.value.layout, sizing: () => sizing })
-// True after a failed save: the in-memory document is then newer than storage and must not be replaced.
-let unsaved = false
-let persistenceNotice: string | null = null
-let placementNotice: string | null = null
+} = useActiveRect({
+  gridEl,
+  others: () =>
+    editing.value ? working.value.layout.filter((item) => item.instanceId !== activeId.value) : doc.value.layout,
+  sizing: () => (editing.value ? activeSizing.value : sizing),
+})
 
-const placed = computed(() =>
-  doc.value.layout.flatMap((placement) => {
-    const instance = doc.value.instances.find((item) => item.id === placement.instanceId)
-    return instance ? [{ instance, placement }] : []
-  }),
+// Every change of the edited widget's rect lands in the working copy at once.
+watch(
+  activeRect,
+  (rect) => {
+    if (editing.value && rect && activeId.value) working.value = setPlacement(working.value, activeId.value, rect)
+  },
+  { flush: 'sync' },
 )
 
-const draftLabel = computed(() => {
-  const rect = draft.value
-  return rect ? `Виджет ${rect.w}×${rect.h}, колонка ${rect.x + 1}, ряд ${rect.y + 1}` : ''
-})
+function rectLabel(rect: Rect) {
+  return `Виджет ${rect.w}×${rect.h}, колонка ${rect.x + 1}, ряд ${rect.y + 1}`
+}
+
+const liveLabel = computed(() => (activeRect.value ? rectLabel(activeRect.value) : ''))
 
 function area(rect: Rect) {
   return { gridColumn: `${rect.x + 1} / span ${rect.w}`, gridRow: `${rect.y + 1} / span ${rect.h}` }
@@ -87,6 +131,13 @@ function persist() {
   emitNotice()
 }
 
+// Applies changes to the latest stored document so another tab's saved widgets are kept.
+// Sequential changes only: simultaneous writes from two tabs are not atomic.
+function refresh() {
+  const result = loadBoard()
+  if (!unsaved && !result.error) applyLoad(result)
+}
+
 function start() {
   placementNotice = null
   emitNotice()
@@ -95,27 +146,59 @@ function start() {
   if (!rect) {
     placementNotice = 'Нет свободного места'
     emitNotice()
-    building.value = false
+    mode.value = 'view'
     return
   }
   activate(rect)
   void nextTick(() => draftEl.value?.focus())
 }
 
+function enterEdit() {
+  placementNotice = null
+  emitNotice()
+  refresh()
+  working.value = doc.value
+  activeId.value = null
+  const first = readingOrder(working.value.layout)[0]
+  if (first) void nextTick(() => focusWidget(first.instanceId))
+}
+
 function stop() {
   deactivate()
-  building.value = false
+  activeId.value = null
+  mode.value = 'view'
 }
 
-// Applies changes to the latest stored document so another tab's saved widgets are kept.
-// Sequential changes only: simultaneous writes from two tabs are not atomic.
-function refresh() {
-  const result = loadBoard()
-  if (!unsaved && !result.error) applyLoad(result)
+function focusWidget(id: string) {
+  gridEl.value?.querySelector<HTMLElement>(`[data-instance="${CSS.escape(id)}"]`)?.focus()
 }
 
-function confirm() {
-  const rect = draft.value
+// Makes a widget active. Grabbing the widget that is already active keeps its visible pose.
+function select(id: string) {
+  if (activeId.value === id) return
+  const placement = working.value.layout.find((item) => item.instanceId === id)
+  if (!placement) return
+  activeId.value = id
+  activate(placement)
+}
+
+function grab(event: PointerEvent, id: string, how: 'move' | 'resize') {
+  select(id)
+  onPointerDown(event, how)
+}
+
+function removeWidget(id: string) {
+  const next = focusAfterRemoval(working.value.layout, id)
+  if (activeId.value === id) {
+    deactivate()
+    activeId.value = null
+  }
+  working.value = removeInstance(working.value, id)
+  if (next) void nextTick(() => focusWidget(next))
+}
+
+function confirmBuild() {
+  const rect = activeRect.value
   if (!rect) return
   refresh()
   // Another tab may have taken the place since the draft was positioned.
@@ -134,38 +217,68 @@ function confirm() {
   stop()
 }
 
-function remove(id: string) {
-  refresh()
-  doc.value = {
-    schemaVersion: 1,
-    instances: doc.value.instances.filter((item) => item.id !== id),
-    layout: doc.value.layout.filter((item) => item.instanceId !== id),
+function confirmEdit() {
+  // After a failed save memory is newer than storage, so there is nothing to compare against.
+  const stored = unsaved ? null : loadBoard()
+  const outcome = confirmOutcome(working.value, doc.value, stored)
+  if (outcome === 'unchanged') {
+    refresh()
+  } else if (outcome === 'conflict' && stored) {
+    applyLoad(stored)
+    placementNotice = 'Доска изменена в другой вкладке'
+    emitNotice()
+  } else {
+    doc.value = working.value
+    persist()
   }
-  persist()
+  stop()
+}
+
+function confirm() {
+  if (editing.value) confirmEdit()
+  else confirmBuild()
+}
+
+function cancel() {
+  // Picks up saves from other tabs whose storage events were ignored during the edit session.
+  if (editing.value) refresh()
+  stop()
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (!draft.value || isFormControlTarget(event.target)) return
+  if (mode.value === 'view' || isFormControlTarget(event.target)) return
   const arrow = arrows[event.key]
   if (arrow) {
+    if (!activeRect.value) return
     event.preventDefault()
     step(arrow[0], arrow[1], event.shiftKey)
   } else if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) {
-    // A focused header button handles Enter itself (Готово confirms, Отмена cancels).
+    // A focused button handles Enter itself (Готово confirms, Отмена cancels, × deletes).
     event.preventDefault()
     confirm()
   } else if (event.key === 'Escape') {
     event.preventDefault()
-    stop()
+    cancel()
+  } else if (
+    editing.value &&
+    activeId.value &&
+    (event.key === 'Delete' || event.key === 'Backspace') &&
+    event.target instanceof Node &&
+    gridEl.value?.contains(event.target)
+  ) {
+    // Only from inside the board, so Backspace on a header button never deletes a widget.
+    event.preventDefault()
+    removeWidget(activeId.value)
   }
 }
 
 function onStorage(event: StorageEvent) {
-  if (!unsaved && (event.key === BOARD_STORAGE_KEY || event.key === null)) applyLoad(loadBoard())
+  if (!editing.value && !unsaved && (event.key === BOARD_STORAGE_KEY || event.key === null)) applyLoad(loadBoard())
 }
 
-watch(building, (on) => {
-  if (on && !draft.value) start()
+watch(mode, (next) => {
+  if (next === 'build' && !activeRect.value) start()
+  else if (next === 'edit') enterEdit()
 })
 
 onMounted(() => {
@@ -179,48 +292,76 @@ onUnmounted(() => {
   window.removeEventListener('storage', onStorage)
 })
 
-defineExpose({ confirm, cancel: stop })
+defineExpose({ confirm, cancel, hasWidgets })
 </script>
 
 <template>
   <div class="board">
-    <div ref="gridBox" class="board__grid" :class="{ 'board__grid--building': draft }">
-      <template v-if="draft">
+    <div ref="gridBox" class="board__grid" :class="{ 'board__grid--building': mode === 'build' }">
+      <template v-if="mode !== 'view'">
         <span v-for="cell in cells" :key="`${cell.x}-${cell.y}`" class="board__dot" :style="area(cell)" />
       </template>
-      <div v-for="{ instance, placement } in placed" :key="instance.id" class="board__item" :style="area(placement)">
-        <WidgetHost :source="instance.source" :size="placement" :theme-id="themeId" />
+      <div
+        v-for="{ instance, placement } in placed"
+        :key="instance.id"
+        class="board__item"
+        :class="{
+          'board__item--editable': editing,
+          'board__item--active': editing && instance.id === activeId,
+          'board__item--moving': editing && moving && instance.id === activeId,
+        }"
+        :style="area(placement)"
+        :data-instance="editing ? instance.id : undefined"
+        :role="editing ? 'group' : undefined"
+        :tabindex="editing ? 0 : undefined"
+        :aria-label="editing ? rectLabel(placement) : undefined"
+        @focusin="editing && select(instance.id)"
+        @pointerdown="editing && grab($event, instance.id, 'move')"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+      >
+        <div class="board__card" :style="editing && instance.id === activeId ? cardStyle : fill">
+          <WidgetHost class="board__content" :source="instance.source" :size="placement" :theme-id="themeId" />
+          <span
+            v-if="editing && sizingOf(instance)"
+            class="board__resize"
+            aria-hidden="true"
+            @pointerdown.stop="grab($event, instance.id, 'resize')"
+          />
+        </div>
         <button
-          v-if="!draft"
+          v-if="editing"
           type="button"
           class="board__remove"
           :aria-label="`Удалить виджет ${placement.w}×${placement.h}`"
-          @click="remove(instance.id)"
+          @pointerdown.stop
+          @click="removeWidget(instance.id)"
         >
           ×
         </button>
       </div>
       <div
-        v-if="draft"
+        v-if="mode === 'build' && activeRect"
         ref="draftBox"
         class="board__item board__draft"
-        :class="{ 'board__draft--moving': moving }"
+        :class="{ 'board__item--moving': moving }"
         role="group"
         tabindex="0"
-        :aria-label="draftLabel"
-        :style="area(draft)"
+        :aria-label="liveLabel"
+        :style="area(activeRect)"
         @pointerdown="onPointerDown($event, 'move')"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
         @pointercancel="onPointerUp"
       >
         <div class="board__card" :style="cardStyle">
-          <WidgetHost :source="draftSource" :size="draft" :theme-id="themeId" />
+          <WidgetHost :source="draftSource" :size="activeRect" :theme-id="themeId" />
           <span class="board__resize" aria-hidden="true" @pointerdown.stop="onPointerDown($event, 'resize')" />
         </div>
       </div>
     </div>
-    <p class="board__live" aria-live="polite">{{ draftLabel }}</p>
+    <p class="board__live" aria-live="polite">{{ liveLabel }}</p>
   </div>
 </template>
 
@@ -259,18 +400,26 @@ defineExpose({ confirm, cancel: stop })
   opacity: 0.4;
 }
 
-.board__draft {
-  z-index: 1;
+.board__draft,
+.board__item--editable {
   cursor: grab;
   touch-action: none;
   outline-offset: 0.25rem;
 }
 
-.board__draft:active {
+.board__draft:active,
+.board__item--editable:active {
   cursor: grabbing;
 }
 
+/* The moving card floats above its neighbours. */
+.board__draft,
+.board__item--active {
+  z-index: 1;
+}
+
 .board__draft:focus-visible,
+.board__item--editable:focus-visible,
 .board__remove:focus-visible {
   outline: 0.125rem solid var(--ld-focus-ring);
 }
@@ -279,8 +428,13 @@ defineExpose({ confirm, cancel: stop })
   outline-offset: 0.125rem;
 }
 
+/* Widget content stays inert while widgets are edited, so a drag never reaches it. */
+.board__item--editable .board__content {
+  pointer-events: none;
+}
+
 /* Landing slot shown while the card floats under the pointer. */
-.board__draft--moving::before {
+.board__item--moving::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -334,7 +488,7 @@ defineExpose({ confirm, cancel: stop })
 }
 
 .board__item:hover .board__remove,
-.board__remove:focus-visible {
+.board__item:focus-within .board__remove {
   opacity: 1;
 }
 
