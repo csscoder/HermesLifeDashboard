@@ -292,7 +292,11 @@ onUnmounted(() => {
   window.removeEventListener('storage', onStorage)
 })
 
-defineExpose({ confirm, cancel, hasWidgets })
+// Replaced by room-sync in the next task of the plan (board on the API).
+const saving = ref(false)
+const loaded = ref(true)
+
+defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
 </script>
 
 <template>

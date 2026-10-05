@@ -1,23 +1,29 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
+import { api } from './api'
 import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
+import { connect } from './board/room-sync'
+import PairingForm from './PairingForm.vue'
 import { loadAppearance, saveAppearance } from './theme/appearance'
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
 import { resolveThemeId, themeClass } from './theme/resolve'
 
-type ApiState = 'checking' | 'ok' | 'unavailable'
+type AppState = 'checking' | 'pairing' | 'ready' | 'unavailable'
 
-const labels: Record<ApiState, string> = {
-  checking: 'API: проверка…',
-  ok: 'API: работает',
-  unavailable: 'API: недоступен',
-}
-
-const apiState = ref<ApiState>('checking')
+const state = ref<AppState>('checking')
+// The first room; the rooms UI arrives with step 2 of GO-3.
+const roomId = ref<string | null>(null)
+// A failed save keeps the board but marks the API as unavailable in the header.
+const apiDown = ref(false)
 const mode = ref<BoardMode>('view')
 const notice = ref<string | null>(null)
 const boardRef = useTemplateRef('board')
+
+const apiLabel = computed(() => {
+  if (state.value === 'unavailable' || apiDown.value) return 'API: недоступен'
+  return state.value === 'checking' ? 'API: проверка…' : 'API: работает'
+})
 
 // Workspace theme; Rooms (E2) will put their own id in front of it in the chain.
 const storedThemeId = loadAppearance().themeId
@@ -40,23 +46,17 @@ const rootClass = computed(() => [
   `room--skin-${themeMeta(themeId.value).skin}`,
 ])
 
-const HEALTH_TIMEOUT_MS = 5000
-
-async function isApiHealthy(): Promise<boolean> {
-  try {
-    // The signal also aborts reading the body, so a stalled response ends as unavailable.
-    const response = await fetch('/health', { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
-    if (response.status !== 200) return false
-    const body: unknown = await response.json()
-    return typeof body === 'object' && body !== null && 'status' in body && body.status === 'ok'
-  } catch {
-    return false
-  }
+async function check() {
+  state.value = 'checking'
+  mode.value = 'view'
+  notice.value = null
+  apiDown.value = false
+  const result = await connect(api)
+  if (result.state === 'ready') roomId.value = result.roomId
+  state.value = result.state
 }
 
-onMounted(async () => {
-  apiState.value = (await isApiHealthy()) ? 'ok' : 'unavailable'
-})
+onMounted(check)
 </script>
 
 <template>
@@ -65,15 +65,30 @@ onMounted(async () => {
     <div class="app">
       <header class="app__header">
         <h1 class="app__title">LifeDashboard</h1>
-        <template v-if="mode !== 'view'">
-          <button type="button" class="app__button" @click="boardRef?.confirm()">Готово</button>
-          <button type="button" class="app__button" @click="boardRef?.cancel()">Отмена</button>
-        </template>
-        <template v-else>
-          <button type="button" class="app__button" aria-label="Добавить виджет" @click="mode = 'build'">+</button>
-          <button type="button" class="app__button" :disabled="!boardRef?.hasWidgets" @click="mode = 'edit'">
-            Изменить
-          </button>
+        <template v-if="state === 'ready'">
+          <template v-if="mode !== 'view'">
+            <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.confirm()">
+              Готово
+            </button>
+            <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.cancel()">
+              Отмена
+            </button>
+          </template>
+          <template v-else>
+            <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
+            <button
+              type="button"
+              class="app__button"
+              aria-label="Добавить виджет"
+              :disabled="!boardRef?.loaded"
+              @click="mode = 'build'"
+            >
+              +
+            </button>
+            <button type="button" class="app__button" :disabled="!boardRef?.hasWidgets" @click="mode = 'edit'">
+              Изменить
+            </button>
+          </template>
         </template>
         <label class="app__theme">
           Тема
@@ -82,10 +97,16 @@ onMounted(async () => {
           </select>
         </label>
         <p class="app__notice" role="status">{{ headerNotice }}</p>
-        <p class="app__api">{{ labels[apiState] }}</p>
+        <p class="app__api">{{ apiLabel }}</p>
       </header>
       <main class="app__main">
-        <WidgetBoard ref="board" v-model:mode="mode" :theme-id="themeId" @notice="notice = $event" />
+        <p v-if="state === 'checking'" class="app__status">Подключение…</p>
+        <PairingForm v-else-if="state === 'pairing'" @paired="check" />
+        <div v-else-if="state === 'unavailable'" class="app__status">
+          <p>API: недоступен</p>
+          <button type="button" class="app__button" @click="check">Повторить</button>
+        </div>
+        <WidgetBoard v-else ref="board" v-model:mode="mode" :theme-id="themeId" @notice="notice = $event" />
       </main>
     </div>
     <p class="app__narrow">Окно слишком узкое</p>
@@ -175,6 +196,14 @@ html {
 
 .app__main {
   min-height: 0;
+}
+
+.app__status {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  margin: 4rem 0 0;
+  color: var(--ld-text-muted);
 }
 
 .app__narrow {
