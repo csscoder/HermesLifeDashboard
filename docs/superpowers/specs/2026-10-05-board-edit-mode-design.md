@@ -65,7 +65,7 @@ function useActiveRect(options: {
   rect: Ref<Rect | null>
   moving: Ref<boolean>
   cardStyle: ComputedRef<Record<string, string>>
-  activate(rect: Rect): void // reads metrics, resets motion to the slot
+  activate(rect: Rect): void // reads metrics, resets motion to the slot; called only when the active widget changes
   deactivate(): void
   onPointerDown(event: PointerEvent, mode: 'move' | 'resize'): void
   onPointerMove(event: PointerEvent): void
@@ -108,7 +108,8 @@ card with the GSAP transform; while it is dragged, the landing slot is shown das
 builder draft.
 
 **Active widget.** The widget last grabbed with the pointer or focused with the keyboard.
-`activate(rect)` makes it active. Every change of the active rectangle is written to `working`
+`activate(rect)` makes it active only when `activeId` changes; grabbing the widget that is already
+active starts from its visible pose, as the builder draft does, so a settling card never jumps. Every change of the active rectangle is written to `working`
 with `setPlacement`. `others` is `working.layout` without the active placement. `sizing` is
 `findManifest(source.type)?.sizing ?? null`, so an unknown widget type can move but not resize.
 
@@ -129,10 +130,15 @@ move or resize at once. Occupied cells and grid bounds block the operation; neig
 **Delete.** «×» or Delete calls `removeInstance(working, id)`. When the deleted widget was active,
 `deactivate()` runs.
 
-**«Готово».** When `isSameBoard(working, doc)`, leave the mode without writing. Otherwise run the
-conflict check (see Error handling), then set `doc = working`, call `persist()` and leave the mode.
+**«Готово».** When `isSameBoard(working, doc)`, run `refresh()` and leave the mode without writing.
+Otherwise run the conflict check (see Error handling), then set `doc = working`, call `persist()`
+and leave the mode.
 
-**«Отмена» / Esc.** Discard `working` and leave the mode without writing.
+**«Отмена» / Esc.** Discard `working`, run `refresh()` and leave the mode without writing.
+
+`refresh()` is the builder's existing rule: it applies the stored document only when nothing is
+`unsaved` and the read succeeds. It picks up saves from other tabs whose `storage` events were
+ignored during the mode.
 
 **Storage events.** While the mode is `edit`, `storage` events from other tabs do not replace any
 state. In `view` and `build` they apply as today.
@@ -141,12 +147,13 @@ state. In `view` and `build` they apply as today.
 
 | Condition | Behaviour |
 | --- | --- |
-| On «Готово» the stored document differs from `snapshot` (another tab saved) | `working` is not written. Header shows «Доска изменена в другой вкладке»; the fresh document is loaded; the mode closes |
-| An earlier save failed (`unsaved`): memory is newer than storage | The conflict check is skipped; `working` is saved directly |
+| On «Готово» the read succeeds and the stored document differs from `snapshot` (another tab saved) | `working` is not written. Header shows «Доска изменена в другой вкладке»; the fresh document is loaded; the mode closes |
+| On «Готово» the storage read fails | The conflict check is skipped and the returned empty document is never applied; `working` is saved as below. Same rule as `refresh()` |
+| An earlier save failed (`unsaved`): memory is newer than storage | The conflict check is skipped; `working` is saved directly. Known limitation: a save made by another tab meanwhile is overwritten (the builder has the same limitation while `unsaved`) |
 | `saveBoard` returns `false` | «Не удалось сохранить доску»; `doc = working` stays in memory; the mode closes |
 | Storage unavailable on entry | The mode works on the in-memory document |
 | Unknown `source.type` | Move and delete work; resize is disabled |
-| All widgets deleted in the mode | The mode stays on until «Готово» or «Отмена»; afterwards «Изменить» is disabled |
+| All widgets deleted in the mode | The mode stays on until «Готово» or «Отмена». After «Готово» the board is empty and «Изменить» is disabled; «Отмена» restores the widgets and «Изменить» stays enabled |
 
 ## Testing
 
@@ -159,7 +166,8 @@ TDD (RED → GREEN → REFACTOR) with vitest.
 - **`test/use-active-rect.test.ts`:** the composable runs in an `effectScope` as in
   `draft-motion.test.ts`, with a stubbed grid element and `getComputedStyle`. `step` moves the
   rectangle and is blocked by occupied cells and bounds; Shift-resize respects `sizing` and does
-  nothing with `sizing = null`; pointer move snaps to cells; pointer resize is limited.
+  nothing with `sizing = null`; pointer move snaps to cells; pointer resize is limited; grabbing
+  the active rectangle again while it settles starts from the visible pose, not from the slot.
 - Existing tests stay green: they guard the builder refactor.
 - `pnpm typecheck` and `pnpm test` pass.
 - **Manual check in Orca's built-in browser (recorded in the task report):** no «×» outside the
@@ -177,8 +185,9 @@ TDD (RED → GREEN → REFACTOR) with vitest.
 - The «×» delete button and Delete-key deletion exist only in edit mode.
 - «Готово» saves all changes with one write; they survive reload. «Отмена» and Esc discard all
   changes, including deletions.
-- A conflicting save from another tab is never overwritten; the user sees «Доска изменена в другой
-  вкладке».
+- A save from another tab that completed before «Готово» is detected and not overwritten; the user
+  sees «Доска изменена в другой вкладке». Simultaneous saves from two tabs are not atomic (same
+  limitation as the builder).
 - The builder (`build`) behaves as specified in the widget builder spec.
 - `pnpm typecheck` and `pnpm test` pass.
 
