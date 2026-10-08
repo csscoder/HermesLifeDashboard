@@ -4,6 +4,7 @@ import { registerAuth } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { newRequestId, registerErrorHandling } from './errors.ts'
 import { registerRooms } from './rooms.ts'
+import { registerWidgetPackages } from './widget-packages.ts'
 
 export interface AppDeps {
   db: DatabaseSync
@@ -19,5 +20,6 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   app.get('/health', async () => ({ status: 'ok' as const }))
   registerAuth(app, { db, config, now, onPairingCode })
   registerRooms(app, { db, now })
+  registerWidgetPackages(app, { db, now })
   return app
 }

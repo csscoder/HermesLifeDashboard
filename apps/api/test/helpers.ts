@@ -1,6 +1,7 @@
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify'
 import type { DatabaseSync } from 'node:sqlite'
 import { expect } from 'vitest'
+import type { PackageInspection } from '@lifedashboard/contracts/widget-package'
 import { buildApp } from '../src/app.ts'
 import { openDatabase } from '../src/db.ts'
 
@@ -43,7 +44,7 @@ export async function testApp(db?: DatabaseSync): Promise<TestApp> {
 }
 
 export interface CallOptions {
-  method?: 'GET' | 'POST' | 'PUT'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   url: string
   payload?: unknown
   cookie?: string
@@ -51,6 +52,7 @@ export interface CallOptions {
   // null omits the header; the default is ORIGIN for mutations and no header for GET.
   origin?: string | null
   contentType?: string
+  headers?: Record<string, string>
 }
 
 export function call(app: FastifyInstance, options: CallOptions): Promise<LightMyRequestResponse> {
@@ -60,6 +62,7 @@ export function call(app: FastifyInstance, options: CallOptions): Promise<LightM
   if (origin !== null) headers.origin = origin
   if (options.cookie) headers.cookie = options.cookie
   if (options.contentType) headers['content-type'] = options.contentType
+  Object.assign(headers, options.headers)
   return app.inject({ method, url: options.url, headers, payload: options.payload as string | object | undefined })
 }
 
@@ -79,4 +82,31 @@ export async function pair(t: TestApp): Promise<string> {
 
 export function errorCode(response: LightMyRequestResponse): string {
   return response.json().error.code
+}
+
+/** A valid widget package; `change` edits it before it is returned. */
+export function widgetPackage(change?: (pkg: any) => void): any {
+  const pkg = {
+    format: 1,
+    manifest: {
+      id: 'dev.test.hello',
+      version: '1.0.0',
+      title: 'Hello',
+      author: 'test',
+      sdk: 1,
+      entry: 'index.js',
+      styles: ['style.css'],
+      sizing: { default: { w: 3, h: 3 }, min: { w: 2, h: 2 }, max: { w: 6, h: 6 } },
+      permissions: ['state'],
+    },
+    files: { 'index.js': 'export default {}', 'style.css': '.hello{}' },
+  }
+  change?.(pkg)
+  return pkg
+}
+
+export async function installPackage(t: TestApp, cookie: string, pkg: unknown = widgetPackage()): Promise<PackageInspection> {
+  const response = await call(t.app, { method: 'POST', url: '/api/v1/widget-packages', cookie, payload: pkg })
+  expect(response.statusCode).toBe(200)
+  return response.json().data
 }
