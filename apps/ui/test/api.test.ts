@@ -60,7 +60,35 @@ describe('apiRequest', () => {
 
   it('maps another 4xx to invalid with the server message', async () => {
     vi.stubGlobal('fetch', respond(400, { error: { code: 'VALIDATION_ERROR', message: 'bad rect', requestId: 'x', retryable: false } }))
-    expect(await api.rooms()).toEqual({ ok: false, kind: 'invalid', message: 'bad rect' })
+    expect(await api.rooms()).toEqual({ ok: false, kind: 'invalid', code: 'VALIDATION_ERROR', message: 'bad rect' })
+  })
+
+  it('maps 401 SESSION_EXPIRED apart from a lost dashboard session', async () => {
+    vi.stubGlobal('fetch', respond(401, { error: { code: 'SESSION_EXPIRED', message: 'm', requestId: 'x', retryable: false } }))
+    expect(await api.gateway('state.get', 'tok', {})).toEqual({ ok: false, kind: 'session-expired' })
+    vi.stubGlobal('fetch', respond(401, { error: { code: 'UNAUTHORIZED', message: 'm', requestId: 'x', retryable: false } }))
+    expect(await api.gateway('state.get', 'tok', {})).toEqual({ ok: false, kind: 'unauthorized' })
+  })
+
+  it('sends the widget session header and the input on a gateway call', async () => {
+    const fetchMock = respond(200, { data: { revision: 1 }, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.gateway('state.set', 'tok', { data: 1, expectedRevision: 0 })).toEqual({ ok: true, data: { revision: 1 } })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/widget-gateway/state.set')
+    expect(init?.method).toBe('POST')
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json', 'x-widget-session': 'tok' })
+    expect(init?.body).toBe('{"data":1,"expectedRevision":0}')
+  })
+
+  it('sends an empty JSON body on DELETE', async () => {
+    const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.deletePackage('dev.a.clock')
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/widget-packages/dev.a.clock')
+    expect(init?.method).toBe('DELETE')
+    expect(init?.body).toBe('{}')
   })
 
   it('maps a network error to unavailable', async () => {

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@lifedashboard/contracts": "workspace:*",
+    "@lifedashboard/widget-sdk": "workspace:*",
     "@unocss/nuxt": "66.10.5",
     "gsap": "3.15.0",
     "nuxt": "4.5.2",

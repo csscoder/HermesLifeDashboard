@@ -57,7 +57,7 @@ describe('connect', () => {
   it.each([
     ['no room', ok([])],
     ['an unavailable API', { ok: false, kind: 'unavailable' }],
-    ['a rejected request', { ok: false, kind: 'invalid', message: 'm' }],
+    ['a rejected request', { ok: false, kind: 'invalid', code: 'VALIDATION_ERROR', message: 'm' }],
   ])('is unavailable for %s', async (_name, result) => {
     expect(await connect({ rooms: vi.fn().mockResolvedValue(result) })).toEqual({ state: 'unavailable' })
   })
