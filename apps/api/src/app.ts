@@ -4,6 +4,7 @@ import { registerAuth } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { newRequestId, registerErrorHandling } from './errors.ts'
 import { registerRooms } from './rooms.ts'
+import { registerWidgetGateway } from './widget-gateway.ts'
 import { registerWidgetPackages } from './widget-packages.ts'
 
 export interface AppDeps {
@@ -21,5 +22,6 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   registerAuth(app, { db, config, now, onPairingCode })
   registerRooms(app, { db, now })
   registerWidgetPackages(app, { db, now })
+  registerWidgetGateway(app, { db, now })
   return app
 }

@@ -5,6 +5,13 @@ import type { PairRequest } from '@lifedashboard/contracts/api'
 import type { ApiConfig } from './config.ts'
 import { ApiError, ok } from './errors.ts'
 
+declare module 'fastify' {
+  interface FastifyRequest {
+    // sha256 of the dashboard session token; set by the /api session check.
+    sessionHash: string
+  }
+}
+
 const MINUTE = 60_000
 const DAY = 24 * 60 * MINUTE
 const CODE_TTL_MS = 10 * MINUTE
@@ -36,6 +43,7 @@ export interface AuthDeps {
 
 // Base design §13.1: one-time pairing code -> HttpOnly session cookie; Host and Origin checks.
 export function registerAuth(app: FastifyInstance, { db, config, now, onPairingCode }: AuthDeps): void {
+  app.decorateRequest('sessionHash', '')
   const hosts = new Set([`127.0.0.1:${config.port}`, `localhost:${config.port}`])
   const origins = new Set(config.uiOrigins)
   // ponytail: pairing state is in memory; a restart prints a fresh code, which is the intended flow.
@@ -76,6 +84,7 @@ export function registerAuth(app: FastifyInstance, { db, config, now, onPairingC
       db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash)
       throw new ApiError('UNAUTHORIZED', 'Session expired')
     }
+    request.sessionHash = hash
     if (expiresAt <= t + RENEW_THRESHOLD_MS) {
       db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?').run(new Date(t + SESSION_TTL_MS).toISOString(), hash)
       reply.header('set-cookie', sessionCookie(token))
