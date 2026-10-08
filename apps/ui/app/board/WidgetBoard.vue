@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID, findFreeRect, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
-import { findManifest, placeholderManifest } from '../widgets/catalog'
+import { findBuiltinWidget, placeholderManifest } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
@@ -66,7 +66,7 @@ const placed = computed(() => {
 })
 
 function sizingOf(instance: WidgetInstance) {
-  return findManifest(instance.source.type)?.sizing ?? null
+  return findBuiltinWidget(instance.source.type)?.sizing ?? null
 }
 
 const activeSizing = computed(() => {

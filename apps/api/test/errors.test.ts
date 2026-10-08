@@ -78,6 +78,25 @@ describe('error handling', () => {
     await app.close()
   })
 
+  it.each([
+    ['SESSION_EXPIRED', 401],
+    ['PERMISSION_DENIED', 403],
+    ['UNKNOWN_OP', 404],
+    ['INVALID_INPUT', 400],
+    ['CONFLICT', 409],
+    ['PACKAGE_IN_USE', 409],
+  ] as const)('maps %s to %i', async (code, status) => {
+    const app = Fastify({ genReqId: newRequestId })
+    registerErrorHandling(app)
+    app.get('/x', async () => {
+      throw new ApiError(code, 'm')
+    })
+    const response = await app.inject({ url: '/x' })
+    expect(response.statusCode).toBe(status)
+    expect(response.json().error).toMatchObject({ code, message: 'm', retryable: false })
+    await app.close()
+  })
+
   it('answers unknown routes with NOT_FOUND', async () => {
     const app = await appWithRoutes()
     const response = await app.inject({ url: '/nope' })

@@ -10,6 +10,12 @@ const STATUS: Record<ErrorCode, number> = {
   REVISION_CONFLICT: 409,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
+  SESSION_EXPIRED: 401,
+  UNKNOWN_OP: 404,
+  PERMISSION_DENIED: 403,
+  INVALID_INPUT: 400,
+  CONFLICT: 409,
+  PACKAGE_IN_USE: 409,
 }
 
 export class ApiError extends Error {
