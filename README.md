@@ -43,6 +43,33 @@ then stays signed in while it is used at least once in 29 days.
 
 ## Layout
 
-- `apps/api` — Fastify API: `GET /health`, pairing, rooms and boards in SQLite (`node:sqlite`).
-- `packages/contracts` — grid, board types and validation shared by the API and the UI.
-- `apps/ui` — Nuxt 4 SPA; `/api` and `/health` are proxied to the API in development.
+- `apps/api` — Fastify API: `GET /health`, pairing, rooms and boards, widget packages, widget sessions and the widget gateway in SQLite (`node:sqlite`); sandbox documents under `/sandbox`.
+- `packages/contracts` — grid, board, widget package and gateway contracts shared by the API, the UI and the SDK.
+- `packages/widget-sdk` — `useWidget()`, the sandbox runtime (`dist/sandbox.js`) and the `ld-widget` CLI.
+- `apps/ui` — Nuxt 4 SPA; `/api`, `/health` and `/sandbox` are proxied to the API in development.
+- `examples/widgets` — `hello` (state and a notification) and `hostile` (probes the sandbox boundary).
+
+## Widget packages
+
+An installed widget is a Vue SFC packaged as one `*.ldwidget.json` file. It runs in a sandboxed
+iframe and reaches data only through the API's widget gateway, with the permissions accepted at
+install (`docs/superpowers/specs/2026-10-08-widget-runtime-sandbox-design.md`).
+
+A widget project holds `widget.json` (the manifest: `id`, `version`, `title`, `author`, `sdk`,
+`entry`, `styles`, `sizing`, `permissions`) and `src/index.vue`. Build it with `ld-widget build`
+(from `@lifedashboard/widget-sdk`):
+
+```bash
+pnpm -C examples/widgets/hello build   # → examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0.ldwidget.json
+```
+
+Widget code imports only `vue` and `@lifedashboard/widget-sdk`: `useWidget()` gives `context`
+(size, `sizeClass`, theme, `rootFontSize`, config, locale, visibility), `state.get()` /
+`state.set(data, expectedRevision)`, `notify({ title, body })` and `call(op, input)`. Style with the
+theme's `var(--ld-…)` tokens; UnoCSS classes are not available in the sandbox.
+
+Install: «Виджеты» → «Установить из файла», check the permissions screen, «Установить». Place it
+from «Добавить виджет…». A package with widgets on the board cannot be deleted.
+
+`pnpm dev` also rebuilds the sandbox runtime `packages/widget-sdk/dist/sandbox.js`, which the API
+serves at `/sandbox/runtime/sdk.js`; `pnpm build` builds it once.
