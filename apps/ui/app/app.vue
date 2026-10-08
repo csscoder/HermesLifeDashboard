@@ -6,6 +6,7 @@ import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
 import { connect } from './board/room-sync'
 import PairingForm from './PairingForm.vue'
+import { toasts } from './toasts'
 import { installedPackages, loadPackages, pickerEntries } from './widgets/catalog'
 import PackagesDialog from './widgets/PackagesDialog.vue'
 import { loadAppearance, saveAppearance } from './theme/appearance'
@@ -154,6 +155,13 @@ onMounted(check)
       </main>
     </div>
     <PackagesDialog v-if="state === 'ready'" v-model:open="packagesOpen" />
+    <ul class="app__toasts" aria-live="polite">
+      <li v-for="toast in toasts" :key="toast.id" class="app__toast">
+        <p class="app__toast-source">{{ toast.source }}</p>
+        <p class="app__toast-title">{{ toast.title }}</p>
+        <p v-if="toast.body" class="app__toast-body">{{ toast.body }}</p>
+      </li>
+    </ul>
     <p class="app__narrow">Окно слишком узкое</p>
   </div>
 </template>
@@ -253,6 +261,43 @@ html {
 
 .app__narrow {
   display: none;
+}
+
+.app__toasts {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  gap: 0.5rem;
+  width: 20rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app__toast {
+  padding: 0.75rem 1rem;
+  border: var(--ld-border-width) solid var(--ld-border-default);
+  border-radius: var(--ld-radius-card);
+  background: var(--ld-surface-1-solid);
+  color: var(--ld-text-primary);
+}
+
+.app__toast p {
+  margin: 0;
+}
+
+.app__toast-source {
+  color: var(--ld-text-muted);
+  font-size: 0.75rem;
+}
+
+.app__toast-title {
+  font-weight: var(--ld-weight-strong);
+}
+
+.app__toast-body {
+  font-size: 0.875rem;
 }
 
 @media (max-width: 1279.98px) {

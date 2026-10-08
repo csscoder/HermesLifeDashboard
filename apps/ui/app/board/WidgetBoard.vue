@@ -292,7 +292,14 @@ defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
         @pointercancel="onPointerUp"
       >
         <div class="board__card" :style="editing && instance.id === activeId ? cardStyle : fill">
-          <WidgetHost class="board__content" :source="instance.source" :size="placement" :theme-id="themeId" />
+          <WidgetHost
+            class="board__content"
+            :source="instance.source"
+            :size="placement"
+            :theme-id="themeId"
+            :widget-id="instance.id"
+            :config="instance.config"
+          />
           <span
             v-if="editing && sizingOf(instance)"
             class="board__resize"
@@ -398,7 +405,8 @@ defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
   outline-offset: 0.125rem;
 }
 
-/* Widget content stays inert while widgets are edited, so a drag never reaches it. */
+/* Widget content (sandbox iframes included) stays inert while the board is built or edited, so a drag never reaches it. */
+.board__grid--building .board__content,
 .board__item--editable .board__content {
   pointer-events: none;
 }
