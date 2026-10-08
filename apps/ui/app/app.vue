@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
+import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { api } from './api'
 import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
 import { connect } from './board/room-sync'
 import PairingForm from './PairingForm.vue'
+import { installedPackages, loadPackages, pickerEntries } from './widgets/catalog'
+import PackagesDialog from './widgets/PackagesDialog.vue'
 import { loadAppearance, saveAppearance } from './theme/appearance'
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
 import { resolveThemeId, themeClass } from './theme/resolve'
@@ -19,6 +22,20 @@ const apiDown = ref(false)
 const mode = ref<BoardMode>('view')
 const notice = ref<string | null>(null)
 const boardRef = useTemplateRef('board')
+
+// The widget the next build draft places; set by the «Добавить виджет» picker.
+const draftSource = ref<WidgetSource>({ kind: 'builtin', type: 'placeholder' })
+const packagesOpen = ref(false)
+const entries = computed(() => pickerEntries(installedPackages.value))
+
+function pickWidget(event: Event) {
+  const select = event.target as HTMLSelectElement
+  const entry = entries.value.find((item) => item.key === select.value)
+  select.value = ''
+  if (!entry) return
+  draftSource.value = entry.source
+  mode.value = 'build'
+}
 
 const apiLabel = computed(() => {
   if (state.value === 'unavailable' || apiDown.value) return 'API: недоступен'
@@ -52,7 +69,10 @@ async function check() {
   notice.value = null
   apiDown.value = false
   const result = await connect(api)
-  if (result.state === 'ready') roomId.value = result.roomId
+  if (result.state === 'ready') {
+    roomId.value = result.roomId
+    void loadPackages(api)
+  }
   state.value = result.state
 }
 
@@ -88,18 +108,19 @@ onMounted(check)
           </template>
           <template v-else>
             <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
-            <button
-              type="button"
-              class="app__button"
+            <select
+              class="app__select"
               aria-label="Добавить виджет"
               :disabled="!boardRef?.loaded"
-              @click="mode = 'build'"
+              @change="pickWidget"
             >
-              +
-            </button>
+              <option value="" selected>Добавить виджет…</option>
+              <option v-for="entry in entries" :key="entry.key" :value="entry.key">{{ entry.title }}</option>
+            </select>
             <button type="button" class="app__button" :disabled="!boardRef?.hasWidgets" @click="mode = 'edit'">
               Изменить
             </button>
+            <button type="button" class="app__button" @click="packagesOpen = true">Виджеты</button>
           </template>
         </template>
         <label class="app__theme">
@@ -124,6 +145,7 @@ onMounted(check)
           v-model:mode="mode"
           :room-id="roomId"
           :theme-id="themeId"
+          :draft-source="draftSource"
           @notice="notice = $event"
           @api="apiDown = $event === 'down'"
           @unauthorized="onUnauthorized"
@@ -131,6 +153,7 @@ onMounted(check)
         />
       </main>
     </div>
+    <PackagesDialog v-if="state === 'ready'" v-model:open="packagesOpen" />
     <p class="app__narrow">Окно слишком узкое</p>
   </div>
 </template>

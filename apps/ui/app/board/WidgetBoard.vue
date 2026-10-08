@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID, findFreeRect, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
-import { findBuiltinWidget, placeholderManifest } from '../widgets/catalog'
+import { describeSource } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
@@ -11,7 +11,7 @@ import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
-const props = defineProps<{ roomId: string; themeId: string }>()
+const props = defineProps<{ roomId: string; themeId: string; draftSource: WidgetSource }>()
 const emit = defineEmits<{
   notice: [message: string | null]
   // 'down' after a failed save: the board stays, the header shows the API as unavailable.
@@ -21,8 +21,6 @@ const emit = defineEmits<{
   unavailable: []
 }>()
 
-const draftSource: WidgetSource = { kind: 'builtin', type: placeholderManifest.type }
-const sizing = placeholderManifest.sizing
 const cells = Array.from({ length: GRID.cols * GRID.rows }, (_, index) => ({
   x: index % GRID.cols,
   y: Math.floor(index / GRID.cols),
@@ -38,6 +36,7 @@ const arrows: Record<string, [number, number]> = {
 // A card that is not active fills its grid area.
 const fill = { width: '100%', height: '100%' }
 const emptyScreen: ScreenBoard = { id: '', instances: [], layout: [] }
+const draftSizing = computed(() => describeSource(props.draftSource)?.sizing ?? null)
 
 // A load that finishes while a mode is open is dropped (DATA-06); `saving` blocks input during a PUT.
 const { room, saving, loaded, load: loadRoom, save: saveRoom } = useRoomSync(
@@ -66,7 +65,7 @@ const placed = computed(() => {
 })
 
 function sizingOf(instance: WidgetInstance) {
-  return instance.source.kind === 'builtin' ? (findBuiltinWidget(instance.source.type)?.sizing ?? null) : null
+  return describeSource(instance.source)?.sizing ?? null
 }
 
 const activeSizing = computed(() => {
@@ -88,7 +87,7 @@ const {
   gridEl,
   others: () =>
     editing.value ? working.value.layout.filter((item) => item.instanceId !== activeId.value) : doc.value.layout,
-  sizing: () => (editing.value ? activeSizing.value : sizing),
+  sizing: () => (editing.value ? activeSizing.value : draftSizing.value),
 })
 
 // Every change of the edited widget's rect lands in the working copy at once.
@@ -130,8 +129,9 @@ async function save(next: ScreenBoard) {
 
 function start() {
   emit('notice', null)
+  const sizing = draftSizing.value
   const others = doc.value.layout
-  const rect = findFreeRect(sizing.default, others) ?? findFreeRect(sizing.min, others)
+  const rect = sizing && (findFreeRect(sizing.default, others) ?? findFreeRect(sizing.min, others))
   if (!rect) {
     emit('notice', 'Нет свободного места')
     mode.value = 'view'
@@ -189,7 +189,7 @@ function confirmBuild() {
   const id = crypto.randomUUID()
   void save({
     ...doc.value,
-    instances: [...doc.value.instances, { id, source: { ...draftSource }, configVersion: 1, config: {} }],
+    instances: [...doc.value.instances, { id, source: { ...props.draftSource }, configVersion: 1, config: {} }],
     layout: [...doc.value.layout, { instanceId: id, ...rect }],
   })
 }
