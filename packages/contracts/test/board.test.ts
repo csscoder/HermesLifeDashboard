@@ -44,6 +44,12 @@ describe('parseScreenBoard', () => {
     expect(parseScreenBoard(mutated((d) => { d.instances[0].source.type = 'weather' })).ok).toBe(true)
   })
 
+  it('accepts a package source', () => {
+    const source = { kind: 'package', packageId: 'dev.alex.pomodoro', version: '1.2.0' }
+    const result = parseScreenBoard(mutated((d) => { d.instances[0].source = { ...source, extra: 1 } }))
+    expect(result.ok && result.value.instances[0]!.source).toEqual(source)
+  })
+
   it('drops unknown fields', () => {
     const result = parseScreenBoard(mutated((d) => {
       d.extra = 1
@@ -61,6 +67,8 @@ describe('parseScreenBoard', () => {
     ['a non-UUID instance id', mutated((d) => { d.instances[0].id = 'a' }), /id must be a UUID/],
     ['a duplicate id', mutated((d) => { d.instances[1].id = A }), /duplicate id/],
     ['a custom source', mutated((d) => { d.instances[0].source = { kind: 'custom' } }), /invalid source/],
+    ['a package source with a bad id', mutated((d) => { d.instances[0].source = { kind: 'package', packageId: 'X', version: '1.0.0' } }), /invalid source/],
+    ['a package source with a bad version', mutated((d) => { d.instances[0].source = { kind: 'package', packageId: 'dev.a', version: 'latest' } }), /invalid source/],
     ['a missing configVersion', mutated((d) => { delete d.instances[0].configVersion }), /configVersion must be a positive integer/],
     ['a zero configVersion', mutated((d) => { d.instances[0].configVersion = 0 }), /configVersion must be a positive integer/],
     ['a fractional configVersion', mutated((d) => { d.instances[0].configVersion = 1.5 }), /configVersion must be a positive integer/],

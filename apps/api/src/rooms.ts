@@ -6,13 +6,16 @@ import {
   type RoomSummary,
   type SaveBoardRequest,
   type ScreenBoard,
+  type WidgetSource,
 } from '@lifedashboard/contracts/board'
 import { ApiError, ok } from './errors.ts'
 
 interface WidgetRow {
   id: string
   screen_id: string
+  source_kind: string
   source_type: string
+  source_version: string | null
   config: string
   config_version: number
   x: number
@@ -83,13 +86,28 @@ function readBoard(db: DatabaseSync, roomId: string): RoomBoard {
         id,
         instances: rows.map((row) => ({
           id: row.id,
-          source: { kind: 'builtin' as const, type: row.source_type },
+          source: sourceOf(row),
           configVersion: row.config_version,
           config: JSON.parse(row.config) as Record<string, unknown>,
         })),
         layout: rows.map((row) => ({ instanceId: row.id, x: row.x, y: row.y, w: row.w, h: row.h })),
       }
     }),
+  }
+}
+
+function sourceOf(row: WidgetRow): WidgetSource {
+  return row.source_kind === 'package'
+    ? { kind: 'package', packageId: row.source_type, version: row.source_version ?? '' }
+    : { kind: 'builtin', type: row.source_type }
+}
+
+function checkPackagesInstalled(db: DatabaseSync, screens: ScreenBoard[]): void {
+  const installed = db.prepare('SELECT 1 FROM widget_package_versions WHERE package_id = ? AND version = ?')
+  for (const { source } of screens.flatMap((screen) => screen.instances)) {
+    if (source.kind === 'package' && !installed.get(source.packageId, source.version)) {
+      throw new ApiError('VALIDATION_ERROR', `Widget package ${source.packageId}@${source.version} is not installed`)
+    }
   }
 }
 
@@ -101,20 +119,23 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
       throw new ApiError('REVISION_CONFLICT', 'The board changed since it was loaded')
     }
     const screens = validateScreens(body.screens as unknown[], screenIds(db, roomId))
+    checkPackagesInstalled(db, screens)
     db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE room_id = ?)').run(roomId)
     const insert = db.prepare(
-      'INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO widgets (id, screen_id, source_kind, source_type, source_version, config, config_version, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     for (const screen of screens) {
       for (const instance of screen.instances) {
         // parseScreenBoard guarantees exactly one placement per instance.
         const place = screen.layout.find((item) => item.instanceId === instance.id)!
+        const { source } = instance
         try {
           insert.run(
             instance.id,
             screen.id,
-            instance.source.kind,
-            instance.source.type,
+            source.kind,
+            source.kind === 'package' ? source.packageId : source.type,
+            source.kind === 'package' ? source.version : null,
             JSON.stringify(instance.config),
             instance.configVersion,
             place.x,
@@ -130,6 +151,8 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
         }
       }
     }
+    // widget_state has no foreign key (spec «Data»): drop the state of widgets this save removed.
+    db.prepare('DELETE FROM widget_state WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
     db.prepare('UPDATE rooms SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), roomId)
     db.exec('COMMIT')
   } catch (error) {

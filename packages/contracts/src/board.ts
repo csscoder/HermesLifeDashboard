@@ -1,9 +1,12 @@
 import { GRID, inBounds, overlaps, type Rect } from './grid.ts'
 import { fail, isRecord, type ParseResult } from './parse.ts'
+import { isPackageId, isPackageVersion } from './widget-package.ts'
 
 export type { ParseResult } from './parse.ts'
 
-export type WidgetSource = { kind: 'builtin'; type: string }
+export type WidgetSource =
+  | { kind: 'builtin'; type: string }
+  | { kind: 'package'; packageId: string; version: string }
 
 export interface WidgetInstance {
   id: string
@@ -59,17 +62,15 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   for (const [index, item] of raw.instances.entries()) {
     if (!isRecord(item) || !isUuid(item.id)) return fail(`instances[${index}]: id must be a UUID`)
     if (ids.has(item.id)) return fail(`instances[${index}]: duplicate id "${item.id}"`)
-    const source = item.source
-    if (!isRecord(source) || source.kind !== 'builtin' || !isNonEmptyString(source.type)) {
-      return fail(`instances[${index}]: invalid source`)
-    }
+    const source = parseSource(item.source)
+    if (!source) return fail(`instances[${index}]: invalid source`)
     const version = item.configVersion
     if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
       return fail(`instances[${index}]: configVersion must be a positive integer`)
     }
     if (!isRecord(item.config)) return fail(`instances[${index}]: config must be an object`)
     ids.add(item.id)
-    instances.push({ id: item.id, source: { kind: 'builtin', type: source.type }, configVersion: version, config: item.config })
+    instances.push({ id: item.id, source, configVersion: version, config: item.config })
   }
 
   const layout: WidgetPlacement[] = []
@@ -92,6 +93,15 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   if (unplaced) return fail(`instance "${unplaced.id}" has no placement`)
 
   return { ok: true, value: { id: raw.id, instances, layout } }
+}
+
+function parseSource(raw: unknown): WidgetSource | null {
+  if (!isRecord(raw)) return null
+  if (raw.kind === 'builtin') return isNonEmptyString(raw.type) ? { kind: 'builtin', type: raw.type } : null
+  if (raw.kind === 'package' && isPackageId(raw.packageId) && isPackageVersion(raw.version)) {
+    return { kind: 'package', packageId: raw.packageId, version: raw.version }
+  }
+  return null
 }
 
 function isNonEmptyString(value: unknown): value is string {

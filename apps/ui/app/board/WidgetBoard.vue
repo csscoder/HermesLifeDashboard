@@ -66,7 +66,7 @@ const placed = computed(() => {
 })
 
 function sizingOf(instance: WidgetInstance) {
-  return findBuiltinWidget(instance.source.type)?.sizing ?? null
+  return instance.source.kind === 'builtin' ? (findBuiltinWidget(instance.source.type)?.sizing ?? null) : null
 }
 
 const activeSizing = computed(() => {

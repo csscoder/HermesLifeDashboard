@@ -165,3 +165,59 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
     expect(response.statusCode).toBe(401)
   })
 })
+
+describe('package widgets on the board', () => {
+  const pomodoro = { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' } as const
+
+  function installVersion(): void {
+    t.db.exec(`
+      INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.test.hello', 'Hello', 'test', 'x');
+      INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at)
+      VALUES ('dev.test.hello', '1.0.0', '${'a'.repeat(64)}', '{}', '{}', 'x');
+    `)
+  }
+
+  const withPackage: ScreenBoard = {
+    id: SEED_SCREEN_ID,
+    instances: [
+      { id: A, source: { ...pomodoro }, configVersion: 1, config: {} },
+      { id: B, source: { ...placeholder }, configVersion: 1, config: {} },
+    ],
+    layout: [
+      { instanceId: A, x: 0, y: 0, w: 3, h: 3 },
+      { instanceId: B, x: 4, y: 0, w: 2, h: 2 },
+    ],
+  }
+
+  it('saves and reads back a package source', async () => {
+    installVersion()
+    const response = await put({ expectedRevision: 1, screens: [withPackage] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.screens).toEqual([withPackage])
+    expect(t.db.prepare('SELECT source_kind, source_type, source_version FROM widgets WHERE id = ?').get(A)).toEqual({
+      source_kind: 'package',
+      source_type: 'dev.test.hello',
+      source_version: '1.0.0',
+    })
+    expect(t.db.prepare('SELECT source_version FROM widgets WHERE id = ?').get(B)).toEqual({ source_version: null })
+  })
+
+  it('answers 400 for a package version that is not installed and changes nothing', async () => {
+    const response = await put({ expectedRevision: 1, screens: [withPackage] })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.message).toContain('dev.test.hello@1.0.0 is not installed')
+    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 1, screens: [EMPTY_SCREEN] })
+  })
+
+  it('keeps widget state across a save that keeps the widget and drops it with the widget', async () => {
+    installVersion()
+    await put({ expectedRevision: 1, screens: [withPackage] })
+    t.db.exec(`
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${A}', '{"n":1}', 1, 'x');
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${B}', '{"n":2}', 1, 'x');
+    `)
+    const onlyA: ScreenBoard = { id: SEED_SCREEN_ID, instances: [withPackage.instances[0]!], layout: [withPackage.layout[0]!] }
+    expect((await put({ expectedRevision: 2, screens: [onlyA] })).statusCode).toBe(200)
+    expect(t.db.prepare('SELECT widget_id FROM widget_state').all()).toEqual([{ widget_id: A }])
+  })
+})

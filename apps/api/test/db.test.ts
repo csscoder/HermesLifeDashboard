@@ -31,7 +31,17 @@ describe('openDatabase', () => {
   it('creates the schema and the seed room with one screen', async () => {
     const db = await openDatabase(':memory:')
     expect(userVersion(db)).toBe(MIGRATIONS.length)
-    expect(tables(db)).toEqual(['rooms', 'screens', 'sessions', 'widgets'])
+    expect(tables(db)).toEqual([
+      'rooms',
+      'screens',
+      'sessions',
+      'widget_audit',
+      'widget_grants',
+      'widget_package_versions',
+      'widget_packages',
+      'widget_state',
+      'widgets',
+    ])
     expect(db.prepare('SELECT id, title, position, revision FROM rooms').all()).toEqual([
       { id: SEED_ROOM_ID, title: 'Главная', position: 0, revision: 1 },
     ])
@@ -39,6 +49,35 @@ describe('openDatabase', () => {
       { id: SEED_SCREEN_ID, room_id: SEED_ROOM_ID, position: 0 },
     ])
     db.close()
+  })
+
+  it('migrates a version 1 database with widgets and sessions to version 2', async () => {
+    const v1 = await openDatabase(file, [MIGRATIONS[0]!])
+    v1.exec(`
+      INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
+      VALUES ('w1', '${SEED_SCREEN_ID}', 'builtin', 'placeholder', '{}', 1, 0, 0, 2, 2);
+      INSERT INTO sessions (token_hash, created_at, expires_at) VALUES ('h', 'a', 'b');
+    `)
+    v1.close()
+
+    const db = await openDatabase(file)
+    expect(userVersion(db)).toBe(2)
+    expect(db.prepare('SELECT id, source_kind, source_version FROM widgets').all()).toEqual([
+      { id: 'w1', source_kind: 'builtin', source_version: null },
+    ])
+    expect(db.prepare('SELECT token_hash FROM sessions').all()).toEqual([{ token_hash: 'h' }])
+    db.close()
+
+    const saved = new DatabaseSync(`${file}.bak-v1`)
+    expect(userVersion(saved)).toBe(1)
+    expect(tables(saved)).not.toContain('widget_packages')
+    saved.close()
+
+    const again = await openDatabase(file)
+    expect(userVersion(again)).toBe(2)
+    expect(again.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 1 })
+    again.close()
+    expect(existsSync(`${file}.bak-v2`)).toBe(false)
   })
 
   it('uses WAL, foreign keys and a busy timeout on a file database', async () => {

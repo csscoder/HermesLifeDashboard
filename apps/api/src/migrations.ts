@@ -49,4 +49,47 @@ VALUES ('${SEED_ROOM_ID}', 'Главная', 0, 1, ${NOW}, ${NOW});
 
 INSERT INTO screens (id, room_id, position) VALUES ('${SEED_SCREEN_ID}', '${SEED_ROOM_ID}', 0);
 `,
+  `
+CREATE TABLE widget_packages (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  author TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE widget_package_versions (
+  package_id TEXT NOT NULL REFERENCES widget_packages(id) ON DELETE CASCADE,
+  version TEXT NOT NULL,
+  hash TEXT NOT NULL UNIQUE,
+  manifest TEXT NOT NULL,
+  files TEXT NOT NULL,
+  installed_at TEXT NOT NULL,
+  PRIMARY KEY (package_id, version)
+);
+
+CREATE TABLE widget_grants (
+  package_id TEXT NOT NULL REFERENCES widget_packages(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  PRIMARY KEY (package_id, permission)
+);
+
+ALTER TABLE widgets ADD COLUMN source_version TEXT;
+
+-- No foreign key: a board save re-inserts widget rows; the save deletes orphaned state itself.
+CREATE TABLE widget_state (
+  widget_id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE widget_audit (
+  at TEXT NOT NULL,
+  widget_id TEXT NOT NULL,
+  package_id TEXT,
+  op TEXT NOT NULL,
+  outcome TEXT NOT NULL
+);
+`,
 ]

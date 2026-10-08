@@ -7,7 +7,7 @@ import WidgetFrame from './WidgetFrame.vue'
 
 const props = defineProps<{ source: WidgetSource; size: Size; themeId: string }>()
 
-const renderer = computed(() => builtinWidgetRenderers.get(props.source.type))
+const renderer = computed(() => (props.source.kind === 'builtin' ? builtinWidgetRenderers.get(props.source.type) : undefined))
 </script>
 
 <template>
