@@ -15,6 +15,11 @@ export interface SizeLimits {
   max: Size
 }
 
+/** A widget type's size contract in cells (base design §7.4). */
+export interface WidgetSizing extends SizeLimits {
+  default: Size
+}
+
 export function inBounds(rect: Rect): boolean {
   return (
     rect.w >= 1 &&

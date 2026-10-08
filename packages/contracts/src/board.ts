@@ -1,4 +1,7 @@
 import { GRID, inBounds, overlaps, type Rect } from './grid.ts'
+import { fail, isRecord, type ParseResult } from './parse.ts'
+
+export type { ParseResult } from './parse.ts'
 
 export type WidgetSource = { kind: 'builtin'; type: string }
 
@@ -38,8 +41,6 @@ export interface SaveBoardRequest {
   expectedRevision: number
   screens: ScreenBoard[]
 }
-
-export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -91,14 +92,6 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   if (unplaced) return fail(`instance "${unplaced.id}" has no placement`)
 
   return { ok: true, value: { id: raw.id, instances, layout } }
-}
-
-function fail(error: string): { ok: false; error: string } {
-  return { ok: false, error }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {
