@@ -41,10 +41,15 @@ export interface AuthDeps {
   onPairingCode: (code: string, expiresAt: Date) => void
 }
 
+/** Host header values the API answers to (DNS rebinding guard, base design §13.1). */
+export function allowedHosts(config: Pick<ApiConfig, 'port'>): ReadonlySet<string> {
+  return new Set([`127.0.0.1:${config.port}`, `localhost:${config.port}`])
+}
+
 // Base design §13.1: one-time pairing code -> HttpOnly session cookie; Host and Origin checks.
 export function registerAuth(app: FastifyInstance, { db, config, now, onPairingCode }: AuthDeps): void {
   app.decorateRequest('sessionHash', '')
-  const hosts = new Set([`127.0.0.1:${config.port}`, `localhost:${config.port}`])
+  const hosts = allowedHosts(config)
   const origins = new Set(config.uiOrigins)
   // ponytail: pairing state is in memory; a restart prints a fresh code, which is the intended flow.
   let pairing: { code: string; expiresAt: number; failures: number } | null = null

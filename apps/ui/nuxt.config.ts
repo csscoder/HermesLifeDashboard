@@ -24,6 +24,7 @@ export default defineNuxtConfig({
     devProxy: {
       '/api': { target: `${apiOrigin}/api`, changeOrigin: true },
       '/health': { target: `${apiOrigin}/health`, changeOrigin: true },
+      '/sandbox': { target: `${apiOrigin}/sandbox`, changeOrigin: true },
     },
   },
 })

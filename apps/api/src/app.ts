@@ -4,6 +4,7 @@ import { registerAuth } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { newRequestId, registerErrorHandling } from './errors.ts'
 import { registerRooms } from './rooms.ts'
+import { registerSandbox } from './sandbox.ts'
 import { registerWidgetGateway } from './widget-gateway.ts'
 import { registerWidgetPackages } from './widget-packages.ts'
 
@@ -23,5 +24,6 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   registerRooms(app, { db, now })
   registerWidgetPackages(app, { db, now })
   registerWidgetGateway(app, { db, now })
+  registerSandbox(app, { db, config })
   return app
 }
