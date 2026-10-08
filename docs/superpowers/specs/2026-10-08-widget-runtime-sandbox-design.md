@@ -171,6 +171,7 @@ ALTER TABLE widgets ADD COLUMN source_version TEXT;
 CREATE TABLE widget_state (
   widget_id TEXT PRIMARY KEY,
   data TEXT NOT NULL,
+  revision INTEGER NOT NULL,
   updated_at TEXT NOT NULL
 );
 
@@ -204,6 +205,9 @@ CREATE TABLE widget_audit (
 - `widget-gateway.ts` (new): operation names, input/output types and parsers for `state.get`,
   `state.set`, `notifications.send`; RPC message types shared by the host broker and the sandbox
   client.
+- `builtin-widgets.ts` (new): the built-in widget manifests (`type`, `title`, `sizing`,
+  `permissions`), moved from `apps/ui/app/widgets/catalog.ts`. The API reads grants for built-in
+  widgets from here; the UI catalog re-exports it. One trusted list, no copy in each app.
 
 ## API
 
@@ -216,7 +220,7 @@ error envelope.
 | `POST /widget-packages` | Validate again, store package, version and grants in one transaction; return the summary |
 | `GET /widget-packages` | Installed packages with versions and grants |
 | `DELETE /widget-packages/:id` | Delete a package with all versions and grants; `409 PACKAGE_IN_USE` if placed |
-| `POST /widget-sessions` | Body `{ widgetId }`; resolve the widget, its source and grants; return `{ widgetSession, grants }` |
+| `POST /widget-sessions` | Body `{ widgetId }`; resolve the saved widget, its source and grants; return `{ widgetSession, grants }`. Unknown widget, unknown built-in type or uninstalled package version → `404` |
 | `DELETE /widget-sessions/:widgetSession` | End a session (host unmount) |
 | `POST /widget-gateway/:op` | Header `x-widget-session`; body is the operation input |
 
@@ -229,8 +233,13 @@ routes is 1 MB.
 - Bound to the dashboard session token hash that created them; a gateway call must carry the same
   dashboard cookie.
 - Idle expiry 1 hour, renewed on use; at most 200 live sessions, the oldest is evicted.
-- Built-in widgets get sessions too; their grants come from the built-in manifest (`catalog.ts`
-  gains `permissions`), without an install screen.
+- Built-in widgets get sessions too; their grants come from `contracts/builtin-widgets.ts`, without
+  an install screen.
+- An expired widget session is not a lost dashboard session. The API answers
+  `401 SESSION_EXPIRED`; `apps/ui/app/api.ts` maps that code to its own failure kind, so it never
+  sends the app to pairing. A session failure happens before the operation runs, so the broker
+  creates a new session once and repeats the call; if that fails too, only the widget frame shows
+  `error` with «Повторить», which recreates the session and the bridge.
 
 ### Gateway pipeline
 
@@ -242,17 +251,19 @@ For each `POST /widget-gateway/:op`:
 3. Look up `op`; unknown → `404 UNKNOWN_OP`.
 4. Check the operation's permission in the session grants → `403 PERMISSION_DENIED`.
 5. Parse the input with the operation parser → `400 INVALID_INPUT`.
-6. Apply the rate limit for `(session, op)` → `429 RATE_LIMITED`.
+6. Apply the rate limit for `(widgetId, op)` → `429 RATE_LIMITED`. Counters are in memory and keyed
+   by widget, not session, so a new session does not reset them.
 7. Execute with context `{ widgetId, packageId, grants }`.
-8. Append an audit row with outcome `ok` or the error code.
+8. Append an audit row with outcome `ok` or the error code. Calls rejected at step 2 have no trusted
+   widget identity and are not audited.
 
 Operations in this slice:
 
 | op | Permission | Input | Behavior | Limit |
 | --- | --- | --- | --- | --- |
-| `state.get` | `state` | `{}` | Return stored JSON or `null` | 120/min |
-| `state.set` | `state` | `{ data }` | Store JSON, at most 64 KB serialized | 60/min |
-| `notifications.send` | `notifications` | `{ title, body }` | Plain text; title 1–80, body 0–300 characters; returns `{ ok: true }`; the host displays it | 10/hour per widget |
+| `state.get` | `state` | `{}` | Return `{ data, revision }`; `{ data: null, revision: 0 }` when nothing is stored | 120/min |
+| `state.set` | `state` | `{ data, expectedRevision }` | Store JSON, at most 64 KB serialized, when `expectedRevision` equals the stored revision (0 for none); return `{ revision }`. Otherwise `409 CONFLICT` (DATA-06) | 60/min |
+| `notifications.send` | `notifications` | `{ title, body }` | Plain text; title 1–80, body 0–300 characters; returns `{ ok: true }`; the host displays it | 10/hour |
 
 Handlers receive the context object so sub-project 2 adds a secret resolver without changing the
 pipeline.
@@ -288,9 +299,9 @@ Document:
   <script type="importmap">{ "imports": {
     "vue": "<base>/sandbox/runtime/vue.js",
     "@lifedashboard/widget-sdk": "<base>/sandbox/runtime/sdk.js",
-    "@lifedashboard/widget-entry": "<base>/sandbox/packages/<hash>/index.js"
+    "@lifedashboard/widget-entry": "<base>/sandbox/packages/<hash>/<manifest.entry>"
   } }</script>
-  <link rel="stylesheet" href="<base>/sandbox/packages/<hash>/style.css">
+  <link rel="stylesheet" href="<base>/sandbox/packages/<hash>/<manifest.styles[i]>">
   <script type="module" src="<base>/sandbox/runtime/sdk.js"></script>
 </head>
 <body><div id="app"></div></body>
@@ -329,6 +340,7 @@ interface WidgetContext {
   size: { w: number; h: number }
   sizeClass: 'xs' | 's' | 'm' | 'l' | 'xl'
   theme: { id: string; scheme: 'light' | 'dark'; tokens: Record<string, string> }
+  rootFontSize: number                             // px of the dashboard's html font-size
   config: Record<string, unknown>
   locale: string
   visible: boolean
@@ -336,7 +348,10 @@ interface WidgetContext {
 
 interface Widget {
   context: Readonly<WidgetContext>                 // reactive
-  state: { get<T>(): Promise<T | null>; set(data: unknown): Promise<void> }
+  state: {
+    get<T>(): Promise<{ data: T | null; revision: number }>
+    set(data: unknown, expectedRevision: number): Promise<{ revision: number }>  // CONFLICT on a stale revision
+  }
   notify(message: { title: string; body?: string }): Promise<void>
   call<T>(op: string, input: unknown): Promise<T>  // other gateway operations
 }
@@ -359,9 +374,15 @@ cell thresholds in one function shared by both hosts.
 
 ### In-process host (built-in widgets)
 
-`WidgetHost.vue` creates a widget session, provides a `Widget` whose `state`, `notify` and `call`
-go through the same broker client as the sandbox, and passes `context` from props. Built-in widgets
-keep inherited theme CSS and the UnoCSS vocabulary.
+`WidgetHost.vue` gets `widgetId` and `config` props next to `source`, `size` and `themeId`;
+`WidgetBoard.vue` passes them for placed widgets. With a `widgetId`, the host creates a widget
+session and provides a `Widget` whose `state`, `notify` and `call` go through the same broker client
+as the sandbox, with `context` from props. Built-in widgets keep inherited theme CSS and the UnoCSS
+vocabulary.
+
+The build draft (the selected rectangle before «Готово») has no saved widget and no `widgetId`. It
+renders a static card with the widget title for both kinds, without a session or a sandbox. The
+runtime starts after the board save succeeds.
 
 ### Sandbox host (package widgets)
 
@@ -385,13 +406,14 @@ keep inherited theme CSS and the UnoCSS vocabulary.
    - host push `{ t: 'context', patch }` on resize, theme change and visibility change;
    - sandbox report `{ t: 'error', message }` from `app.config.errorHandler`, `onerror` and
      `onunhandledrejection`.
-4. Limits on the host side: message at most 64 KB serialized; at most 16 requests in flight per
+4. Limits on the host side: message at most 128 KB serialized (state data is capped at 64 KB, so
+   the envelope always fits); at most 16 requests in flight per
    widget (`RATE_LIMITED`); 10 s timeout per request (`TIMEOUT`); malformed messages are dropped
    and counted, and 20 malformed messages close the bridge.
 5. The host broker validates `op` and input with the shared contracts before calling the API; the
    API validates again.
-6. A second `load` event of the iframe (the frame navigated itself) tears the frame down, shows
-   `error` and writes an audit row with outcome `NAVIGATED`.
+6. A second `load` event of the iframe (the frame navigated itself) tears the frame down and shows
+   `error`. It is not audited in this slice: the API has no host-event route.
 
 ## Theme and size
 
@@ -399,6 +421,9 @@ keep inherited theme CSS and the UnoCSS vocabulary.
   (`docs/theme-contract.md`) for the widget's resolved theme id. The bootstrap sets them on the
   document root with `style.setProperty` and sets `color-scheme`; the document background is
   transparent so the frame skin shows through.
+- A frame does not inherit the dashboard's viewport-scaled `html { font-size }` (`app.vue`). The host
+  sends the computed value as `context.rootFontSize` and pushes it again on window resize; the
+  bootstrap sets it on the frame's root, so `rem` in a package matches the board (§7.4).
 - Package CSS uses the `var(--…)` tokens; the UnoCSS vocabulary is not available in the sandbox.
 - The board owns the size. The iframe fills `widget__body`; the widget reads cell size from
   `context.size`, pixels from its own viewport and container queries. There is no resize request.
@@ -441,6 +466,7 @@ keep inherited theme CSS and the UnoCSS vocabulary.
 | `packages/contracts/src/board.ts` | `WidgetSource` union, parsing |
 | `packages/contracts/src/widget-package.ts` (new) | Package format, limits, `parseWidgetPackage()` |
 | `packages/contracts/src/widget-gateway.ts` (new) | Operations, inputs, RPC message types |
+| `packages/contracts/src/builtin-widgets.ts` (new) | Built-in manifests with `permissions`, shared by API and UI |
 | `packages/widget-sdk/` (new) | `useWidget`, in-process adapter, broker client, sandbox bootstrap, `ld-widget` CLI |
 | `apps/api/src/migrations.ts` | Migration 2 |
 | `apps/api/src/widget-packages.ts` (new) | Inspect, install, list, delete |
@@ -449,11 +475,13 @@ keep inherited theme CSS and the UnoCSS vocabulary.
 | `apps/api/src/rooms.ts` | Accept and check package widget sources |
 | `apps/api/src/app.ts` | Register the new modules |
 | `apps/ui/nuxt.config.ts` | `/sandbox` dev proxy |
-| `apps/ui/app/widgets/WidgetHost.vue` | Session, in-process provider, sandbox branch |
+| `apps/ui/app/widgets/WidgetHost.vue` | `widgetId`/`config` props, session, in-process provider, sandbox branch, static draft card |
+| `apps/ui/app/board/WidgetBoard.vue` | Pass `widgetId` and `config`; iframe `pointer-events` during edit |
+| `apps/ui/app/api.ts` | Map `SESSION_EXPIRED` to its own failure kind, not `unauthorized` |
 | `apps/ui/app/widgets/SandboxWidget.vue` (new) | Iframe lifecycle and states |
 | `apps/ui/app/widgets/broker.ts` (new) | Handshake, port, limits, API calls |
 | `apps/ui/app/widgets/PackagesDialog.vue` (new) | Installed list, install with permissions screen, delete |
-| `apps/ui/app/widgets/catalog.ts` | Built-in `permissions`; picker includes packages |
+| `apps/ui/app/widgets/catalog.ts` | Re-export built-in manifests from contracts; picker includes packages |
 | `examples/widgets/hello/` (new) | Example package: counter in `state`, «Напомнить» button with `notify` |
 | `examples/widgets/hostile/` (new) | Test package that probes the sandbox boundary |
 | `docs/base-2026-10-04-lifegamehermes-design.md` | Edits listed in Deviations |
@@ -483,21 +511,33 @@ Vitest, following existing conventions:
 - `contracts`: every package validation rule; board parsing of both source kinds; gateway input
   parsers.
 - `api` (`inject`):
+  - migration 1 → 2 on a database with saved widgets and sessions: the backup stays at version 1,
+    widgets and sessions survive, built-in rows get `source_version` NULL, a second start changes
+    nothing;
   - inspect writes nothing; install stores version, hash and grants; repeat install of the same
     hash is a no-op; same version with another hash is rejected; delete with placed widgets returns
     `409`;
+  - a package whose `entry` is `main.js` (no `index.js`) installs and its document maps
+    `main.js`;
   - board save rejects an uninstalled package version;
   - `state` survives a board save that keeps the widget and is removed by a save that drops it;
   - sandbox routes: CSP header content, import map hash, `Access-Control-Allow-Origin`, Host check,
     `Origin: null` accepted, document has no user data, unknown hash returns `404`;
-  - widget sessions: unknown widget, binding to the dashboard session, idle expiry, eviction;
+  - widget sessions: unknown widget, unknown built-in type, binding to the dashboard session, idle
+    expiry, eviction; built-in grants come from `builtin-widgets.ts`;
   - gateway pipeline: no cookie `401`, foreign or expired widget session `401 SESSION_EXPIRED`,
     unknown op, missing grant `403`, invalid input `400`, rate limit `429`, audit rows for success
-    and failure;
-  - `state` size limit; `notifications` text limits and hourly limit.
+    and failure after step 2, no audit row for a rejected session;
+  - `state` at exactly 64 KB is stored and read back, 64 KB + 1 is rejected; a stale
+    `expectedRevision` gets `409 CONFLICT`;
+  - `notifications` text limits; the hourly limit holds across a new widget session for the same
+    widget.
 - `widget-sdk` and `ui`:
   - broker with `MessageChannel`: rejects `hello` from an unknown source and a second handshake,
-    enforces message size, in-flight cap, timeout, malformed-message cutoff, `UNKNOWN_OP`;
+    enforces message size, in-flight cap, timeout, malformed-message cutoff, `UNKNOWN_OP`; a
+    64 KB `state.set` passes the bridge; on `SESSION_EXPIRED` it creates a new session once and
+    repeats the call, and a second failure reports `error` without pairing;
+  - `api.ts` maps `401 SESSION_EXPIRED` apart from `unauthorized`;
   - in-process adapter and sandbox client expose the same `Widget` contract (one shared test
     suite run against both).
 
@@ -508,16 +548,19 @@ Browser acceptance in Orca's built-in browser through `orca-cli`:
 - install `examples/widgets/hostile`, which tries `document.cookie`, `parent.document`,
   `localStorage`, `fetch('/api/v1/rooms')`, a gateway op without a grant, a thrown exception, and a
   self-navigation; expected: empty cookie, access errors, CSP block, `PERMISSION_DENIED`, `error`
-  only in its frame, frame removed after navigation; the board and other widgets keep working.
+  only in its frame, frame removed after navigation; the board and other widgets keep working;
+- at 1280×700 and 1920×1080 the `hello` widget's `rem` text matches a built-in widget's scale;
+- the build draft of a package widget shows the static title card; the frame starts after «Готово».
 
 ## Acceptance criteria
 
 1. `ld-widget build` in `examples/widgets/hello` produces a valid `*.ldwidget.json`.
 2. Installing shows the permissions screen; the installed package survives an API restart.
-3. A placed package widget renders in its frame with the current theme and updates on theme change
-   and resize.
-4. `state` survives a page reload and an API restart; `notify` shows a toast labeled with the
-   widget title.
+3. A placed package widget renders in its frame with the current theme and `rem` scale and updates on
+   theme change, resize and window resize.
+4. `state` survives a page reload and an API restart, and a stale write from a second tab gets a
+   conflict; `notify` shows a toast labeled with the widget title; an API restart does not send the
+   app to pairing.
 5. The hostile package gets no cookie, DOM, storage or direct API access, gets `PERMISSION_DENIED`
    for an ungranted op, and its failures affect only its own frame.
 6. A built-in widget uses `useWidget()` through the in-process host with the same contract.
