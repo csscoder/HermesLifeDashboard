@@ -73,6 +73,18 @@ importers:
         specifier: 3.3.12
         version: 3.3.12(typescript@6.0.3)
 
+  examples/widgets/hello:
+    devDependencies:
+      '@lifedashboard/widget-sdk':
+        specifier: workspace:*
+        version: link:../../../packages/widget-sdk
+
+  examples/widgets/hostile:
+    devDependencies:
+      '@lifedashboard/widget-sdk':
+        specifier: workspace:*
+        version: link:../../../packages/widget-sdk
+
   packages/contracts:
     devDependencies:
       typescript:
@@ -94,6 +106,9 @@ importers:
       '@types/node':
         specifier: 24.19.1
         version: 24.19.1
+      '@vitejs/plugin-vue':
+        specifier: 6.0.9
+        version: 6.0.9(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))(vue@3.5.43(typescript@6.0.3))
       typescript:
         specifier: 6.0.3
         version: 6.0.3

@@ -1,0 +1,11 @@
+{
+  "id": "dev.test.plain",
+  "version": "0.1.0",
+  "title": "Plain",
+  "author": "test",
+  "sdk": 1,
+  "entry": "index.js",
+  "styles": [],
+  "sizing": { "default": { "w": 2, "h": 2 }, "min": { "w": 1, "h": 1 }, "max": { "w": 4, "h": 4 } },
+  "permissions": []
+}

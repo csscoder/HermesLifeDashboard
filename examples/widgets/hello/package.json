@@ -1,0 +1,11 @@
+{
+  "name": "@lifedashboard/example-hello",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "ld-widget build"
+  },
+  "devDependencies": {
+    "@lifedashboard/widget-sdk": "workspace:*"
+  }
+}
