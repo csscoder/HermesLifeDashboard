@@ -15,7 +15,7 @@ The number of columns is fixed. The number of rows is a per-screen setting from 
 edit mode. Lowering it never hides or moves widgets: a widget below the new limit stays where it is,
 and the grid keeps enough rows to show it. In edit and build modes the dots inside the configured
 rows are green and the dots below them are red. A widget in the red zone can only be brought out of
-it.
+it: no move or resize may lower its bottom edge.
 
 Success: at any width ≥ 1280 px the grid fills the width with square cells and a widget looks like a
 scaled copy of itself; a 30-row screen scrolls; after changing 30 → 10 rows the widget in the bottom
@@ -40,7 +40,8 @@ and the red zone disappears once nothing is below row 10.
 | Cell sizing | Pure CSS: the board is an `inline-size` container, `--ld-cell = (100cqw - 23 × gap) / 24` | Native; follows the board's own scrollbar; no measuring code |
 | Rows scope | Column `rows` on `screens`, field `rows` on `ScreenBoard` | The grid is a property of one board; saved with the layout under `expectedRevision` |
 | Existing layouts | Migration deletes all placed widgets and their state | Requested by the user; 12-column coordinates are not carried over |
-| Red zone | A rect may not end below `max(rows, current bottom)` | One rule gives «only bring it out»; see «Grid rules» |
+| Red zone | A rect may not end below `max(rows, current bottom)` | One rule gives «only bring it out»; see «Grid rules». Widening a red widget is allowed: it does not lower the bottom edge (the user's chosen rule) |
+| Board scrollbar | `scrollbar-gutter: stable` | No layout jump when the scrollbar appears; a classic scrollbar costs < 1% of proportionality, macOS overlay scrollbars cost nothing |
 | Red zone on the server | Not enforced; the API checks the hard `24 × 100` bound only | The server does not know where a widget stood before the session |
 | Rows field | `<input type="number">` in the edit-mode header, part of the working copy | One PUT; «Отмена» reverts it; the dots react immediately |
 | Scale | `calc(100vw / 80)` without a cap | Sandbox frames already take `rootFontSize` from the host (`widget-gateway.ts`), so they follow |
@@ -81,7 +82,8 @@ export function gridRows(rows: number, layout: readonly Rect[]): number
 
 ### `widget-package.ts` and `builtin-widgets.ts`
 
-- `parseSizing` accepts `max.w ≤ GRID_COLS` and `max.h ≤ ROWS.max`.
+- `parseSizing` accepts `max.w ≤ GRID_COLS` and `max.h ≤ ROWS.max`. The `parseManifest` error
+  `manifest.sizing must have … inside the 12x8 grid` names the `24x100` grid.
 - The placeholder sizing becomes `default 4×4, min 1×1, max 24×100`.
 - Installed packages keep their stored sizing (≤ 12×8); it stays valid.
 
@@ -118,7 +120,8 @@ Every move and resize, by pointer or keyboard, goes through `moveTo` / `resizeTo
 `rows`. Because `limit = max(rows, current bottom)`:
 
 - a widget in the green zone cannot move or grow past `rows`;
-- a widget in the red zone can move up or sideways and shrink, but its bottom edge never goes lower;
+- a widget in the red zone accepts any move or resize that does not lower its bottom edge: up,
+  sideways, shrinking, widening;
 - once a widget moves up, its limit follows it, so it cannot go back down; once it is fully green,
   `limit = rows`;
 - the builder draft starts inside `rows` (`findFreeRect`), so the same rule keeps it green.
@@ -164,9 +167,9 @@ The `dvh` term is removed. The narrow-window rule (< 1280 px) is unchanged.
 - The grid keeps no padding or border, so pointer math still starts at the first cell.
 
 Shown screen: `working` in edit mode, `doc` otherwise. Rendered rows:
-`gridRows(shown.rows, shown.layout)`, except that while a pointer drag is in progress
-(`moving === true`) the value is held at what it was when the drag started. It is recomputed on
-`pointerup` and after each keyboard step. This avoids the content jumping under the pointer when the
+`gridRows(shown.rows, shown.layout)`, except that while any pointer operation, move or resize, is in
+progress (`dragging === true`) the value is held at what it was when the operation started. It is
+recomputed on `pointerup` / `pointercancel` and after each keyboard step. This avoids the content jumping under the pointer when the
 grid shrinks while the board is scrolled to the bottom.
 
 ### Dots
@@ -178,7 +181,10 @@ grid shrinks while the board is scrolled to the bottom.
 
 ### Rows field (`app/app.vue` + `WidgetBoard.vue`)
 
-- In `edit` mode the header shows `<label>Ряды <input type="number" min="4" max="100" step="1"></label>`
+- «Изменить» is enabled once the board is loaded (`boardRef.loaded`), not only when it has widgets:
+  after migration 3 every board is empty, and its rows must be settable before the first widget.
+  Edit mode on an empty board shows the dots and the rows field; nothing else changes.
+- In `edit` mode the header shows `<label>Ряды <input type="number" required min="4" max="100" step="1"></label>`
   next to «Готово» and «Отмена». It is not shown in `build` mode.
 - `WidgetBoard` exposes `rows` (the working value) and `setRows(n: number)`. `setRows` applies only
   an integer in `ROWS.min..ROWS.max`; any other input leaves `working.rows` unchanged, and the native
@@ -199,7 +205,13 @@ gridRows: () => number  // rendered rows
 - `moveTo` / `resizeTo` receive `rows()`.
 - The free card is clamped to `x ≤ (GRID_COLS - w) × pitchX` and
   `y ≤ (max(rows(), current.y + current.h) - h) × pitchY`, so it never floats into the red zone.
-- `moving` stays the signal `WidgetBoard` uses to hold the rendered rows.
+- A new `dragging` ref is `true` from `pointerdown` (move or resize) until `pointerup` /
+  `pointercancel`. `WidgetBoard` holds the rendered rows while it is `true`. `moving` keeps its
+  current meaning (move only: landing slot, grab cursor).
+- A `ResizeObserver` on the grid element re-reads the metrics when the grid size changes (window
+  resize, scale change). When no pointer operation is in progress it also places the card on its slot
+  without animation (`motion.reset`), so the active card always matches the current cell size. It
+  disconnects when the composable's scope is disposed.
 
 ## Error handling
 
@@ -208,7 +220,7 @@ gridRows: () => number  // rendered rows
 | PUT with `rows` missing, not an integer, or outside 4..100 | `400 VALIDATION_ERROR` `screens[i]: rows must be an integer 4..100` |
 | Placement outside `24 × 100` | `400 VALIDATION_ERROR` naming the `24x100` grid |
 | Placement below `rows` but within 100 | Accepted (red zone) |
-| Rows field gets a non-integer or out-of-range value | Not applied; `working.rows` unchanged; native validation marks the field |
+| Rows field gets an empty, non-integer or out-of-range value | Not applied; `working.rows` unchanged; native validation marks the field |
 | No free place for a new widget within `rows` | «Нет свободного места», as now |
 | Tab opened before migration 3 saves | Revision mismatch → `409` → existing reload path in `room-sync` |
 
@@ -218,36 +230,46 @@ Vitest, test first (RED → GREEN → REFACTOR).
 
 - `packages/contracts/test/grid.test.ts`: `occupiedRows` / `gridRows` for an empty layout and a
   layout below `rows`; `moveTo` and `resizeTo` stop a green widget at `rows`; a red widget moves up
-  and sideways and shrinks, but cannot move down or grow down; after moving up the limit follows;
+  and sideways, shrinks and widens, but cannot move down or grow down; after moving up the limit
+  follows;
   `findFreeRect` stays within `rows`; the 24-column bound.
 - `packages/contracts/test/board.test.ts`: `rows` required; 3, 101 and 4.5 rejected; a placement in
   the red zone accepted; `y + h > 100` rejected.
 - `packages/contracts/test/widget-package.test.ts`: `max.w = 24`, `max.h = 100` accepted; 25 and 101
-  rejected. `builtin-widgets.test.ts`: the new placeholder sizing.
+  rejected, and the error names the `24x100` grid. `builtin-widgets.test.ts`: the new placeholder
+  sizing.
 - `apps/api/test/db.test.ts`: migration 3 on a database with widgets and widget state yields
   `rows = 12`, no widgets, no widget state, a bumped revision, and keeps packages and grants.
 - `apps/api/test/rooms.test.ts`: GET returns `rows`; PUT stores `rows`; `409` leaves `rows` unchanged;
   invalid `rows` → `400`.
 - `apps/ui/test/use-active-rect.test.ts`: `pitchY` from `gridRows`; pointer move clamped to the
-  limit; keyboard step down from the red zone blocked, up allowed.
+  limit; keyboard step down from the red zone blocked, up allowed; `dragging` is `true` during a
+  pointer resize and a pointer move and `false` after `pointerup`; a stubbed `ResizeObserver`
+  callback with a new grid width updates `cardStyle` width and the slot position.
 - `apps/ui/test/edit-session.test.ts`: a change of `rows` alone makes `isSameBoard` false.
 - **Manual check in Orca's built-in browser (recorded in the task report):** the grid fills the width
   with square cells at 1280 and 1920 px; a 30-row screen scrolls; after 30 → 10 the bottom widget sits
-  over red dots, moves up into green, cannot move back down, and the red zone disappears; «Отмена»
-  reverts the rows; a package widget in a sandbox frame scales with the board.
+  over red dots, moves up into green, cannot move back down, and the red zone disappears; shrinking
+  the bottom widget by pointer while scrolled to the end does not jump; resizing the window from
+  1280 to 1920 with an active widget keeps the card on its slot at the new size; «Изменить» works on
+  an empty board and `rows` saves without widgets; clearing the rows field marks it invalid and
+  keeps the previous value; «Отмена» reverts the rows; a package widget in a sandbox frame scales
+  with the board.
 
 ## Acceptance criteria
 
 - The grid has 24 columns filling the board width; cells are square; the board scrolls vertically
   when the grid is taller than the window.
 - Text, gaps and cells scale by `100vw / 80`; a widget looks the same, only larger, at any width
-  ≥ 1280 px.
-- Each screen stores `rows` (4..100, default 12); the edit-mode field changes it; «Готово» saves it
-  with the layout in one PUT; «Отмена» reverts it.
+  ≥ 1280 px. This is exact with overlay scrollbars; with a classic scrollbar the fixed gutter width
+  is an accepted deviation below 1%.
+- Each screen stores `rows` (4..100, default 12); the edit-mode field changes it, also on an empty
+  board; «Готово» saves it with the layout in one PUT; «Отмена» reverts it.
+- The active card follows the cell size when the window is resized.
 - Lowering `rows` never moves or hides a widget; the grid renders down to the lowest widget.
 - In `build` and `edit` modes dots inside `rows` are green and dots below are red.
-- No widget can move or grow into the red zone; a widget in the red zone can only move up, move
-  sideways or shrink; a new widget is placed only inside `rows`.
+- No widget can move or grow into the red zone; no move or resize lowers the bottom edge of a widget
+  in the red zone; a new widget is placed only inside `rows`.
 - After migration 3 every screen has `rows = 12` and no widgets; packages and grants are intact.
 
 ## Out of scope
