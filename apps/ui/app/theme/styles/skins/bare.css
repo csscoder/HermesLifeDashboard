@@ -1,0 +1,15 @@
+/* «Без оформления»: no card. Tokens and colours stay the board theme's; only the frame goes.
+   Not in SKINS: themes cannot pick it, only a widget appearance does. overflow: visible keeps
+   the widget's drop-shadow unclipped. */
+@layer ld.skin {
+  .widget--skin-bare > .widget__wrapper > .widget__box {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    overflow: visible;
+  }
+
+  .widget--skin-bare > .widget__wrapper > .widget__box > .widget__body {
+    padding: 0;
+  }
+}

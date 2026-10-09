@@ -126,6 +126,41 @@ describe('stylesheets', () => {
     ])
   })
 
+  it('layers.css imports the bare skin, which themes cannot pick', () => {
+    expect(styleFile('layers.css')).toContain(`@import './skins/bare.css';`)
+    expect(SKINS).not.toContain('bare')
+  })
+
+  it('bare.css removes the card in ld.skin', () => {
+    const decls: Record<string, Record<string, string>> = {}
+    postcss.parse(styleFile('skins/bare.css')).walkRules((rule) => {
+      if ((rule.parent as AtRule | undefined)?.params !== 'ld.skin') return
+      rule.walkDecls((decl) => {
+        ;(decls[rule.selector] ??= {})[decl.prop] = decl.value
+      })
+    })
+    expect(decls).toEqual({
+      '.widget--skin-bare > .widget__wrapper > .widget__box': {
+        border: '0',
+        'border-radius': '0',
+        background: 'none',
+        overflow: 'visible',
+      },
+      '.widget--skin-bare > .widget__wrapper > .widget__box > .widget__body': { padding: '0' },
+    })
+  })
+
+  it('comfort.css makes a foreign widget opaque and unblurred in ld.comfort', () => {
+    const decls: Record<string, string> = {}
+    postcss.parse(styleFile('comfort.css')).walkRules('.widget--foreign', (rule) => {
+      if ((rule.parent as AtRule | undefined)?.params !== 'ld.comfort') return
+      rule.walkDecls((decl) => {
+        decls[decl.prop] = decl.value
+      })
+    })
+    expect(decls).toEqual({ '--ld-surface-1': 'var(--ld-surface-1-solid)', '--ld-blur': '0' })
+  })
+
   it('frame.css resets exactly the optional tokens on every theme scope', () => {
     const reset: string[] = []
     postcss.parse(styleFile('frame.css')).walkRules((rule) => {

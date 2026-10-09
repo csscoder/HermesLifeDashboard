@@ -8,6 +8,7 @@
 @import './skins/glass.css';
 @import './skins/solid.css';
 @import './skins/paper.css';
+@import './skins/bare.css';
 @import './themes/glass.css' layer(ld.theme);
 @import './themes/obsidian.css' layer(ld.theme);
 @import './themes/paper.css' layer(ld.theme);

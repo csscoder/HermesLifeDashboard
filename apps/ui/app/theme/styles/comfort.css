@@ -1,6 +1,13 @@
 /* User comfort beats every theme and all widget CSS (spec: Effects and comfort).
-   MVP: prefers-reduced-motion only; ComfortProfile classes arrive with its UI. */
+   MVP: prefers-reduced-motion and foreign widgets; ComfortProfile classes arrive with its UI. */
 @layer ld.comfort {
+  /* A widget on another theme than the board's: its contrast was checked against its own bg, not
+     this backdrop, so it paints opaque. `transparency: reduced` joins this rule with the ComfortProfile UI. */
+  .widget--foreign {
+    --ld-surface-1: var(--ld-surface-1-solid);
+    --ld-blur: 0;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .room,
     .widget {

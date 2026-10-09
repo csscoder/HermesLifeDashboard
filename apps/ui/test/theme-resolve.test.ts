@@ -1,7 +1,8 @@
+import { BARE_THEME_ID, DEFAULT_SHADOW } from '@lifedashboard/contracts/board'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { APPEARANCE_STORAGE_KEY, loadAppearance, saveAppearance } from '../app/theme/appearance'
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, DEFAULT_THEME_ID, themeMeta } from '../app/theme/builtin'
-import { resolveThemeId, themeClass } from '../app/theme/resolve'
+import { resolveThemeId, resolveWidgetLook, themeClass } from '../app/theme/resolve'
 
 describe('resolveThemeId', () => {
   const known = new Set(['builtin:glass', 'builtin:paper', 'builtin:obsidian'])
@@ -19,6 +20,23 @@ describe('resolveThemeId', () => {
     expect(resolveThemeId([null, null], known)).toBe(DEFAULT_THEME_ID)
     expect(resolveThemeId([], known)).toBe(DEFAULT_THEME_ID)
     expect(resolveThemeId(['user:deleted'], known)).toBe(DEFAULT_THEME_ID)
+  })
+})
+
+describe('resolveWidgetLook', () => {
+  const paper = { themeId: 'builtin:paper', skin: 'paper', foreign: false }
+
+  it.each([
+    ['absent', undefined, 'builtin:paper', paper],
+    ['inherited with a shadow', { themeId: null, shadow: DEFAULT_SHADOW }, 'builtin:paper', paper],
+    ['the board theme chosen', { themeId: 'builtin:paper', shadow: null }, 'builtin:paper', paper],
+    ['Glass chosen on Paper', { themeId: 'builtin:glass', shadow: null }, 'builtin:paper', { themeId: 'builtin:glass', skin: 'glass', foreign: true }],
+    ['Obsidian chosen on Glass', { themeId: 'builtin:obsidian', shadow: null }, 'builtin:glass', { themeId: 'builtin:obsidian', skin: 'solid', foreign: true }],
+    ['bare', { themeId: BARE_THEME_ID, shadow: null }, 'builtin:obsidian', { themeId: 'builtin:obsidian', skin: 'bare', foreign: false }],
+    ['an unknown user id', { themeId: 'user:00000000-0000-4000-8000-00000000000a', shadow: null }, 'builtin:paper', paper],
+    ['an unknown built-in id', { themeId: 'builtin:deleted', shadow: null }, 'builtin:paper', paper],
+  ] as const)('%s', (_name, appearance, board, expected) => {
+    expect(resolveWidgetLook(appearance, board)).toEqual(expected)
   })
 })
 
