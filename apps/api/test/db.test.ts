@@ -51,7 +51,7 @@ describe('openDatabase', () => {
     db.close()
   })
 
-  it('migrates a version 1 database with widgets and sessions to version 2', async () => {
+  it('migrates a version 1 database with widgets and sessions to the latest version', async () => {
     const v1 = await openDatabase(file, [MIGRATIONS[0]!])
     v1.exec(`
       INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
@@ -61,7 +61,7 @@ describe('openDatabase', () => {
     v1.close()
 
     const db = await openDatabase(file)
-    expect(userVersion(db)).toBe(2)
+    expect(userVersion(db)).toBe(MIGRATIONS.length)
     expect(db.prepare('SELECT id, source_kind, source_version FROM widgets').all()).toEqual([
       { id: 'w1', source_kind: 'builtin', source_version: null },
     ])
@@ -74,10 +74,24 @@ describe('openDatabase', () => {
     saved.close()
 
     const again = await openDatabase(file)
-    expect(userVersion(again)).toBe(2)
+    expect(userVersion(again)).toBe(MIGRATIONS.length)
     expect(again.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 1 })
     again.close()
     expect(existsSync(`${file}.bak-v2`)).toBe(false)
+  })
+
+  it('gives grants of a version 2 database the mode allow', async () => {
+    const v2 = await openDatabase(file, MIGRATIONS.slice(0, 2))
+    v2.exec(`
+      INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.a.b', 'A', 'a', 'x');
+      INSERT INTO widget_grants (package_id, permission, granted_at) VALUES ('dev.a.b', 'notifications', 'x');
+    `)
+    v2.close()
+
+    const db = await openDatabase(file)
+    expect(userVersion(db)).toBe(3)
+    expect(db.prepare('SELECT permission, mode FROM widget_grants').all()).toEqual([{ permission: 'notifications', mode: 'allow' }])
+    db.close()
   })
 
   it('uses WAL, foreign keys and a busy timeout on a file database', async () => {

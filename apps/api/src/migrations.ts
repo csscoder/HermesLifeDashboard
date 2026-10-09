@@ -92,4 +92,8 @@ CREATE TABLE widget_audit (
   outcome TEXT NOT NULL
 );
 `,
+  `
+-- Spec 2026-10-09: grants approved before confirmation keep working without a dialog.
+ALTER TABLE widget_grants ADD COLUMN mode TEXT NOT NULL DEFAULT 'allow';
+`,
 ]
