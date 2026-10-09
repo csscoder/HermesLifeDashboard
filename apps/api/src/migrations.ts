@@ -92,4 +92,14 @@ CREATE TABLE widget_audit (
   outcome TEXT NOT NULL
 );
 `,
+  `
+ALTER TABLE screens ADD COLUMN rows INTEGER NOT NULL DEFAULT 12 CHECK (rows BETWEEN 4 AND 100);
+
+-- The 24-column grid does not carry 12-column layouts over (spec 2026-10-09-fluid-board-grid).
+-- A room that loses widgets gets a new revision, so a tab opened before the migration reloads.
+UPDATE rooms SET revision = revision + 1
+WHERE id IN (SELECT s.room_id FROM screens s JOIN widgets w ON w.screen_id = s.id);
+DELETE FROM widget_state;
+DELETE FROM widgets;
+`,
 ]

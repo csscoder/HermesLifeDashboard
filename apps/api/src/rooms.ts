@@ -77,20 +77,24 @@ function readBoard(db: DatabaseSync, roomId: string): RoomBoard {
   const widgets = db
     .prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.room_id = ? ORDER BY w.rowid')
     .all(roomId) as unknown as WidgetRow[]
+  const screens = db
+    .prepare('SELECT id, rows FROM screens WHERE room_id = ? ORDER BY position')
+    .all(roomId) as unknown as { id: string; rows: number }[]
   return {
     roomId,
     revision,
-    screens: screenIds(db, roomId).map((id) => {
-      const rows = widgets.filter((row) => row.screen_id === id)
+    screens: screens.map(({ id, rows }) => {
+      const placed = widgets.filter((row) => row.screen_id === id)
       return {
         id,
-        instances: rows.map((row) => ({
+        rows,
+        instances: placed.map((row) => ({
           id: row.id,
           source: sourceOf(row),
           configVersion: row.config_version,
           config: JSON.parse(row.config) as Record<string, unknown>,
         })),
-        layout: rows.map((row) => ({ instanceId: row.id, x: row.x, y: row.y, w: row.w, h: row.h })),
+        layout: placed.map((row) => ({ instanceId: row.id, x: row.x, y: row.y, w: row.w, h: row.h })),
       }
     }),
   }
@@ -120,6 +124,8 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
     }
     const screens = validateScreens(body.screens as unknown[], screenIds(db, roomId))
     checkPackagesInstalled(db, screens)
+    const setRows = db.prepare('UPDATE screens SET rows = ? WHERE id = ?')
+    for (const screen of screens) setRows.run(screen.rows, screen.id)
     db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE room_id = ?)').run(roomId)
     const insert = db.prepare(
       'INSERT INTO widgets (id, screen_id, source_kind, source_type, source_version, config, config_version, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',

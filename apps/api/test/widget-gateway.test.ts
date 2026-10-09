@@ -17,6 +17,7 @@ beforeEach(async () => {
   await installPackage(t, cookie)
   const screen = {
     id: SEED_SCREEN_ID,
+    rows: 12,
     instances: [
       { id: PKG_WIDGET, source: { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' }, configVersion: 1, config: {} },
       { id: BUILTIN_WIDGET, source: { kind: 'builtin', type: 'placeholder' }, configVersion: 1, config: {} },

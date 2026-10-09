@@ -45,8 +45,8 @@ describe('openDatabase', () => {
     expect(db.prepare('SELECT id, title, position, revision FROM rooms').all()).toEqual([
       { id: SEED_ROOM_ID, title: 'Главная', position: 0, revision: 1 },
     ])
-    expect(db.prepare('SELECT id, room_id, position FROM screens').all()).toEqual([
-      { id: SEED_SCREEN_ID, room_id: SEED_ROOM_ID, position: 0 },
+    expect(db.prepare('SELECT id, room_id, position, rows FROM screens').all()).toEqual([
+      { id: SEED_SCREEN_ID, room_id: SEED_ROOM_ID, position: 0, rows: 12 },
     ])
     db.close()
   })
@@ -60,7 +60,7 @@ describe('openDatabase', () => {
     `)
     v1.close()
 
-    const db = await openDatabase(file)
+    const db = await openDatabase(file, MIGRATIONS.slice(0, 2))
     expect(userVersion(db)).toBe(2)
     expect(db.prepare('SELECT id, source_kind, source_version FROM widgets').all()).toEqual([
       { id: 'w1', source_kind: 'builtin', source_version: null },
@@ -73,11 +73,42 @@ describe('openDatabase', () => {
     expect(tables(saved)).not.toContain('widget_packages')
     saved.close()
 
-    const again = await openDatabase(file)
+    const again = await openDatabase(file, MIGRATIONS.slice(0, 2))
     expect(userVersion(again)).toBe(2)
     expect(again.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 1 })
     again.close()
     expect(existsSync(`${file}.bak-v2`)).toBe(false)
+  })
+
+  it('migrates a version 2 database to version 3: rows 12, layouts reset, packages kept', async () => {
+    const v2 = await openDatabase(file, MIGRATIONS.slice(0, 2))
+    v2.exec(`
+      INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.test.hello', 'Hello', 'test', 'x');
+      INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at)
+      VALUES ('dev.test.hello', '1.0.0', '${'a'.repeat(64)}', '{}', '{}', 'x');
+      INSERT INTO widget_grants (package_id, permission, granted_at) VALUES ('dev.test.hello', 'state', 'x');
+      INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
+      VALUES ('w1', '${SEED_SCREEN_ID}', 'builtin', 'placeholder', '{}', 1, 0, 0, 2, 2);
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('w1', '{}', 1, 'x');
+      INSERT INTO rooms (id, title, position, revision, created_at, updated_at) VALUES ('r2', 'Пустая', 1, 5, 'x', 'x');
+    `)
+    v2.close()
+
+    const db = await openDatabase(file)
+    expect(userVersion(db)).toBe(3)
+    expect(db.prepare('SELECT id, rows FROM screens').all()).toEqual([{ id: SEED_SCREEN_ID, rows: 12 }])
+    expect(db.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 0 })
+    expect(db.prepare('SELECT count(*) AS n FROM widget_state').get()).toEqual({ n: 0 })
+    // Only a room that lost widgets gets a new revision: a stale tab of it must reload.
+    expect(db.prepare('SELECT id, revision FROM rooms ORDER BY position').all()).toEqual([
+      { id: SEED_ROOM_ID, revision: 2 },
+      { id: 'r2', revision: 5 },
+    ])
+    expect(db.prepare('SELECT count(*) AS n FROM widget_package_versions').get()).toEqual({ n: 1 })
+    expect(db.prepare('SELECT count(*) AS n FROM widget_grants').get()).toEqual({ n: 1 })
+    expect(() => db.exec(`UPDATE screens SET rows = 3`)).toThrow()
+    expect(() => db.exec(`UPDATE screens SET rows = 101`)).toThrow()
+    db.close()
   })
 
   it('uses WAL, foreign keys and a busy timeout on a file database', async () => {
