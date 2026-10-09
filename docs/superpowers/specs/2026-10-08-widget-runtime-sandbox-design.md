@@ -268,6 +268,13 @@ Operations in this slice:
 Handlers receive the context object so sub-project 2 adds a secret resolver without changing the
 pipeline.
 
+### Operation confirmation
+
+A gateway operation can also require the user's confirmation of the exact call: `GATEWAY_OPS` gives
+each op a `confirm` policy and each package grant has a mode (`allow` / `ask`). The pipeline then issues
+and checks a single-use, input-bound confirmation id, and the host asks the user in a dialog outside the
+frame. See `docs/superpowers/specs/2026-10-09-widget-op-confirmation-design.md`.
+
 ## Sandbox serving
 
 Routes outside `/api` (the session cookie has `Path=/api`, so these requests carry no session):
