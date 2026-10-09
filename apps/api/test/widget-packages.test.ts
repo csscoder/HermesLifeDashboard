@@ -189,6 +189,7 @@ describe('DELETE /widget-packages/:id', () => {
     await installPackage(t, cookie)
     const screen = {
       id: SEED_SCREEN_ID,
+      rows: 12,
       instances: [{ id: W, source: { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' }, configVersion: 1, config: {} }],
       layout: [{ instanceId: W, x: 0, y: 0, w: 3, h: 3 }],
     }

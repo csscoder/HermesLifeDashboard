@@ -4,18 +4,39 @@ import { gsap } from 'gsap'
 import { useActiveRect } from '../app/board/use-active-rect'
 import type { Rect, SizeLimits } from '@lifedashboard/contracts/grid'
 
-// A 12×8 grid of 64 px cells with 12 px gaps: the pitch is 76 px on both axes.
+// A 24-column grid of 64 px cells with 12 px gaps: the pitch is 76 px on both axes.
 const PITCH = 76
-const box = { left: 0, top: 0, width: 12 * 64 + 11 * 12, height: 8 * 64 + 7 * 12 }
 const limits: SizeLimits = { min: { w: 1, h: 1 }, max: { w: 3, h: 3 } }
 let time = 0
 const scopes: ReturnType<typeof effectScope>[] = []
 
-function setup(others: Rect[] = [], sizing: SizeLimits | null = limits) {
+// Vitest runs in Node: a fake ResizeObserver lets a test report a new grid size.
+let resizeGrid: () => void = () => {}
+let disconnected = 0
+class FakeResizeObserver {
+  constructor(callback: () => void) {
+    resizeGrid = callback
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {
+    disconnected++
+  }
+}
+
+function gridBox(rows: number, cell = 64) {
+  return { left: 0, top: 0, width: 24 * cell + 23 * 12, height: rows * cell + (rows - 1) * 12 }
+}
+
+function setup(others: Rect[] = [], sizing: SizeLimits | null = limits, rows = 8, rendered = rows) {
+  const box = gridBox(rendered)
   const gridEl = shallowRef<HTMLElement | null>({ getBoundingClientRect: () => box } as unknown as HTMLElement)
   const scope = effectScope()
   scopes.push(scope)
-  return scope.run(() => useActiveRect({ gridEl, others: () => others, sizing: () => sizing }))!
+  const active = scope.run(() =>
+    useActiveRect({ gridEl, others: () => others, sizing: () => sizing, rows: () => rows, gridRows: () => rendered }),
+  )!
+  return { ...active, box, scope }
 }
 
 // Vitest runs in Node: a pointer event is a plain object with a capturing target.
@@ -48,6 +69,8 @@ function cardX(active: ReturnType<typeof setup>) {
 
 beforeEach(() => {
   vi.stubGlobal('getComputedStyle', () => ({ columnGap: '12px', rowGap: '12px' }))
+  vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+  disconnected = 0
   gsap.ticker.remove(gsap.updateRoot)
   gsap.globalTimeline.clear()
   gsap.updateRoot(0)
@@ -165,5 +188,92 @@ describe('useActiveRect', () => {
     expect(active.moving.value).toBe(false)
     active.onPointerMove(pointer(3 * PITCH, 0))
     expect(active.rect.value).toEqual({ x: 5, y: 5, w: 1, h: 1 })
+  })
+
+  it('derives the vertical pitch from the rendered rows', () => {
+    const active = setup([], limits, 10, 30)
+    active.activate({ x: 0, y: 26, w: 2, h: 2 })
+    expect(active.cardStyle.value).toMatchObject({ height: `${2 * PITCH - 12}px` })
+  })
+
+  it('clamps a pointer move to the configured rows', () => {
+    const active = setup([], limits, 8)
+    active.activate({ x: 0, y: 0, w: 2, h: 2 })
+    active.onPointerDown(pointer(10, 10), 'move')
+    active.onPointerMove(pointer(10, 10 + 7 * PITCH))
+    expect(active.rect.value).toEqual({ x: 0, y: 6, w: 2, h: 2 })
+  })
+
+  it('lets a red widget move up by pointer but never down', () => {
+    const active = setup([], limits, 8, 30)
+    active.activate({ x: 0, y: 26, w: 2, h: 2 })
+    active.onPointerDown(pointer(10, 10), 'move')
+    active.onPointerMove(pointer(10, 10 + 2 * PITCH))
+    expect(active.rect.value).toEqual({ x: 0, y: 26, w: 2, h: 2 })
+    active.onPointerMove(pointer(10, 10 - 10 * PITCH))
+    expect(active.rect.value).toEqual({ x: 0, y: 16, w: 2, h: 2 })
+  })
+
+  it('steps a red widget up by keyboard but never down', () => {
+    const active = setup([], limits, 8, 30)
+    active.activate({ x: 0, y: 26, w: 2, h: 2 })
+    active.step(0, 1, false)
+    expect(active.rect.value).toEqual({ x: 0, y: 26, w: 2, h: 2 })
+    active.step(0, -1, false)
+    expect(active.rect.value).toEqual({ x: 0, y: 25, w: 2, h: 2 })
+    active.step(0, 1, false)
+    expect(active.rect.value).toEqual({ x: 0, y: 25, w: 2, h: 2 })
+  })
+
+  it('reports dragging for pointer resize and move until pointerup', () => {
+    const active = setup()
+    active.activate({ x: 0, y: 0, w: 1, h: 1 })
+    expect(active.dragging.value).toBe(false)
+    active.onPointerDown(pointer(10, 10), 'resize')
+    expect(active.dragging.value).toBe(true)
+    expect(active.moving.value).toBe(false)
+    active.onPointerUp()
+    expect(active.dragging.value).toBe(false)
+    active.onPointerDown(pointer(10, 10), 'move')
+    expect(active.dragging.value).toBe(true)
+    active.onPointerUp()
+    expect(active.dragging.value).toBe(false)
+  })
+
+  it('follows a new grid size: the card takes the new cell size on its slot', () => {
+    const active = setup()
+    active.activate({ x: 2, y: 1, w: 2, h: 2 })
+    Object.assign(active.box, gridBox(8, 96))
+    resizeGrid()
+    // 96 px cells + 12 px gaps: the pitch is 108 px.
+    expect(active.cardStyle.value).toMatchObject({ width: `${2 * 108 - 12}px`, height: `${2 * 108 - 12}px` })
+    expect(active.cardStyle.value.transform).toMatch(/^translate3d\(0px, 0px, 0\)/)
+  })
+
+  it('keeps a pointer drag going when the grid resizes during it', () => {
+    const active = setup()
+    active.activate({ x: 0, y: 0, w: 1, h: 1 })
+    active.onPointerDown(pointer(0, 0), 'move')
+    // Off a cell boundary: the free card sits at 248 px, so its pose differs from the slot at x = 3.
+    active.onPointerMove(pointer(3 * PITCH + 20, 0))
+    advance(2400)
+    expect(active.rect.value).toEqual({ x: 3, y: 0, w: 1, h: 1 })
+    Object.assign(active.box, gridBox(8, 96))
+    resizeGrid()
+    // The pose stays at 248 px, 76 px left of the new slot origin (3 * 108 px); a reset would give 0.
+    expect(active.dragging.value).toBe(true)
+    expect(Number(/translate3d\(([^p]+)px/.exec(active.cardStyle.value.transform ?? '')![1])).toBeCloseTo(
+      3 * PITCH + 20 - 3 * 108,
+      0,
+    )
+    // 96 px cells + 12 px gaps: the pitch is 108 px, so 5 * 108 + 20 px is cell 5.
+    active.onPointerMove(pointer(5 * 108 + 20, 0))
+    expect(active.rect.value).toEqual({ x: 5, y: 0, w: 1, h: 1 })
+  })
+
+  it('disconnects the observer with its scope', () => {
+    const active = setup()
+    active.scope.stop()
+    expect(disconnected).toBe(1)
   })
 })

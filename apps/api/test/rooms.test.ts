@@ -7,12 +7,13 @@ const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
 const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
-const EMPTY_SCREEN = { id: SEED_SCREEN_ID, instances: [], layout: [] }
+const EMPTY_SCREEN = { id: SEED_SCREEN_ID, rows: 12, instances: [], layout: [] }
 
 // B is listed before A on purpose: the saved order must read back unchanged.
 // The layout follows the instance order, as every board the UI produces does.
 const screen: ScreenBoard = {
   id: SEED_SCREEN_ID,
+  rows: 12,
   instances: [
     { id: B, source: { ...placeholder }, configVersion: 1, config: { title: 'x', nested: { list: [1, 'two', null] } } },
     { id: A, source: { ...placeholder }, configVersion: 1, config: {} },
@@ -58,7 +59,7 @@ describe('GET /api/v1/rooms/:roomId/board', () => {
     expect(await getBoard()).toEqual({
       roomId: SEED_ROOM_ID,
       revision: 1,
-      screens: [{ id: SEED_SCREEN_ID, instances: [], layout: [] }],
+      screens: [EMPTY_SCREEN],
     })
   })
 
@@ -70,6 +71,20 @@ describe('GET /api/v1/rooms/:roomId/board', () => {
 })
 
 describe('PUT /api/v1/rooms/:roomId/board', () => {
+  it('stores rows and reads them back, also on an empty screen', async () => {
+    const response = await put({ expectedRevision: 1, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
+    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
+  })
+
+  it('accepts a placement below the configured rows', async () => {
+    const red = { ...screen, rows: 4, layout: [{ instanceId: B, x: 4, y: 20, w: 2, h: 2 }, screen.layout[1]!] }
+    const response = await put({ expectedRevision: 1, screens: [red] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.screens).toEqual([red])
+  })
+
   it('saves, increments the revision and round-trips order and nested config', async () => {
     const response = await put({ expectedRevision: 1, screens: [screen] })
     expect(response.statusCode).toBe(200)
@@ -88,14 +103,13 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
 
   it('replaces the previous widgets', async () => {
     await put({ expectedRevision: 1, screens: [screen] })
-    const empty = { id: SEED_SCREEN_ID, instances: [], layout: [] }
-    expect((await put({ expectedRevision: 2, screens: [empty] })).statusCode).toBe(200)
-    expect((await getBoard()).screens).toEqual([empty])
+    expect((await put({ expectedRevision: 2, screens: [EMPTY_SCREEN] })).statusCode).toBe(200)
+    expect((await getBoard()).screens).toEqual([EMPTY_SCREEN])
   })
 
   it('answers 409 for a stale revision and changes nothing', async () => {
     await put({ expectedRevision: 1, screens: [screen] })
-    const response = await put({ expectedRevision: 1, screens: [{ id: SEED_SCREEN_ID, instances: [], layout: [] }] })
+    const response = await put({ expectedRevision: 1, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
     expect(response.statusCode).toBe(409)
     expect(errorCode(response)).toBe('REVISION_CONFLICT')
     expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [screen] })
@@ -104,9 +118,10 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
   const overlapping = structuredClone(screen)
   overlapping.layout[0] = { instanceId: B, x: 2, y: 2, w: 2, h: 2 }
   const outside = structuredClone(screen)
-  outside.layout[0] = { instanceId: B, x: 11, y: 0, w: 2, h: 2 }
+  outside.layout[0] = { instanceId: B, x: 23, y: 0, w: 2, h: 2 }
   const duplicate = structuredClone(screen)
   duplicate.instances[1]!.id = B
+  const withoutRows = { id: screen.id, instances: screen.instances, layout: screen.layout }
   const otherScreen = { ...structuredClone(screen), id: '00000000-0000-4000-8000-0000000000ff' }
 
   // Each rejected payload targets a non-empty saved board (revision 2): a rejection must keep
@@ -118,6 +133,9 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
     ['an unknown screen', { expectedRevision: 2, screens: [otherScreen] }],
     ['a missing screen', { expectedRevision: 2, screens: [] }],
     ['an extra screen', { expectedRevision: 2, screens: [screen, otherScreen] }],
+    ['missing rows', { expectedRevision: 2, screens: [withoutRows] }],
+    ['rows below 4', { expectedRevision: 2, screens: [{ ...screen, rows: 3 }] }],
+    ['rows above 100', { expectedRevision: 2, screens: [{ ...screen, rows: 101 }] }],
     ['a missing expectedRevision', { screens: [EMPTY_SCREEN] }],
     ['a non-integer expectedRevision', { expectedRevision: 1.5, screens: [EMPTY_SCREEN] }],
   ])('answers 400 for %s and changes nothing', async (_name, payload) => {
@@ -146,7 +164,7 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
       VALUES ('${A}', '${otherRoomScreen}', 'builtin', 'placeholder', '{}', 1, 0, 0, 1, 1);
     `)
     // The target room already holds B, so a partial replacement would be visible.
-    const onlyB: ScreenBoard = { id: SEED_SCREEN_ID, instances: [screen.instances[0]!], layout: [screen.layout[0]!] }
+    const onlyB: ScreenBoard = { id: SEED_SCREEN_ID, rows: 12, instances: [screen.instances[0]!], layout: [screen.layout[0]!] }
     const before = (await put({ expectedRevision: 1, screens: [onlyB] })).json().data
     const response = await put({ expectedRevision: 2, screens: [screen] })
     expect(response.statusCode).toBe(400)
@@ -179,6 +197,7 @@ describe('package widgets on the board', () => {
 
   const withPackage: ScreenBoard = {
     id: SEED_SCREEN_ID,
+    rows: 12,
     instances: [
       { id: A, source: { ...pomodoro }, configVersion: 1, config: {} },
       { id: B, source: { ...placeholder }, configVersion: 1, config: {} },
@@ -216,7 +235,7 @@ describe('package widgets on the board', () => {
       INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${A}', '{"n":1}', 1, 'x');
       INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${B}', '{"n":2}', 1, 'x');
     `)
-    const onlyA: ScreenBoard = { id: SEED_SCREEN_ID, instances: [withPackage.instances[0]!], layout: [withPackage.layout[0]!] }
+    const onlyA: ScreenBoard = { id: SEED_SCREEN_ID, rows: 12, instances: [withPackage.instances[0]!], layout: [withPackage.layout[0]!] }
     expect((await put({ expectedRevision: 2, screens: [onlyA] })).statusCode).toBe(200)
     expect(t.db.prepare('SELECT widget_id FROM widget_state').all()).toEqual([{ widget_id: A }])
   })

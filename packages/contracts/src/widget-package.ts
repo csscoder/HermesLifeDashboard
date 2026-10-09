@@ -1,4 +1,4 @@
-import { GRID, type Size, type WidgetSizing } from './grid.ts'
+import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
 import { byteLength, fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
 
 export const WIDGET_PERMISSIONS = ['state', 'notifications'] as const
@@ -99,7 +99,7 @@ function parseSizing(raw: unknown): WidgetSizing | null {
   if (!preferred || !min || !max) return null
   const ordered =
     min.w <= preferred.w && preferred.w <= max.w && min.h <= preferred.h && preferred.h <= max.h
-  return ordered && max.w <= GRID.cols && max.h <= GRID.rows ? { default: preferred, min, max } : null
+  return ordered && max.w <= GRID_COLS && max.h <= ROWS.max ? { default: preferred, min, max } : null
 }
 
 function parsePermissions(raw: unknown): WidgetPermission[] | null {
@@ -125,7 +125,9 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
     return fail('manifest.styles must name .css files in files')
   }
   const sizing = parseSizing(raw.sizing)
-  if (!sizing) return fail('manifest.sizing must have integer sizes with min ≤ default ≤ max inside the 12x8 grid')
+  if (!sizing) {
+    return fail(`manifest.sizing must have integer sizes with min ≤ default ≤ max inside the ${GRID_COLS}x${ROWS.max} grid`)
+  }
   const permissions = parsePermissions(raw.permissions)
   if (!permissions) return fail('manifest.permissions must be distinct items of: state, notifications')
   return {

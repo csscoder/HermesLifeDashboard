@@ -7,7 +7,7 @@ describe('builtin widgets', () => {
     expect(findBuiltinWidget('placeholder')).toEqual({
       type: 'placeholder',
       title: 'Заглушка',
-      sizing: { default: { w: 4, h: 4 }, min: { w: 1, h: 1 }, max: { w: 12, h: 8 } },
+      sizing: { default: { w: 4, h: 4 }, min: { w: 1, h: 1 }, max: { w: 24, h: 100 } },
       permissions: [],
     })
   })

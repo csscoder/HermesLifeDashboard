@@ -52,6 +52,11 @@ describe('parseWidgetPackage', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('accepts sizing up to the 24x100 grid', () => {
+    const raw = mutated((d) => { d.manifest.sizing.max = { w: 24, h: 100 } })
+    expect(parseWidgetPackage(raw).ok).toBe(true)
+  })
+
   it.each([
     ['null', null, /package must be an object/],
     ['an unknown top-level field', mutated((d) => { d.extra = 1 }), /unknown field "extra"/],
@@ -67,7 +72,8 @@ describe('parseWidgetPackage', () => {
     ['an empty author', mutated((d) => { d.manifest.author = '' }), /manifest\.author/],
     ['sdk 2', mutated((d) => { d.manifest.sdk = 2 }), /manifest\.sdk must be 1/],
     ['min above default', mutated((d) => { d.manifest.sizing.min.w = 4 }), /manifest\.sizing/],
-    ['max wider than the grid', mutated((d) => { d.manifest.sizing.max.w = 13 }), /manifest\.sizing/],
+    ['max wider than the grid', mutated((d) => { d.manifest.sizing.max.w = 25 }), /manifest\.sizing.*inside the 24x100 grid/],
+    ['max taller than the grid', mutated((d) => { d.manifest.sizing.max.h = 101 }), /manifest\.sizing.*inside the 24x100 grid/],
     ['a fractional size', mutated((d) => { d.manifest.sizing.default.h = 2.5 }), /manifest\.sizing/],
     ['an unknown sizing field', mutated((d) => { d.manifest.sizing.step = 1 }), /manifest\.sizing/],
     ['an unknown permission', mutated((d) => { d.manifest.permissions = ['http'] }), /manifest\.permissions/],

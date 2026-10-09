@@ -1,5 +1,5 @@
 import type { ScreenBoard, WidgetPlacement } from '@lifedashboard/contracts/board'
-import type { Rect } from '@lifedashboard/contracts/grid'
+import { ROWS, type Rect } from '@lifedashboard/contracts/grid'
 
 /** Board interaction mode: display only, the builder draft, or editing the placed widgets. */
 export type BoardMode = 'view' | 'build' | 'edit'
@@ -16,6 +16,11 @@ export function removeInstance(doc: ScreenBoard, id: string): ScreenBoard {
     instances: doc.instances.filter((item) => item.id !== id),
     layout: doc.layout.filter((item) => item.instanceId !== id),
   }
+}
+
+/** The board with new configured rows; anything but an integer in ROWS.min..ROWS.max changes nothing. */
+export function withRows(doc: ScreenBoard, rows: number): ScreenBoard {
+  return Number.isInteger(rows) && rows >= ROWS.min && rows <= ROWS.max ? { ...doc, rows } : doc
 }
 
 // ponytail: JSON comparison is key-order sensitive; both sides come from the API response or the

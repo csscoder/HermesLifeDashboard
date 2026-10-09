@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
-import { GRID, findFreeRect, type Rect } from '@lifedashboard/contracts/grid'
+import { GRID_COLS, ROWS, findFreeRect, gridRows, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
 import { describeSource } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, type BoardMode } from './edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
@@ -21,12 +21,6 @@ const emit = defineEmits<{
   unavailable: []
 }>()
 
-const cells = Array.from({ length: GRID.cols * GRID.rows }, (_, index) => ({
-  x: index % GRID.cols,
-  y: Math.floor(index / GRID.cols),
-  w: 1,
-  h: 1,
-}))
 const arrows: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
@@ -35,7 +29,7 @@ const arrows: Record<string, [number, number]> = {
 }
 // A card that is not active fills its grid area.
 const fill = { width: '100%', height: '100%' }
-const emptyScreen: ScreenBoard = { id: '', instances: [], layout: [] }
+const emptyScreen: ScreenBoard = { id: '', rows: ROWS.default, instances: [], layout: [] }
 const draftSizing = computed(() => describeSource(props.draftSource)?.sizing ?? null)
 
 // A load that finishes while a mode is open is dropped (DATA-06); `saving` blocks input during a PUT.
@@ -54,15 +48,15 @@ const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
 
 const editing = computed(() => mode.value === 'edit')
-const hasWidgets = computed(() => doc.value.layout.length > 0)
+// The screen on display: the working copy in edit mode, the loaded screen otherwise.
+const shown = computed(() => (editing.value ? working.value : doc.value))
 
-const placed = computed(() => {
-  const shown = editing.value ? working.value : doc.value
-  return shown.layout.flatMap((placement) => {
-    const instance = shown.instances.find((item) => item.id === placement.instanceId)
+const placed = computed(() =>
+  shown.value.layout.flatMap((placement) => {
+    const instance = shown.value.instances.find((item) => item.id === placement.instanceId)
     return instance ? [{ instance, placement }] : []
-  })
-})
+  }),
+)
 
 function sizingOf(instance: WidgetInstance) {
   return describeSource(instance.source)?.sizing ?? null
@@ -73,9 +67,22 @@ const activeSizing = computed(() => {
   return instance ? sizingOf(instance) : null
 })
 
+// Held during a pointer operation, so the grid never shrinks under the pointer (spec «Board»).
+const heldRows = ref<number | null>(null)
+const renderedRows = computed(() => heldRows.value ?? gridRows(shown.value.rows, shown.value.layout))
+const cells = computed(() =>
+  Array.from({ length: GRID_COLS * renderedRows.value }, (_, index) => ({
+    x: index % GRID_COLS,
+    y: Math.floor(index / GRID_COLS),
+    w: 1,
+    h: 1,
+  })),
+)
+
 const {
   rect: activeRect,
   moving,
+  dragging,
   cardStyle,
   activate,
   deactivate,
@@ -88,7 +95,17 @@ const {
   others: () =>
     editing.value ? working.value.layout.filter((item) => item.instanceId !== activeId.value) : doc.value.layout,
   sizing: () => (editing.value ? activeSizing.value : draftSizing.value),
+  rows: () => shown.value.rows,
+  gridRows: () => renderedRows.value,
 })
+
+watch(
+  dragging,
+  (active) => {
+    heldRows.value = active ? gridRows(shown.value.rows, shown.value.layout) : null
+  },
+  { flush: 'sync' },
+)
 
 // Every change of the edited widget's rect lands in the working copy at once.
 watch(
@@ -131,7 +148,9 @@ function start() {
   emit('notice', null)
   const sizing = draftSizing.value
   const others = doc.value.layout
-  const rect = sizing && (findFreeRect(sizing.default, others) ?? findFreeRect(sizing.min, others))
+  const rect =
+    sizing &&
+    (findFreeRect(sizing.default, others, doc.value.rows) ?? findFreeRect(sizing.min, others, doc.value.rows))
   if (!rect) {
     emit('notice', 'Нет свободного места')
     mode.value = 'view'
@@ -257,7 +276,13 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
-defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
+const rows = computed(() => shown.value.rows)
+
+function setRows(value: number) {
+  if (editing.value && !saving.value) working.value = withRows(working.value, value)
+}
+
+defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
 </script>
 
 <template>
@@ -266,10 +291,17 @@ defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
       ref="gridBox"
       class="board__grid"
       :class="{ 'board__grid--building': mode === 'build' }"
+      :style="{ '--grid-rows': renderedRows }"
       :inert="saving"
     >
       <template v-if="mode !== 'view'">
-        <span v-for="cell in cells" :key="`${cell.x}-${cell.y}`" class="board__dot" :style="area(cell)" />
+        <span
+          v-for="cell in cells"
+          :key="`${cell.x}-${cell.y}`"
+          class="board__dot"
+          :class="{ 'board__dot--out': cell.y >= shown.rows }"
+          :style="area(cell)"
+        />
       </template>
       <div
         v-for="{ instance, placement } in placed"
@@ -343,19 +375,23 @@ defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
 </template>
 
 <style scoped>
-/* The padding lives here, not on the grid, so pointer math starts at the first cell. */
+/* The padding lives here, not on the grid, so pointer math starts at the first cell. The board is the
+   size container: 24 square cells fill its content width, and it scrolls when the grid is taller. */
 .board {
   box-sizing: border-box;
-  display: grid;
-  place-items: center;
+  container-type: inline-size;
   height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 1rem;
 }
 
 .board__grid {
+  --ld-cell: calc((100cqw - 23 * 0.5rem) / 24);
   display: grid;
-  grid-template: repeat(8, 4rem) / repeat(12, 4rem);
-  gap: 0.75rem;
+  grid-template-columns: repeat(24, 1fr);
+  grid-template-rows: repeat(var(--grid-rows), var(--ld-cell));
+  gap: 0.5rem;
 }
 
 .board__dot {
@@ -363,8 +399,13 @@ defineExpose({ confirm, cancel, hasWidgets, saving, loaded })
   width: 0.25rem;
   height: 0.25rem;
   border-radius: 50%;
-  background: var(--ld-border-strong);
+  background: var(--ld-success);
   pointer-events: none;
+}
+
+/* Rows below the configured rows: widgets there can only be brought out (spec «Grid rules»). */
+.board__dot--out {
+  background: var(--ld-danger);
 }
 
 .board__item {

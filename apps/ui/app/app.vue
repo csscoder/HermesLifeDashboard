@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import type { WidgetSource } from '@lifedashboard/contracts/board'
+import { ROWS } from '@lifedashboard/contracts/grid'
 import { api } from './api'
 import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
@@ -37,6 +38,11 @@ function pickWidget(event: Event) {
   if (!entry) return
   draftSource.value = entry.source
   mode.value = 'build'
+}
+
+// An empty or out-of-range value leaves the working copy unchanged; :invalid marks the field.
+function setRows(event: Event) {
+  boardRef.value?.setRows((event.target as HTMLInputElement).valueAsNumber)
 }
 
 const apiLabel = computed(() => {
@@ -107,6 +113,20 @@ onMounted(check)
             <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.cancel()">
               Отмена
             </button>
+            <label v-if="mode === 'edit'" class="app__theme">
+              Ряды
+              <input
+                class="app__select app__rows"
+                type="number"
+                required
+                :min="ROWS.min"
+                :max="ROWS.max"
+                step="1"
+                :value="boardRef?.rows"
+                :disabled="boardRef?.saving"
+                @input="setRows"
+              />
+            </label>
           </template>
           <template v-else>
             <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
@@ -119,7 +139,7 @@ onMounted(check)
               <option value="" selected>Добавить виджет…</option>
               <option v-for="entry in entries" :key="entry.key" :value="entry.key">{{ entry.title }}</option>
             </select>
-            <button type="button" class="app__button" :disabled="!boardRef?.hasWidgets" @click="mode = 'edit'">
+            <button type="button" class="app__button" :disabled="!boardRef?.loaded" @click="mode = 'edit'">
               Изменить
             </button>
             <button type="button" class="app__button" @click="packagesOpen = true">Виджеты</button>
@@ -171,7 +191,7 @@ onMounted(check)
 <style>
 /* One scale for the whole UI (base design §7.4): every size is rem, only the root font size changes. */
 html {
-  font-size: max(16px, min(1vw, calc(100dvh / 43.75)));
+  font-size: calc(100vw / 80);
 }
 
 .app {
@@ -235,6 +255,14 @@ html {
 .app__select:focus-visible {
   outline: 0.125rem solid var(--ld-focus-ring);
   outline-offset: 0.125rem;
+}
+
+.app__rows {
+  width: 4.5rem;
+}
+
+.app__rows:invalid {
+  outline: 0.125rem solid var(--ld-danger);
 }
 
 .app__notice {
