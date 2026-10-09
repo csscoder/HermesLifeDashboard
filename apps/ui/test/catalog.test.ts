@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { InstalledPackage, WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
+import type { Grant, InstalledPackage, WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import {
   describeSource,
   findBuiltinWidget,
+  initialModes,
   installedPackages,
   loadPackages,
   pickerEntries,
   readPackageFile,
+  relaxedPermissions,
+  savedMode,
 } from '../app/widgets/catalog'
 
 function manifest(version: string, title: string): WidgetPackageManifest {
@@ -82,5 +85,27 @@ describe('readPackageFile', () => {
 
   it('returns the parsed body; the API validates the rest', async () => {
     expect(await readPackageFile(new Blob(['{"format":1}']))).toEqual({ ok: true, body: { format: 1 } })
+  })
+})
+
+describe('grant modes on the install screen', () => {
+  it('starts new confirmable permissions as ask and offers no mode for others', () => {
+    expect(initialModes(['state', 'notifications'])).toEqual({ notifications: 'ask' })
+    expect(initialModes(['state'])).toEqual({})
+  })
+
+  it('sends a PUT only for a new confirmable permission switched to allow', () => {
+    expect(relaxedPermissions(['state', 'notifications'], { notifications: 'allow' })).toEqual(['notifications'])
+    expect(relaxedPermissions(['notifications'], { notifications: 'ask' })).toEqual([])
+    // A held grant is not new: the install screen never touches it, whatever the modes say.
+    expect(relaxedPermissions([], { notifications: 'allow' })).toEqual([])
+    expect(relaxedPermissions(['state'], { state: 'allow' })).toEqual([])
+  })
+
+  it('shows the saved mode of a held confirmable grant only', () => {
+    const grants: Grant[] = [{ permission: 'notifications', mode: 'allow' }, { permission: 'state', mode: 'allow' }]
+    expect(savedMode(grants, 'notifications')).toBe('allow')
+    expect(savedMode(grants, 'state')).toBeNull()
+    expect(savedMode([], 'notifications')).toBeNull()
   })
 })

@@ -1,14 +1,27 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef, watch } from 'vue'
-import type { PackageInspection, WidgetPermission } from '@lifedashboard/contracts/widget-package'
+import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import { api, type ApiFailure } from '../api'
-import { installedPackages, loadPackages, readPackageFile } from './catalog'
+import {
+  CONFIRMABLE_PERMISSIONS,
+  initialModes,
+  installedPackages,
+  loadPackages,
+  readPackageFile,
+  relaxedPermissions,
+  savedMode,
+  type GrantModes,
+} from './catalog'
 
 const open = defineModel<boolean>('open', { required: true })
 
 const PERMISSIONS: Record<WidgetPermission, string> = {
   state: 'Хранить собственные данные виджета',
   notifications: 'Показывать уведомления',
+}
+const MODES: Record<GrantMode, string> = {
+  ask: 'Спрашивать каждый раз',
+  allow: 'Разрешить',
 }
 const VERSION_CONFLICT = 'Эта версия уже установлена с другим содержимым'
 
@@ -19,9 +32,12 @@ const message = ref<string | null>(null)
 const busy = ref(false)
 // The chosen file and what the API says about it; the permissions screen shows while it is set.
 const pending = ref<{ body: unknown; inspection: PackageInspection } | null>(null)
+// Modes the user picks for new confirmable permissions on the install screen.
+const modes = ref<GrantModes>({})
 
 const manifest = computed(() => pending.value?.inspection.manifest ?? null)
 const isUpdate = computed(() => installedPackages.value.some((pkg) => pkg.id === manifest.value?.id))
+const heldGrants = computed(() => installedPackages.value.find((pkg) => pkg.id === manifest.value?.id)?.grants ?? [])
 
 function permissionList(permissions: readonly WidgetPermission[]): string {
   return permissions.map((permission) => PERMISSIONS[permission]).join(', ')
@@ -62,21 +78,28 @@ async function chooseFile(event: Event) {
   busy.value = true
   const result = await api.inspectPackage(read.body)
   busy.value = false
-  if (result.ok) pending.value = { body: read.body, inspection: result.data }
-  else message.value = failureText(result, VERSION_CONFLICT)
+  if (result.ok) {
+    pending.value = { body: read.body, inspection: result.data }
+    modes.value = initialModes(result.data.newPermissions)
+  } else message.value = failureText(result, VERSION_CONFLICT)
 }
 
 async function install() {
-  if (!pending.value) return
+  const current = pending.value
+  if (!current) return
   busy.value = true
-  const result = await api.installPackage(pending.value.body)
-  busy.value = false
+  const result = await api.installPackage(current.body)
   if (!result.ok) {
+    busy.value = false
     message.value = failureText(result, VERSION_CONFLICT)
     return
   }
+  // New confirmable grants come out as «ask»; a failed PUT leaves that safer mode.
+  const relaxed = relaxedPermissions(current.inspection.newPermissions, modes.value)
+  const saved = await Promise.all(relaxed.map((permission) => api.setGrantMode(current.inspection.manifest.id, permission, 'allow')))
+  busy.value = false
   pending.value = null
-  message.value = 'Виджет установлен'
+  message.value = saved.every((item) => item.ok) ? 'Виджет установлен' : 'Виджет установлен, но режим «Разрешить» не сохранён'
   await loadPackages(api)
 }
 
@@ -86,6 +109,21 @@ async function remove(id: string) {
   busy.value = false
   if (!result.ok) {
     message.value = failureText(result, 'Виджет размещён на доске, сначала уберите его с доски')
+    return
+  }
+  message.value = null
+  await loadPackages(api)
+}
+
+async function changeMode(packageId: string, grant: Grant, event: Event) {
+  const select = event.target as HTMLSelectElement
+  busy.value = true
+  const result = await api.setGrantMode(packageId, grant.permission, select.value as GrantMode)
+  busy.value = false
+  if (!result.ok) {
+    // The list keeps showing the saved mode.
+    select.value = grant.mode
+    message.value = 'Не удалось сохранить режим'
     return
   }
   message.value = null
@@ -112,7 +150,21 @@ async function remove(id: string) {
       <p class="packages__warning">Это код стороннего автора</p>
       <h3 class="packages__subtitle">Разрешения</h3>
       <ul class="packages__permissions">
-        <li v-for="permission in manifest.permissions" :key="permission">{{ PERMISSIONS[permission] }}</li>
+        <li v-for="permission in manifest.permissions" :key="permission" class="packages__grant">
+          {{ PERMISSIONS[permission] }}
+          <select
+            v-if="modes[permission]"
+            v-model="modes[permission]"
+            class="packages__select"
+            :aria-label="`${PERMISSIONS[permission]}: режим`"
+          >
+            <option value="ask">{{ MODES.ask }}</option>
+            <option value="allow">{{ MODES.allow }}</option>
+          </select>
+          <span v-else-if="savedMode(heldGrants, permission)" class="packages__hint">
+            {{ MODES[savedMode(heldGrants, permission)!] }} — меняется в списке виджетов
+          </span>
+        </li>
         <li v-if="manifest.permissions.length === 0">Без разрешений</li>
       </ul>
       <p v-if="isUpdate && pending.inspection.newPermissions.length > 0" class="packages__warning">
@@ -132,7 +184,23 @@ async function remove(id: string) {
           <span class="packages__name">{{ pkg.title }}</span>
           <span>{{ pkg.author }}</span>
           <span>{{ pkg.versions.map((item) => item.version).join(', ') }}</span>
-          <span>{{ permissionList(pkg.grants.map((grant) => grant.permission)) || 'Без разрешений' }}</span>
+          <span class="packages__grants">
+            <template v-if="pkg.grants.length === 0">Без разрешений</template>
+            <span v-for="grant in pkg.grants" :key="grant.permission" class="packages__grant">
+              {{ PERMISSIONS[grant.permission] }}
+              <select
+                v-if="CONFIRMABLE_PERMISSIONS.has(grant.permission)"
+                class="packages__select"
+                :aria-label="`${PERMISSIONS[grant.permission]}: режим`"
+                :value="grant.mode"
+                :disabled="busy"
+                @change="changeMode(pkg.id, grant, $event)"
+              >
+                <option value="ask">{{ MODES.ask }}</option>
+                <option value="allow">{{ MODES.allow }}</option>
+              </select>
+            </span>
+          </span>
           <button type="button" class="packages__button" :disabled="busy" @click="remove(pkg.id)">Удалить</button>
         </li>
       </ul>
@@ -213,6 +281,38 @@ async function remove(id: string) {
 
 .packages__name {
   font-weight: var(--ld-weight-strong);
+}
+
+.packages__grants {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.packages__grant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.packages__select {
+  height: var(--ld-control-height);
+  padding: 0 0.5rem;
+  border: var(--ld-border-width) solid var(--ld-border-default);
+  border-radius: var(--ld-radius-control);
+  background: var(--ld-surface-3);
+  color: var(--ld-text-primary);
+  font: inherit;
+}
+
+.packages__select:focus-visible {
+  outline: 0.125rem solid var(--ld-focus-ring);
+  outline-offset: 0.125rem;
+}
+
+.packages__hint {
+  color: var(--ld-text-muted);
+  font-size: 0.875rem;
 }
 
 .packages__actions {

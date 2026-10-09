@@ -2,7 +2,8 @@ import { ref } from 'vue'
 import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { BUILTIN_WIDGETS, findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
 import type { WidgetSizing } from '@lifedashboard/contracts/grid'
-import { PACKAGE_LIMITS, type InstalledPackage } from '@lifedashboard/contracts/widget-package'
+import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
+import { PACKAGE_LIMITS, type Grant, type GrantMode, type InstalledPackage, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import type { api } from '../api'
 
 // One trusted list shared with the API; the UI adds only renderers (registry.ts).
@@ -67,4 +68,25 @@ export async function readPackageFile(file: Blob): Promise<PackageFile> {
   } catch {
     return { ok: false, message: 'Это не пакет виджета' }
   }
+}
+
+export type GrantModes = Partial<Record<WidgetPermission, GrantMode>>
+
+/** Permissions that offer «Спрашивать каждый раз / Разрешить». */
+export const CONFIRMABLE_PERMISSIONS: ReadonlySet<WidgetPermission> = new Set(confirmablePermissions())
+
+/** Install screen: a new confirmable permission starts as «Спрашивать»; others offer no mode. */
+export function initialModes(newPermissions: readonly WidgetPermission[]): GrantModes {
+  return Object.fromEntries(newPermissions.filter((permission) => CONFIRMABLE_PERMISSIONS.has(permission)).map((permission) => [permission, 'ask']))
+}
+
+/** After an install: new confirmable permissions the user switched to «Разрешить». Held grants are never touched. */
+export function relaxedPermissions(newPermissions: readonly WidgetPermission[], modes: GrantModes): WidgetPermission[] {
+  return newPermissions.filter((permission) => CONFIRMABLE_PERMISSIONS.has(permission) && modes[permission] === 'allow')
+}
+
+/** The saved mode of a confirmable grant the package holds; null for other permissions. */
+export function savedMode(grants: readonly Grant[], permission: WidgetPermission): GrantMode | null {
+  if (!CONFIRMABLE_PERMISSIONS.has(permission)) return null
+  return grants.find((grant) => grant.permission === permission)?.mode ?? null
 }
