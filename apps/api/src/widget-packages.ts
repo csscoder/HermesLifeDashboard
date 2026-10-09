@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
+import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
 import {
   canonicalJson,
   compareVersions,
   PACKAGE_LIMITS,
   parseWidgetPackage,
+  type Grant,
   type InstalledPackage,
   type PackageInspection,
   type WidgetPackage,
@@ -38,17 +40,19 @@ export function registerWidgetPackages(app: FastifyInstance, { db, now }: Widget
     deletePackage(db, request.params.id)
     return ok(request, null)
   })
+
+  app.put<{ Params: { id: string; permission: string }; Body: { mode?: unknown } | undefined }>(
+    '/api/v1/widget-packages/:id/grants/:permission',
+    async (request) => ok(request, setGrantMode(db, request.params.id, request.params.permission, request.body?.mode)),
+  )
 }
 
 export function packageHash(pkg: WidgetPackage): string {
   return createHash('sha256').update(canonicalJson({ manifest: pkg.manifest, files: pkg.files })).digest('hex')
 }
 
-export function grantsOf(db: DatabaseSync, packageId: string): WidgetPermission[] {
-  const rows = db.prepare('SELECT permission FROM widget_grants WHERE package_id = ? ORDER BY permission').all(packageId) as unknown as {
-    permission: WidgetPermission
-  }[]
-  return rows.map((row) => row.permission)
+export function grantsOf(db: DatabaseSync, packageId: string): Grant[] {
+  return db.prepare('SELECT permission, mode FROM widget_grants WHERE package_id = ? ORDER BY permission').all(packageId) as unknown as Grant[]
 }
 
 function parse(body: unknown): ParsedPackage {
@@ -66,7 +70,7 @@ function inspect(db: DatabaseSync, { pkg, hash }: ParsedPackage): PackageInspect
   if (stored && stored.hash !== hash) {
     throw new ApiError('CONFLICT', `Version ${manifest.version} of ${manifest.id} is already installed with different content`)
   }
-  const granted = new Set(grantsOf(db, manifest.id))
+  const granted = new Set(grantsOf(db, manifest.id).map((grant) => grant.permission))
   return {
     manifest,
     hash,
@@ -88,8 +92,10 @@ function install(db: DatabaseSync, parsed: ParsedPackage, now: Date): PackageIns
       db.prepare(
         'INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at) VALUES (?, ?, ?, ?, ?, ?)',
       ).run(manifest.id, manifest.version, parsed.hash, JSON.stringify(manifest), JSON.stringify(files), at)
-      const grant = db.prepare('INSERT OR IGNORE INTO widget_grants (package_id, permission, granted_at) VALUES (?, ?, ?)')
-      for (const permission of manifest.permissions) grant.run(manifest.id, permission, at)
+      // A new confirmable grant asks; OR IGNORE keeps the mode of a grant the package already holds.
+      const confirmable = new Set<WidgetPermission>(confirmablePermissions())
+      const grant = db.prepare('INSERT OR IGNORE INTO widget_grants (package_id, permission, granted_at, mode) VALUES (?, ?, ?, ?)')
+      for (const permission of manifest.permissions) grant.run(manifest.id, permission, at, confirmable.has(permission) ? 'ask' : 'allow')
     }
     db.exec('COMMIT')
     return { ...inspection, installed: true, newPermissions: [] }
@@ -130,4 +136,14 @@ function deletePackage(db: DatabaseSync, id: string): void {
   }
   // Versions and grants go with it (ON DELETE CASCADE).
   db.prepare('DELETE FROM widget_packages WHERE id = ?').run(id)
+}
+
+function setGrantMode(db: DatabaseSync, packageId: string, permission: string, mode: unknown): Grant[] {
+  if (!grantsOf(db, packageId).some((grant) => grant.permission === permission)) {
+    throw new ApiError('NOT_FOUND', 'The package holds no such permission')
+  }
+  if (!(confirmablePermissions() as string[]).includes(permission)) throw new ApiError('VALIDATION_ERROR', 'This permission has no mode')
+  if (mode !== 'allow' && mode !== 'ask') throw new ApiError('VALIDATION_ERROR', 'mode must be allow or ask')
+  db.prepare('UPDATE widget_grants SET mode = ? WHERE package_id = ? AND permission = ?').run(mode, packageId, permission)
+  return grantsOf(db, packageId)
 }

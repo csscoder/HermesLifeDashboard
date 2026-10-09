@@ -4,6 +4,14 @@ import { byteLength, fail, isRecord, unknownKey, type ParseResult } from './pars
 export const WIDGET_PERMISSIONS = ['state', 'notifications'] as const
 export type WidgetPermission = (typeof WIDGET_PERMISSIONS)[number]
 
+// Spec 2026-10-09: `ask` confirms each call of an `optional` operation in a host dialog.
+export type GrantMode = 'allow' | 'ask'
+
+export interface Grant {
+  permission: WidgetPermission
+  mode: GrantMode
+}
+
 export const PACKAGE_LIMITS = { maxBytes: 1_048_576, maxFiles: 20, maxIdLength: 100, maxTextLength: 60 } as const
 
 const ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/
@@ -55,7 +63,7 @@ export interface InstalledPackage {
   author: string
   // Newest first.
   versions: InstalledPackageVersion[]
-  grants: WidgetPermission[]
+  grants: Grant[]
 }
 
 export function isPackageId(value: unknown): value is string {

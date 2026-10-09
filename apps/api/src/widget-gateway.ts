@@ -140,7 +140,7 @@ function resolveWidget(db: DatabaseSync, widgetId: string): { packageId: string 
   if (row.source_kind === 'package') {
     const installed = db.prepare('SELECT 1 FROM widget_package_versions WHERE package_id = ? AND version = ?').get(row.source_type, row.source_version)
     if (!installed) throw new ApiError('NOT_FOUND', 'Widget package version is not installed')
-    return { packageId: row.source_type, grants: grantsOf(db, row.source_type) }
+    return { packageId: row.source_type, grants: grantsOf(db, row.source_type).map((grant) => grant.permission) }
   }
   const manifest = findBuiltinWidget(row.source_type)
   if (!manifest) throw new ApiError('NOT_FOUND', 'Unknown built-in widget')

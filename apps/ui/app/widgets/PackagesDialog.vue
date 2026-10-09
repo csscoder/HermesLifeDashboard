@@ -132,7 +132,7 @@ async function remove(id: string) {
           <span class="packages__name">{{ pkg.title }}</span>
           <span>{{ pkg.author }}</span>
           <span>{{ pkg.versions.map((item) => item.version).join(', ') }}</span>
-          <span>{{ permissionList(pkg.grants) || 'Без разрешений' }}</span>
+          <span>{{ permissionList(pkg.grants.map((grant) => grant.permission)) || 'Без разрешений' }}</span>
           <button type="button" class="packages__button" :disabled="busy" @click="remove(pkg.id)">Удалить</button>
         </li>
       </ul>

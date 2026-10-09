@@ -37,6 +37,12 @@ function count(table: string): unknown {
   return t.db.prepare(`SELECT count(*) AS n FROM ${table}`).get()
 }
 
+function setMode(permission: string, mode: unknown, id = 'dev.test.hello') {
+  return call(t.app, { method: 'PUT', url: `${PACKAGES}/${id}/grants/${permission}`, cookie, payload: { mode } })
+}
+
+const withNotifications = () => widgetPackage((p) => { p.manifest.permissions = ['state', 'notifications'] })
+
 describe('packageHash', () => {
   it('is a sha256 hex digest that ignores key order', () => {
     const pkg = widgetPackage()
@@ -92,7 +98,7 @@ describe('POST /widget-packages', () => {
         title: 'Hello',
         author: 'test',
         versions: [{ version: '1.0.0', hash: packageHash(pkg), manifest: pkg.manifest }],
-        grants: ['state'],
+        grants: [{ permission: 'state', mode: 'allow' }],
       },
     ])
     expect(t.db.prepare('SELECT files FROM widget_package_versions').get()).toEqual({ files: JSON.stringify(pkg.files) })
@@ -129,7 +135,8 @@ describe('POST /widget-packages', () => {
     }))
     const [pkg] = await list()
     expect(pkg.versions.map((item: { version: string }) => item.version)).toEqual(['1.10.0', '1.9.0', '1.0.0'])
-    expect(pkg.grants).toEqual(['notifications', 'state'])
+    // A new confirmable permission asks, also when the package is an update.
+    expect(pkg.grants).toEqual([{ permission: 'notifications', mode: 'ask' }, { permission: 'state', mode: 'allow' }])
   })
 
   it('installs a package whose entry is main.js', async () => {
@@ -195,5 +202,54 @@ describe('DELETE /widget-packages/:id', () => {
 
   it('answers 404 for an unknown package', async () => {
     expect((await remove('dev.test.none')).statusCode).toBe(404)
+  })
+})
+
+describe('grant modes', () => {
+  it('installs a confirmable grant as ask and another as allow', async () => {
+    await installPackage(t, cookie, withNotifications())
+    expect((await list())[0].grants).toEqual([{ permission: 'notifications', mode: 'ask' }, { permission: 'state', mode: 'allow' }])
+  })
+
+  it('switches the mode of a confirmable grant and returns the grants', async () => {
+    await installPackage(t, cookie, withNotifications())
+    const allowed = await setMode('notifications', 'allow')
+    expect(allowed.statusCode).toBe(200)
+    expect(allowed.json().data).toEqual([{ permission: 'notifications', mode: 'allow' }, { permission: 'state', mode: 'allow' }])
+    expect((await setMode('notifications', 'ask')).json().data[0]).toEqual({ permission: 'notifications', mode: 'ask' })
+    expect((await list())[0].grants[0]).toEqual({ permission: 'notifications', mode: 'ask' })
+  })
+
+  it('answers 404 for an unknown package or a permission the package does not hold', async () => {
+    await installPackage(t, cookie)
+    for (const response of [
+      await setMode('notifications', 'allow', 'dev.test.none'),
+      await setMode('notifications', 'allow'),
+      await setMode('http', 'allow'),
+    ]) {
+      expect([response.statusCode, errorCode(response)]).toEqual([404, 'NOT_FOUND'])
+    }
+  })
+
+  it('answers 400 for a held permission without a mode and for another mode, and changes nothing', async () => {
+    await installPackage(t, cookie, withNotifications())
+    for (const response of [
+      await setMode('state', 'ask'),
+      await setMode('notifications', 'never'),
+      await setMode('notifications', undefined),
+    ]) {
+      expect([response.statusCode, errorCode(response)]).toEqual([400, 'VALIDATION_ERROR'])
+    }
+    expect((await list())[0].grants).toEqual([{ permission: 'notifications', mode: 'ask' }, { permission: 'state', mode: 'allow' }])
+  })
+
+  it('keeps the mode of an existing grant when the package is updated', async () => {
+    await installPackage(t, cookie, widgetPackage((p) => { p.manifest.permissions = ['notifications'] }))
+    expect((await setMode('notifications', 'allow')).statusCode).toBe(200)
+    await installPackage(t, cookie, widgetPackage((p) => {
+      p.manifest.version = '1.1.0'
+      p.manifest.permissions = ['notifications', 'state']
+    }))
+    expect((await list())[0].grants).toEqual([{ permission: 'notifications', mode: 'allow' }, { permission: 'state', mode: 'allow' }])
   })
 })
