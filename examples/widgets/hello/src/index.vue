@@ -26,7 +26,14 @@ async function increment() {
 }
 
 async function remind() {
-  await widget.notify({ title: 'Напоминание', body: `Счётчик: ${count.value}` })
+  try {
+    await widget.notify({ title: 'Напоминание', body: `Счётчик: ${count.value}` })
+    status.value = ''
+  } catch (error) {
+    // The user declined in the host dialog, or the dialog expired.
+    if (!(error instanceof WidgetError) || error.code !== 'DECLINED') throw error
+    status.value = 'Уведомление отклонено'
+  }
 }
 
 onMounted(load)

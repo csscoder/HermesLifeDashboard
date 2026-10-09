@@ -6,6 +6,7 @@ import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
 import { connect } from './board/room-sync'
 import PairingForm from './PairingForm.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import { toasts } from './toasts'
 import { installedPackages, loadPackages, pickerEntries } from './widgets/catalog'
 import PackagesDialog from './widgets/PackagesDialog.vue'
@@ -155,6 +156,7 @@ onMounted(check)
       </main>
     </div>
     <PackagesDialog v-if="state === 'ready'" v-model:open="packagesOpen" />
+    <ConfirmDialog />
     <ul class="app__toasts" aria-live="polite">
       <li v-for="toast in toasts" :key="toast.id" class="app__toast">
         <p class="app__toast-source">{{ toast.source }}</p>
