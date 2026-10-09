@@ -1,17 +1,20 @@
 import {
   BRIDGE_LIMITS,
+  GATEWAY_OPS,
   isGatewayOp,
   parseGatewayInput,
   parseSandboxMessage,
   SDK_VERSION,
+  type GatewayOp,
   type NotificationInput,
   type WidgetContext,
   type WidgetErrorCode,
 } from '@lifedashboard/contracts/widget-gateway'
 import { WidgetError, type WidgetCall } from '@lifedashboard/widget-sdk'
 import type { api, ApiFailure, ApiResult } from '../api'
+import type { ConfirmationAnswer } from '../confirmations'
 
-export type GatewayApi = Pick<typeof api, 'createWidgetSession' | 'endWidgetSession' | 'gateway'>
+export type GatewayApi = Pick<typeof api, 'createWidgetSession' | 'endWidgetSession' | 'gateway' | 'declineConfirmation'>
 
 export interface GatewayClient {
   start(): Promise<boolean>
@@ -28,7 +31,11 @@ function toWidgetError(failure: ApiFailure): WidgetError {
     case 'rate-limited':
       return new WidgetError('RATE_LIMITED', 'Too many calls')
     case 'invalid':
+      if (failure.code === 'CONFIRMATION_INVALID') return new WidgetError('DECLINED', 'The confirmation expired')
       return new WidgetError(GATEWAY_CODES.has(failure.code) ? (failure.code as WidgetErrorCode) : 'INVALID_INPUT', failure.message)
+    // Only a repeat that carried an id gets here: it is never asked again.
+    case 'confirmation-required':
+      return new WidgetError('DECLINED', 'The confirmation expired')
     default:
       return new WidgetError('UNAVAILABLE', 'The LifeDashboard API is unavailable')
   }
@@ -37,15 +44,19 @@ function toWidgetError(failure: ApiFailure): WidgetError {
 /**
  * A widget's way to the gateway, shared by both hosts. It holds the widget session (the frame never
  * sees the token), checks op and input with the shared contracts, and renews an expired session once:
- * a session failure happens before the operation runs, so one repeat is safe.
+ * a session failure happens before the operation runs, so one repeat is safe. When the API asks for a
+ * confirmation, the user answers in the host dialog; only an approval sends the id, on one repeat.
  */
 export function createGatewayClient(deps: {
   api: GatewayApi
   widgetId: string
+  // The host dialog (confirmations.ts); `input` is the parsed value the API binds the id to.
+  confirm(op: GatewayOp, input: unknown): Promise<ConfirmationAnswer>
   onNotify(message: NotificationInput): void
   onSessionLost(): void
 }): GatewayClient {
   let token: string | null = null
+  let closed = false
 
   async function start(): Promise<boolean> {
     const result = await deps.api.createWidgetSession(deps.widgetId)
@@ -53,9 +64,9 @@ export function createGatewayClient(deps: {
     return token !== null
   }
 
-  async function send(op: string, input: unknown): Promise<ApiResult<unknown> | null> {
+  async function send(op: string, input: unknown, confirmationId?: string): Promise<ApiResult<unknown> | null> {
     if (token === null && !(await start())) return null
-    return deps.api.gateway(op, token!, input)
+    return deps.api.gateway(op, token!, input, confirmationId)
   }
 
   function lost(): WidgetError {
@@ -64,14 +75,28 @@ export function createGatewayClient(deps: {
     return new WidgetError('SESSION_EXPIRED', 'Widget session expired')
   }
 
+  // One call on the current session; a 428 asks the user, and an approval repeats it once with the id.
+  async function attempt(op: GatewayOp, input: unknown): Promise<ApiResult<unknown> | null> {
+    const result = await send(op, input)
+    if (!result || result.ok || result.kind !== 'confirmation-required') return result
+    const owner = token
+    const answer = await deps.confirm(op, input)
+    // Closed meanwhile: ending the session drops the id, so nothing is declined (spec «Error handling»).
+    if (closed) throw new WidgetError('DECLINED', 'The widget was closed')
+    if (answer === 'approved') return send(op, input, result.confirmationId)
+    if (owner !== null) void deps.api.declineConfirmation(owner, result.confirmationId)
+    throw new WidgetError('DECLINED', answer === 'expired' ? 'The confirmation expired' : 'The user declined the call')
+  }
+
   async function call(op: string, input: unknown): Promise<unknown> {
     if (!isGatewayOp(op)) throw new WidgetError('UNKNOWN_OP', `Unknown operation "${op.slice(0, 100)}"`)
     const parsed = parseGatewayInput(op, input)
     if (!parsed.ok) throw new WidgetError('INVALID_INPUT', parsed.error)
-    let result = await send(op, parsed.value)
+    let result = await attempt(op, parsed.value)
     if (result && !result.ok && result.kind === 'session-expired') {
+      // The renewal resends without an id: the new session gets a new 428 and the user is asked again.
       token = null
-      result = await send(op, parsed.value)
+      result = await attempt(op, parsed.value)
     }
     if (!result || (!result.ok && result.kind === 'session-expired')) throw lost()
     if (!result.ok) throw toWidgetError(result)
@@ -80,6 +105,7 @@ export function createGatewayClient(deps: {
   }
 
   async function close(): Promise<void> {
+    closed = true
     const current = token
     token = null
     if (current !== null) await deps.api.endWidgetSession(current)
@@ -193,7 +219,9 @@ export function createBridge(
       timers.delete(timer)
       reply(id, outcome)
     }
-    const timer = setTimeout(() => settle({ error: new WidgetError('TIMEOUT', 'The request timed out') }), BRIDGE_LIMITS.requestTimeoutMs)
+    // A confirmable op waits for the user; its dialog deadline ends it first (BRIDGE_LIMITS comment).
+    const timeoutMs = isGatewayOp(op) && GATEWAY_OPS[op].confirm !== 'never' ? BRIDGE_LIMITS.confirmTimeoutMs : BRIDGE_LIMITS.requestTimeoutMs
+    const timer = setTimeout(() => settle({ error: new WidgetError('TIMEOUT', 'The request timed out') }), timeoutMs)
     timers.add(timer)
     deps.call(op, input).then(
       (value) => settle({ value }),

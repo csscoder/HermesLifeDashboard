@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { BRIDGE_LIMITS, type WidgetContext } from '@lifedashboard/contracts/widget-gateway'
 import { api } from '../api'
+import { cancelConfirmations, requestConfirmation } from '../confirmations'
 import { showToast } from '../toasts'
 import { createBridge, createGatewayClient, listenForHello, type Bridge, type GatewayClient } from './broker'
 
@@ -28,6 +29,8 @@ function teardown() {
   stopWaiting = null
   bridge?.close()
   bridge = null
+  // An open or queued dialog of this widget closes; its id dies with the session.
+  cancelConfirmations(props.widgetId)
   void client?.close()
   client = null
   showFrame.value = false
@@ -45,6 +48,7 @@ async function start() {
   const current = createGatewayClient({
     api,
     widgetId: props.widgetId,
+    confirm: (op, input) => requestConfirmation({ widgetId: props.widgetId, title: props.title, op, input }),
     onNotify: (message) => showToast({ source: props.title, ...message }),
     onSessionLost: () => {
       if (client === current) fail()

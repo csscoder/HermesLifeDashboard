@@ -1,31 +1,47 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CONFIRMATION_DIALOG_MS, type GatewayOp } from '@lifedashboard/contracts/widget-gateway'
 import { WidgetError, type WidgetCall } from '@lifedashboard/widget-sdk'
-import type { ApiResult } from '../app/api'
+import { API_TIMEOUT_MS, type ApiResult } from '../app/api'
+import { cancelConfirmations, confirmations, requestConfirmation, type ConfirmationAnswer } from '../app/confirmations'
 import { createBridge, createGatewayClient, createHandshakes, type GatewayApi } from '../app/widgets/broker'
 
 // JSON of 'x'.repeat(n) is n + 2 bytes.
 const exactly64k = 'x'.repeat(65_534)
 const never = () => new Promise<never>(() => {})
 
-function fakeApi(answer: (op: string, token: string, input: unknown) => Promise<ApiResult<unknown>>) {
+type Answer = (op: string, token: string, input: unknown, confirmationId?: string) => Promise<ApiResult<unknown>>
+type Confirm = (op: GatewayOp, input: unknown) => Promise<ConfirmationAnswer>
+
+function fakeApi(answer: Answer) {
   let created = 0
   return {
     createWidgetSession: vi.fn(async (_widgetId: string) => ({ ok: true as const, data: { widgetSession: `s${++created}`, grants: [] } })),
     endWidgetSession: vi.fn(async (_token: string) => ({ ok: true as const, data: null })),
     gateway: vi.fn(answer),
+    declineConfirmation: vi.fn(async (_token: string, _id: string) => ({ ok: true as const, data: null })),
   } satisfies GatewayApi
 }
 
-function setup(answer: (op: string, token: string, input: unknown) => Promise<ApiResult<unknown>>) {
+function setup(answer: Answer, confirmAnswer: Confirm = async () => 'approved') {
   const api = fakeApi(answer)
   const onNotify = vi.fn()
   const onSessionLost = vi.fn()
-  return { api, onNotify, onSessionLost, client: createGatewayClient({ api, widgetId: 'w1', onNotify, onSessionLost }) }
+  const confirm = vi.fn(confirmAnswer)
+  return { api, onNotify, onSessionLost, confirm, client: createGatewayClient({ api, widgetId: 'w1', confirm, onNotify, onSessionLost }) }
 }
 
 function answers(...results: ApiResult<unknown>[]) {
   return async () => results.shift()!
 }
+
+const note = { title: 'Hi', body: '' }
+
+function asked(confirmationId: string): ApiResult<unknown> {
+  return { ok: false, kind: 'confirmation-required', confirmationId }
+}
+
+// The real queue and its deadline, as SandboxWidget wires it.
+const askUser: Confirm = (op, input) => requestConfirmation({ widgetId: 'w1', title: 'Привет', op, input })
 
 describe('createGatewayClient', () => {
   it('rejects an unknown op and invalid input before any API call', async () => {
@@ -40,7 +56,7 @@ describe('createGatewayClient', () => {
     const { api, client } = setup(answers({ ok: true, data: { revision: 1 } }))
     expect(await client.call('state.set', { data: { n: 1 }, expectedRevision: 0 })).toEqual({ revision: 1 })
     expect(api.createWidgetSession).toHaveBeenCalledWith('w1')
-    expect(api.gateway).toHaveBeenCalledWith('state.set', 's1', { data: { n: 1 }, expectedRevision: 0 })
+    expect(api.gateway).toHaveBeenCalledWith('state.set', 's1', { data: { n: 1 }, expectedRevision: 0 }, undefined)
   })
 
   it('renews an expired session once and repeats the call', async () => {
@@ -101,6 +117,74 @@ describe('createGatewayClient', () => {
     await client.close()
     expect(api.endWidgetSession.mock.calls).toEqual([['s1']])
   })
+
+  it('asks with the parsed input and repeats the call once with the id after an approval', async () => {
+    const { api, client, confirm, onNotify } = setup(answers(asked('c1'), { ok: true, data: { ok: true } }))
+    expect(await client.call('notifications.send', note)).toEqual({ ok: true })
+    expect(api.gateway.mock.calls).toEqual([
+      ['notifications.send', 's1', note, undefined],
+      ['notifications.send', 's1', note, 'c1'],
+    ])
+    // The dialog previews exactly the value the API bound the id to.
+    expect(confirm).toHaveBeenCalledWith('notifications.send', note)
+    expect(confirm.mock.calls[0]![1]).toBe(api.gateway.mock.calls[0]![2])
+    expect(onNotify).toHaveBeenCalledTimes(1)
+    expect(api.declineConfirmation).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['declined', 'The user declined the call'],
+    ['expired', 'The confirmation expired'],
+  ] as const)('declines the id and throws DECLINED when the answer is %s', async (answer, message) => {
+    const { api, client, onNotify } = setup(answers(asked('c1')), async () => answer)
+    await expect(client.call('notifications.send', note)).rejects.toMatchObject({ code: 'DECLINED', message })
+    expect(api.declineConfirmation).toHaveBeenCalledWith('s1', 'c1')
+    expect(api.gateway).toHaveBeenCalledTimes(1)
+    expect(onNotify).not.toHaveBeenCalled()
+  })
+
+  it('maps CONFIRMATION_INVALID on the repeat to DECLINED without declining', async () => {
+    const { api, client } = setup(answers(asked('c1'), { ok: false, kind: 'invalid', code: 'CONFIRMATION_INVALID', message: 'm' }))
+    await expect(client.call('notifications.send', note)).rejects.toMatchObject({ code: 'DECLINED', message: 'The confirmation expired' })
+    expect(api.declineConfirmation).not.toHaveBeenCalled()
+  })
+
+  it('never asks twice for one call on one session: a 428 on the repeat ends it', async () => {
+    const { client, confirm } = setup(answers(asked('c1'), asked('c2')))
+    await expect(client.call('notifications.send', note)).rejects.toMatchObject({ code: 'DECLINED' })
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('never asks for a 428 without an id', async () => {
+    const { client, confirm } = setup(answers({ ok: false, kind: 'invalid', code: 'CONFIRMATION_REQUIRED', message: 'm' }))
+    await expect(client.call('notifications.send', note)).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('resends without the id after a session renewal and asks again', async () => {
+    const { api, client, confirm } = setup(
+      answers(asked('c1'), { ok: false, kind: 'session-expired' }, asked('c2'), { ok: true, data: { ok: true } }),
+    )
+    expect(await client.call('notifications.send', note)).toEqual({ ok: true })
+    expect(api.gateway.mock.calls.map((call) => [call[1], call[3]])).toEqual([
+      ['s1', undefined],
+      ['s1', 'c1'],
+      ['s2', undefined],
+      ['s2', 'c2'],
+    ])
+    expect(confirm).toHaveBeenCalledTimes(2)
+  })
+
+  it('declines nothing when the widget closes while the user is asked', async () => {
+    let answer: ((result: ConfirmationAnswer) => void) | undefined
+    const { api, client, confirm } = setup(answers(asked('c1')), () => new Promise((resolve) => { answer = resolve }))
+    const pending = client.call('notifications.send', note)
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalled())
+    await client.close()
+    answer!('declined')
+    await expect(pending).rejects.toMatchObject({ code: 'DECLINED' })
+    expect(api.declineConfirmation).not.toHaveBeenCalled()
+  })
 })
 
 describe('createHandshakes', () => {
@@ -149,6 +233,7 @@ describe('createBridge', () => {
     for (const port of ports) port.close()
     ports = []
     bridges = []
+    cancelConfirmations('w1')
     vi.useRealTimers()
   })
 
@@ -189,7 +274,7 @@ describe('createBridge', () => {
     const frame = connect(client.call)
     frame.send({ t: 'req', id: 1, op: 'state.set', input: { data: exactly64k, expectedRevision: 0 } })
     expect(await frame.next()).toEqual({ t: 'res', id: 1, ok: true, value: { revision: 1 } })
-    expect(api.gateway).toHaveBeenCalledWith('state.set', 's1', { data: exactly64k, expectedRevision: 0 })
+    expect(api.gateway).toHaveBeenCalledWith('state.set', 's1', { data: exactly64k, expectedRevision: 0 }, undefined)
   })
 
   it('answers UNKNOWN_OP from the gateway client without an API call', async () => {
@@ -224,6 +309,43 @@ describe('createBridge', () => {
     await vi.waitFor(() => expect(call).toHaveBeenCalled())
     vi.advanceTimersByTime(10_000)
     expect(await frame.next()).toMatchObject({ t: 'res', id: 3, ok: false, error: { code: 'TIMEOUT' } })
+  })
+
+  it('ends an unanswered confirmation DECLINED before the bridge timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { api, client } = setup(answers(asked('c1')), askUser)
+    const frame = connect(client.call)
+    frame.send({ t: 'req', id: 1, op: 'notifications.send', input: note })
+    await vi.waitFor(() => expect(confirmations.value).toHaveLength(1))
+    await vi.advanceTimersByTimeAsync(CONFIRMATION_DIALOG_MS)
+    // With the 10 s request timeout the first answer would be TIMEOUT.
+    expect(await frame.next()).toMatchObject({ t: 'res', id: 1, ok: false, error: { code: 'DECLINED', message: 'The confirmation expired' } })
+    expect(api.declineConfirmation).toHaveBeenCalledWith('s1', 'c1')
+  })
+
+  it('ends DECLINED before the bridge timeout after a late approval, a session renewal and an unanswered second dialog', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    // Every API call takes the whole API_TIMEOUT_MS: the worst case of spec «Contracts».
+    const slow = <T,>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), API_TIMEOUT_MS))
+    const results: ApiResult<unknown>[] = [asked('c1'), { ok: false, kind: 'session-expired' }, asked('c2')]
+    const { api, client } = setup(() => slow(results.shift()!), askUser)
+    let sessions = 0
+    api.createWidgetSession.mockImplementation(() => slow({ ok: true as const, data: { widgetSession: `s${++sessions}`, grants: [] } }))
+    const frame = connect(client.call)
+    frame.send({ t: 'req', id: 1, op: 'notifications.send', input: note })
+    await vi.waitFor(() => expect(api.createWidgetSession).toHaveBeenCalled())
+    // vi.waitFor advances fake time by its interval on each check, so the steps below keep a 1 s margin.
+    await vi.advanceTimersByTimeAsync(2 * API_TIMEOUT_MS)
+    await vi.waitFor(() => expect(confirmations.value).toHaveLength(1))
+    // A late approval, 1 s before the dialog deadline.
+    await vi.advanceTimersByTimeAsync(CONFIRMATION_DIALOG_MS - 1_000)
+    confirmations.value[0]!.answer('approved')
+    // Repeat (session expired), new session, call (asked again).
+    await vi.advanceTimersByTimeAsync(3 * API_TIMEOUT_MS)
+    await vi.waitFor(() => expect(confirmations.value).toHaveLength(1))
+    await vi.advanceTimersByTimeAsync(CONFIRMATION_DIALOG_MS)
+    expect(await frame.next()).toMatchObject({ t: 'res', id: 1, ok: false, error: { code: 'DECLINED' } })
+    expect(api.declineConfirmation).toHaveBeenCalledWith('s2', 'c2')
   })
 
   it('forwards an error report from the frame', async () => {

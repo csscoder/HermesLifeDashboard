@@ -4,6 +4,7 @@ import type { WidgetSource } from '@lifedashboard/contracts/board'
 import type { Size } from '@lifedashboard/contracts/grid'
 import { provideInProcessWidget } from '@lifedashboard/widget-sdk'
 import { api } from '../api'
+import { cancelConfirmations, requestConfirmation } from '../confirmations'
 import { showToast } from '../toasts'
 import { createGatewayClient } from './broker'
 import { describeSource } from './catalog'
@@ -36,15 +37,21 @@ const context = useWidgetContext({
 // A placed built-in widget runs in-process behind the same broker client as a sandboxed one;
 // its widget session is created on the first gateway call.
 if (props.widgetId && props.source.kind === 'builtin') {
+  const widgetId = props.widgetId
   const client = createGatewayClient({
     api,
-    widgetId: props.widgetId,
+    widgetId,
+    // Built-ins count as `allow`; only `always` operations ask.
+    confirm: (op, input) => requestConfirmation({ widgetId, title: title.value, op, input }),
     onNotify: (message) => showToast({ source: title.value, ...message }),
     // ponytail: no error state for built-ins; the rejected call reaches the widget. Add one with the first built-in that uses the gateway.
     onSessionLost: () => {},
   })
   provideInProcessWidget({ call: client.call, context })
-  onUnmounted(() => void client.close())
+  onUnmounted(() => {
+    cancelConfirmations(widgetId)
+    void client.close()
+  })
 }
 </script>
 
