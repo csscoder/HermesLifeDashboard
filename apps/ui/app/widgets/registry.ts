@@ -4,4 +4,5 @@ import { defineAsyncComponent, type Component } from 'vue'
 // A Map (not an object) so types like "toString" never resolve to prototype members.
 export const builtinWidgetRenderers: ReadonlyMap<string, Component> = new Map<string, Component>([
   ['placeholder', defineAsyncComponent(() => import('./builtin/PlaceholderWidget.vue'))],
+  ['clock-analog-1', defineAsyncComponent(() => import('./builtin/clocks/analog_1/ClockAnalog1.vue'))],
 ])

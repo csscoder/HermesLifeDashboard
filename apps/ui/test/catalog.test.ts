@@ -62,6 +62,7 @@ describe('catalog', () => {
   it('offers built-ins and the newest version of each package', () => {
     expect(pickerEntries([clock])).toEqual([
       { key: 'builtin:placeholder', title: 'Заглушка', source: { kind: 'builtin', type: 'placeholder' } },
+      { key: 'builtin:clock-analog-1', title: 'Часы: лес', source: { kind: 'builtin', type: 'clock-analog-1' } },
       { key: 'package:dev.a.clock', title: 'Часы 2', source: { kind: 'package', packageId: 'dev.a.clock', version: '2.0.0' } },
     ])
   })

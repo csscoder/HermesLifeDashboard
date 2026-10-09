@@ -16,6 +16,12 @@ export const BUILTIN_WIDGETS: readonly BuiltinWidgetManifest[] = [
     sizing: { default: { w: 4, h: 4 }, min: { w: 1, h: 1 }, max: { w: 24, h: 100 } },
     permissions: [],
   },
+  {
+    type: 'clock-analog-1',
+    title: 'Часы: лес',
+    sizing: { default: { w: 6, h: 6 }, min: { w: 4, h: 4 }, max: { w: 16, h: 16 } },
+    permissions: [],
+  },
 ]
 
 // A Map (not an object) so types like "toString" never resolve to prototype members.
