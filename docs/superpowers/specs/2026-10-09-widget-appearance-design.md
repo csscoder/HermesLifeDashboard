@@ -93,19 +93,40 @@ export const DEFAULT_SHADOW: DropShadow = { x: 0, y: 8, blur: 16, color: '#00000
   export function resolveWidgetLook(
     appearance: WidgetAppearance | undefined,
     boardThemeId: string,
-  ): { themeId: string; skin: FrameSkin }
+  ): { themeId: string; skin: FrameSkin; foreign: boolean }
   ```
 
-  - `themeId === BARE_THEME_ID` → `{ themeId: boardThemeId, skin: 'bare' }`;
-  - otherwise `themeId = resolveThemeId([appearance?.themeId ?? null, boardThemeId], BUILTIN_THEME_IDS)`
-    and `skin = themeMeta(themeId).skin`.
+  - `themeId === BARE_THEME_ID` → `{ themeId: boardThemeId, skin: 'bare', foreign: false }`;
+  - otherwise `themeId = resolveThemeId([appearance?.themeId ?? null, boardThemeId], BUILTIN_THEME_IDS)`,
+    `skin = themeMeta(themeId).skin` and `foreign = themeId !== boardThemeId`.
+- **Foreign widgets.** The theme-engine spec requires a widget whose theme differs from the
+  board's to paint its opaque `surface-1-solid` (contrast was checked against its own `bg`, not
+  the board backdrop). That rule is not implemented yet; this change adds it.
+  `WidgetFrame` sets `.widget--foreign` when `foreign` is true, and `comfort.css` gets the
+  foreign half of the spec's shared rule in `ld.comfort`:
+
+  ```css
+  .widget--foreign {
+    --ld-surface-1: var(--ld-surface-1-solid);
+    --ld-blur: 0;
+  }
+  ```
+
+  The `transparency: reduced` half arrives with the `ComfortProfile` UI. `useWidgetContext`
+  reads tokens from the computed style of the frame element, so the substituted `surface-1` and
+  `blur` reach sandbox widgets. `foreign` can change while the widget's `themeId` stays the same
+  (a widget fixed to Glass while the board switches Glass → Paper), so `useWidgetContext` gets a
+  `foreign: () => boolean` source and re-reads tokens (after `nextTick`, as today) when the pair
+  `[themeId, foreign]` changes, not only `themeId`. Example: a Glass widget on a Paper board shows the
+  opaque `oklch(0.27 0.03 280)` surface, not the translucent white one over the light backdrop.
 - `SKINS` in `contract.ts` does not change: themes cannot pick `bare`.
-- `WidgetBoard.vue` passes the resolved `themeId`, `skin` and `appearance?.shadow` to `WidgetHost`;
+- `WidgetBoard.vue` passes the resolved `themeId`, `skin`, `foreign` and `appearance?.shadow` to `WidgetHost`;
   the host passes them to `WidgetFrame` and the resolved `themeId` to `useWidgetContext`, so
   sandbox widgets get the theme and colour scheme they are drawn with. The build draft passes no
   appearance and renders as today.
-- `WidgetFrame.vue` gets optional props `skin` (default `themeMeta(themeId).skin`) and `shadow`.
-  It sets `widget--skin-<skin>` and, when `shadow` is set, an inline style on `.widget__wrapper`:
+- `WidgetFrame.vue` gets optional props `skin` (default `themeMeta(themeId).skin`), `foreign`
+  (default `false`) and `shadow`. It sets `widget--skin-<skin>`, `widget--foreign` when `foreign`,
+  and, when `shadow` is set, an inline style on `.widget__wrapper`:
   `filter: drop-shadow(<css>)` for `bare`, `box-shadow: <css>` otherwise. Inline style beats the
   skin's layered `box-shadow` without `!important`.
 - Pure helper `shadowCss(shadow: DropShadow): string` (in `theme/`) returns
@@ -123,15 +144,19 @@ export const DEFAULT_SHADOW: DropShadow = { x: 0, y: 8, blur: 16, color: '#00000
 - **Panel.** New `apps/ui/app/board/WidgetSettings.vue`, one per board, `popover="auto"` (top
   layer: never clipped by the board). Props: the widget's `appearance`; emits the next
   appearance. Positioned from the gear's `getBoundingClientRect()`, kept inside the viewport.
-  On open, focus moves to the first control; on close, back to the gear.
+  On open, focus moves to the first control. When the user closes the panel (Esc, light dismiss,
+  the gear again), focus returns to the gear. Closes caused by the board keep its existing focus
+  rules: removal focuses `focusAfterRemoval`, leaving the mode or saving keeps focus where the
+  header button put it.
 - **Controls** (labels in Russian):
   - «Стиль» `<select>`: «Как у доски» (`null`), Стекло, Обсидиан, Бумага (from `BUILTIN_THEMES`),
     «Без оформления» (`BARE_THEME_ID`). A stored unknown id shows as «Как у доски»;
   - «Тень» checkbox: on → `DEFAULT_SHADOW`, off → `null`;
   - «X», «Y», «Размытие»: `<input type="range">` with `SHADOW_LIMITS`, step 1, value shown in px;
-    disabled while the shadow is off;
   - «Цвет»: `<input type="color">`;
   - «Непрозрачность»: range `0..100` %, stored as `0..1`;
+  - while the shadow is off, all five shadow controls are disabled and show `DEFAULT_SHADOW`
+    values; nothing is written until the checkbox turns the shadow on;
   - «Сбросить»: removes `appearance` entirely.
 - **Data flow.** Every change runs `working = setAppearance(working, id, next)`, a new helper in
   `board/edit-session.ts` that applies the normalization. The board re-renders live. «Готово»
@@ -161,11 +186,18 @@ TDD with the existing frameworks; each behaviour gets a failing test first.
   read back without the key. `apps/api/test/db.test.ts`: migration on an existing database.
 - `apps/ui/test/edit-session.test.ts`: `setAppearance` sets, replaces and normalizes.
 - `apps/ui/test/theme-resolve.test.ts`: `resolveWidgetLook` for absent, inherited, chosen, bare
-  and unknown theme ids.
+  and unknown theme ids, including `foreign` (true only for a chosen theme that differs from the
+  board's).
+- `useWidgetContext` re-reads tokens when `foreign` flips with an unchanged `themeId`, in both
+  directions (a component test with a stub frame, or a browser check if no Vue test harness
+  exists in `apps/ui/test`).
+- `apps/ui/test/theme-contract.test.ts` (or the nearest CSS test): `comfort.css` contains the
+  `.widget--foreign` rule substituting `surface-1-solid` and zero blur.
 - `apps/ui/test/shadow.test.ts`: `shadowCss` output, colour conversion, opacity.
 - Browser check in Orca's built-in browser (`orca-cli`): «⚙» on hover; panel opens next to the
-  widget; the clock in «Без оформления» with a shadow casts a round shadow; a framed widget with
-  another theme; Esc closes only the panel; «Отмена» discards; «Готово» + reload keeps the result.
+  widget; the clock in «Без оформления» with a shadow casts a round shadow; a Glass widget on a
+  Paper board paints an opaque surface with readable text, and switching the board Glass ↔ Paper
+  with that widget fixed to Glass updates its frame and sandbox tokens; Esc closes only the panel; «Отмена» discards; «Готово» + reload keeps the result.
 
 **Unverified (inferred):** `drop-shadow` on a bare sandbox widget follows its content outline,
 because the iframe and its root are already transparent. Checked in the browser step.
@@ -178,7 +210,8 @@ User themes, a board-wide bare theme, shadow `spread`, inset shadows, per-widget
 
 1. In edit mode, hovering or focusing a widget shows «⚙» next to «×»; «⚙» opens the settings
    panel for that widget and never starts a drag.
-2. Choosing a theme recolours only that widget; «Как у доски» returns it to the board theme.
+2. Choosing a theme recolours only that widget; «Как у доски» returns it to the board theme. A
+   widget whose theme differs from the board's paints its opaque `surface-1-solid`.
 3. «Без оформления» shows the widget without card background, border, card shadow and padding,
    using the board theme's colours.
 4. The shadow is editable (X, Y, blur, colour, opacity) and shows live; a bare clock casts a
