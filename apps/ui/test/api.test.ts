@@ -81,6 +81,50 @@ describe('apiRequest', () => {
     expect(init?.body).toBe('{"data":1,"expectedRevision":0}')
   })
 
+  it('maps 428 to confirmation-required with its id, and a 428 without an id to invalid', async () => {
+    vi.stubGlobal('fetch', respond(428, { error: { code: 'CONFIRMATION_REQUIRED', message: 'm', requestId: 'x', retryable: false, confirmationId: 'c1' } }))
+    expect(await api.gateway('notifications.send', 'tok', {})).toEqual({ ok: false, kind: 'confirmation-required', confirmationId: 'c1' })
+    vi.stubGlobal('fetch', respond(428, { error: { code: 'CONFIRMATION_REQUIRED', message: 'm', requestId: 'x', retryable: false } }))
+    expect(await api.gateway('notifications.send', 'tok', {})).toEqual({ ok: false, kind: 'invalid', code: 'CONFIRMATION_REQUIRED', message: 'm' })
+  })
+
+  it('maps 409 CONFIRMATION_INVALID to invalid, not to a state conflict', async () => {
+    vi.stubGlobal('fetch', respond(409, { error: { code: 'CONFIRMATION_INVALID', message: 'm', requestId: 'x', retryable: false } }))
+    expect(await api.gateway('notifications.send', 'tok', {}, 'c1')).toEqual({ ok: false, kind: 'invalid', code: 'CONFIRMATION_INVALID', message: 'm' })
+  })
+
+  it('sends the confirmation header only with a confirmation id', async () => {
+    const fetchMock = respond(200, { data: { ok: true }, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.gateway('notifications.send', 'tok', { title: 'Hi', body: '' }, 'c1')
+    expect(fetchMock.mock.calls[0]![1]?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'x-widget-session': 'tok',
+      'x-widget-confirmation': 'c1',
+    })
+  })
+
+  it('declines a confirmation with the widget session and an empty JSON body', async () => {
+    const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.declineConfirmation('tok', 'c1')
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/widget-gateway/confirmations/c1')
+    expect(init?.method).toBe('DELETE')
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json', 'x-widget-session': 'tok' })
+    expect(init?.body).toBe('{}')
+  })
+
+  it('sets a grant mode', async () => {
+    const fetchMock = respond(200, { data: [{ permission: 'notifications', mode: 'allow' }], meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.setGrantMode('dev.a.clock', 'notifications', 'allow')).toEqual({ ok: true, data: [{ permission: 'notifications', mode: 'allow' }] })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/widget-packages/dev.a.clock/grants/notifications')
+    expect(init?.method).toBe('PUT')
+    expect(init?.body).toBe('{"mode":"allow"}')
+  })
+
   it('sends an empty JSON body on DELETE', async () => {
     const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
     vi.stubGlobal('fetch', fetchMock)

@@ -1,7 +1,8 @@
 import type { RoomBoard, RoomSummary, SaveBoardRequest } from '@lifedashboard/contracts/board'
 import type { WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
-import type { InstalledPackage, PackageInspection } from '@lifedashboard/contracts/widget-package'
+import type { Grant, GrantMode, InstalledPackage, PackageInspection, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 
+// packages/contracts/test/widget-gateway.test.ts hardcodes this same 5 s in its confirmation timing budget.
 export const API_TIMEOUT_MS = 5000
 
 export type ApiFailure =
@@ -10,6 +11,8 @@ export type ApiFailure =
   | { kind: 'session-expired' }
   | { kind: 'conflict' }
   | { kind: 'rate-limited' }
+  // The gateway asks the user first (spec 2026-10-09); the id goes back on one repeat of the call.
+  | { kind: 'confirmation-required'; confirmationId: string }
   | { kind: 'invalid'; code: string; message: string }
   | { kind: 'unavailable' }
 
@@ -42,7 +45,12 @@ export async function apiRequest<T>(
   if (response.status === 401) {
     return errorField(payload, 'code') === 'SESSION_EXPIRED' ? { ok: false, kind: 'session-expired' } : { ok: false, kind: 'unauthorized' }
   }
-  if (response.status === 409) return { ok: false, kind: 'conflict' }
+  if (response.status === 428) {
+    const confirmationId = errorField(payload, 'confirmationId')
+    // Without an id there is nothing to confirm: fall through to a rejected call (fail closed).
+    if (confirmationId !== undefined) return { ok: false, kind: 'confirmation-required', confirmationId }
+  }
+  if (response.status === 409 && errorField(payload, 'code') !== 'CONFIRMATION_INVALID') return { ok: false, kind: 'conflict' }
   if (response.status === 429) return { ok: false, kind: 'rate-limited' }
   if (response.status >= 400 && response.status < 500) {
     return {
@@ -70,11 +78,18 @@ export const api = {
   deletePackage: (id: string) => apiRequest<null>('DELETE', `/widget-packages/${encodeURIComponent(id)}`, {}),
   createWidgetSession: (widgetId: string) => apiRequest<WidgetSessionResponse>('POST', '/widget-sessions', { widgetId }),
   endWidgetSession: (token: string) => apiRequest<null>('DELETE', `/widget-sessions/${encodeURIComponent(token)}`, {}),
-  gateway: (op: string, token: string, input: unknown) =>
-    apiRequest<unknown>('POST', `/widget-gateway/${encodeURIComponent(op)}`, input, API_TIMEOUT_MS, { 'x-widget-session': token }),
+  gateway: (op: string, token: string, input: unknown, confirmationId?: string) =>
+    apiRequest<unknown>('POST', `/widget-gateway/${encodeURIComponent(op)}`, input, API_TIMEOUT_MS, {
+      'x-widget-session': token,
+      ...(confirmationId === undefined ? {} : { 'x-widget-confirmation': confirmationId }),
+    }),
+  declineConfirmation: (token: string, id: string) =>
+    apiRequest<null>('DELETE', `/widget-gateway/confirmations/${encodeURIComponent(id)}`, {}, API_TIMEOUT_MS, { 'x-widget-session': token }),
+  setGrantMode: (id: string, permission: WidgetPermission, mode: GrantMode) =>
+    apiRequest<Grant[]>('PUT', `/widget-packages/${encodeURIComponent(id)}/grants/${encodeURIComponent(permission)}`, { mode }),
 }
 
-function errorField(payload: unknown, field: 'code' | 'message'): string | undefined {
+function errorField(payload: unknown, field: 'code' | 'message' | 'confirmationId'): string | undefined {
   if (!isRecord(payload) || !isRecord(payload.error)) return undefined
   const value = payload.error[field]
   return typeof value === 'string' ? value : undefined
