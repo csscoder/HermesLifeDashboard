@@ -275,7 +275,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
 
 .packages__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1.5fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0;
@@ -288,7 +288,10 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
 }
 
 .packages__grants {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.25rem;
 }
 
@@ -307,7 +310,9 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
   background: var(--ld-surface-3);
   color: var(--ld-text-primary);
   font: inherit;
+  min-width: 0;
   max-width: 100%;
+  text-overflow: ellipsis;
 }
 
 .packages__select:focus-visible {
