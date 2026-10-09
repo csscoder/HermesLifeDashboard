@@ -1,4 +1,4 @@
-import { GRID, inBounds, overlaps, type Rect } from './grid.ts'
+import { GRID_COLS, ROWS, inBounds, overlaps, type Rect } from './grid.ts'
 import { fail, isRecord, type ParseResult } from './parse.ts'
 import { isPackageId, isPackageVersion } from './widget-package.ts'
 
@@ -22,6 +22,8 @@ export interface WidgetPlacement extends Rect {
 
 export interface ScreenBoard {
   id: string
+  // Configured rows (ROWS.min..ROWS.max); placements may lie below them (base design §7.4).
+  rows: number
   instances: WidgetInstance[]
   layout: WidgetPlacement[]
 }
@@ -55,6 +57,10 @@ export function isUuid(value: unknown): value is string {
 export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   if (!isRecord(raw)) return fail('screen must be an object')
   if (!isUuid(raw.id)) return fail('screen id must be a UUID')
+  const rows = raw.rows
+  if (typeof rows !== 'number' || !Number.isInteger(rows) || rows < ROWS.min || rows > ROWS.max) {
+    return fail(`rows must be an integer ${ROWS.min}..${ROWS.max}`)
+  }
   if (!Array.isArray(raw.instances) || !Array.isArray(raw.layout)) return fail('instances and layout must be arrays')
 
   const instances: WidgetInstance[] = []
@@ -82,7 +88,7 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
     if (placed.has(item.instanceId)) return fail(`layout[${index}]: instance "${item.instanceId}" placed twice`)
     const rect = toRect(item)
     if (!rect) {
-      return fail(`layout[${index}]: x, y, w, h must be integers with w, h >= 1 inside the ${GRID.cols}x${GRID.rows} grid`)
+      return fail(`layout[${index}]: x, y, w, h must be integers with w, h >= 1 inside the ${GRID_COLS}x${ROWS.max} grid`)
     }
     if (layout.some((other) => overlaps(other, rect))) return fail(`layout[${index}]: overlaps another placement`)
     placed.add(item.instanceId)
@@ -92,7 +98,7 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   const unplaced = instances.find((instance) => !placed.has(instance.id))
   if (unplaced) return fail(`instance "${unplaced.id}" has no placement`)
 
-  return { ok: true, value: { id: raw.id, instances, layout } }
+  return { ok: true, value: { id: raw.id, rows, instances, layout } }
 }
 
 function parseSource(raw: unknown): WidgetSource | null {

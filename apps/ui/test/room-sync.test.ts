@@ -10,13 +10,14 @@ const A = '00000000-0000-4000-8000-00000000000a'
 function screen(ids: string[]): ScreenBoard {
   return {
     id: SCREEN,
+    rows: 12,
     instances: ids.map((id) => ({ id, source: { kind: 'builtin', type: 'placeholder' }, configVersion: 1, config: {} })),
     layout: ids.map((id, index) => ({ instanceId: id, x: index, y: 0, w: 1, h: 1 })),
   }
 }
 
 function board(revision: number, ids: string[] = []): RoomBoard {
-  return { roomId: ROOM, revision, screens: [screen(ids), { id: OTHER_SCREEN, instances: [], layout: [] }] }
+  return { roomId: ROOM, revision, screens: [screen(ids), { id: OTHER_SCREEN, rows: 12, instances: [], layout: [] }] }
 }
 
 const ok = <T>(data: T) => ({ ok: true as const, data })

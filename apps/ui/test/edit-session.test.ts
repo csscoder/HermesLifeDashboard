@@ -11,6 +11,7 @@ const C = '00000000-0000-4000-8000-00000000000c'
 // Layout order differs from reading order on purpose: B (0,0), A (4,0), C (0,3).
 const board: ScreenBoard = {
   id: SCREEN,
+  rows: 12,
   instances: [
     { id: A, source: { ...placeholder }, configVersion: 1, config: {} },
     { id: B, source: { ...placeholder }, configVersion: 1, config: {} },

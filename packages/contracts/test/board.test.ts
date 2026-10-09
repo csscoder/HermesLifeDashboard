@@ -8,6 +8,7 @@ const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 
 const valid: ScreenBoard = {
   id: SCREEN,
+  rows: 10,
   instances: [
     { id: A, source: { ...placeholder }, configVersion: 1, config: {} },
     { id: B, source: { ...placeholder }, configVersion: 1, config: { title: 'x', nested: { n: 1 } } },
@@ -50,6 +51,16 @@ describe('parseScreenBoard', () => {
     expect(result.ok && result.value.instances[0]!.source).toEqual(source)
   })
 
+  it('accepts a placement below the configured rows (red zone)', () => {
+    const raw = mutated((d) => { d.layout[1] = { instanceId: B, x: 20, y: 40, w: 2, h: 2 } })
+    expect(parseScreenBoard(raw).ok).toBe(true)
+  })
+
+  it('accepts the row bounds 4 and 100', () => {
+    expect(parseScreenBoard(mutated((d) => { d.rows = 4 })).ok).toBe(true)
+    expect(parseScreenBoard(mutated((d) => { d.rows = 100 })).ok).toBe(true)
+  })
+
   it('drops unknown fields', () => {
     const result = parseScreenBoard(mutated((d) => {
       d.extra = 1
@@ -76,10 +87,16 @@ describe('parseScreenBoard', () => {
     ['a placement without an instance', mutated((d) => { d.layout[1].instanceId = 'zzz' }), /unknown instanceId "zzz"/],
     ['an instance without a placement', mutated((d) => { d.layout.pop() }), /has no placement/],
     ['two placements of one instance', mutated((d) => { d.layout[1].instanceId = A }), /placed twice/],
-    ['an out-of-bounds placement', mutated((d) => { d.layout[1].x = 11 }), /inside the 12x8 grid/],
-    ['a non-integer coordinate', mutated((d) => { d.layout[1].x = 1.5 }), /inside the 12x8 grid/],
-    ['a string coordinate', mutated((d) => { d.layout[1].x = '4' }), /inside the 12x8 grid/],
-    ['a zero width', mutated((d) => { d.layout[1].w = 0 }), /inside the 12x8 grid/],
+    ['missing rows', mutated((d) => { delete d.rows }), /rows must be an integer 4\.\.100/],
+    ['rows below 4', mutated((d) => { d.rows = 3 }), /rows must be an integer 4\.\.100/],
+    ['rows above 100', mutated((d) => { d.rows = 101 }), /rows must be an integer 4\.\.100/],
+    ['fractional rows', mutated((d) => { d.rows = 4.5 }), /rows must be an integer 4\.\.100/],
+    ['string rows', mutated((d) => { d.rows = '12' }), /rows must be an integer 4\.\.100/],
+    ['an out-of-bounds placement', mutated((d) => { d.layout[1].x = 23 }), /inside the 24x100 grid/],
+    ['a placement below row 100', mutated((d) => { d.layout[1].y = 99 }), /inside the 24x100 grid/],
+    ['a non-integer coordinate', mutated((d) => { d.layout[1].x = 1.5 }), /inside the 24x100 grid/],
+    ['a string coordinate', mutated((d) => { d.layout[1].x = '4' }), /inside the 24x100 grid/],
+    ['a zero width', mutated((d) => { d.layout[1].w = 0 }), /inside the 24x100 grid/],
     ['overlapping placements', mutated((d) => { d.layout[1] = { instanceId: B, x: 2, y: 2, w: 2, h: 2 } }), /overlaps/],
   ])('rejects %s', (_name, raw, message) => {
     const result = parseScreenBoard(raw)
