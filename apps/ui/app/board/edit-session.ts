@@ -1,4 +1,4 @@
-import type { ScreenBoard, WidgetPlacement } from '@lifedashboard/contracts/board'
+import { normalizeAppearance, type ScreenBoard, type WidgetAppearance, type WidgetPlacement } from '@lifedashboard/contracts/board'
 import { ROWS, type Rect } from '@lifedashboard/contracts/grid'
 
 /** Board interaction mode: display only, the builder draft, or editing the placed widgets. */
@@ -15,6 +15,20 @@ export function removeInstance(doc: ScreenBoard, id: string): ScreenBoard {
     ...doc,
     instances: doc.instances.filter((item) => item.id !== id),
     layout: doc.layout.filter((item) => item.instanceId !== id),
+  }
+}
+
+/** The board with `id`'s appearance replaced; an empty one removes the key (normalizeAppearance). */
+export function setAppearance(doc: ScreenBoard, id: string, next: WidgetAppearance | null | undefined): ScreenBoard {
+  const appearance = normalizeAppearance(next)
+  return {
+    ...doc,
+    instances: doc.instances.map((item) => {
+      if (item.id !== id) return item
+      // Rebuilt without the old key, so a new appearance goes last, as the API returns it.
+      const { appearance: _old, ...rest } = item
+      return appearance ? { ...rest, appearance } : rest
+    }),
   }
 }
 

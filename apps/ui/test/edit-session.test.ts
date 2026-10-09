@@ -1,6 +1,6 @@
-import { parseScreenBoard, type ScreenBoard } from '@lifedashboard/contracts/board'
+import { DEFAULT_SHADOW, parseScreenBoard, type ScreenBoard, type WidgetAppearance } from '@lifedashboard/contracts/board'
 import { describe, expect, it } from 'vitest'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, withRows } from '../app/board/edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setPlacement, withRows } from '../app/board/edit-session'
 
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
@@ -108,5 +108,41 @@ describe('withRows', () => {
 
   it('makes a board with only changed rows differ', () => {
     expect(isSameBoard(withRows(board, 13), board)).toBe(false)
+  })
+})
+
+describe('setAppearance', () => {
+  const look: WidgetAppearance = { themeId: 'builtin:paper', shadow: null }
+
+  it('sets the appearance last on the target only and does not mutate its input', () => {
+    const before = structuredClone(board)
+    const next = setAppearance(board, A, look)
+    expect(next.instances[0]).toStrictEqual({ ...board.instances[0], appearance: look })
+    expect(Object.keys(next.instances[0]!).at(-1)).toBe('appearance')
+    expect(next.instances[1]).toBe(board.instances[1])
+    expect(next.layout).toBe(board.layout)
+    expect(board).toEqual(before)
+  })
+
+  it('replaces an appearance and stores it in canonical key order', () => {
+    const scrambled = { shadow: { opacity: 0.5, color: '#000000', blur: 16, y: 8, x: 0 }, themeId: null } as WidgetAppearance
+    const next = setAppearance(setAppearance(board, A, look), A, scrambled)
+    expect(JSON.stringify(next.instances[0]!.appearance)).toBe(JSON.stringify({ themeId: null, shadow: DEFAULT_SHADOW }))
+  })
+
+  it.each([
+    ['null («Сбросить»)', null],
+    ['undefined', undefined],
+    ['both fields null', { themeId: null, shadow: null }],
+  ])('removes the key for %s, so the board is unchanged again', (_name, value) => {
+    const next = setAppearance(setAppearance(board, A, look), A, value)
+    expect(next.instances[0]).not.toHaveProperty('appearance')
+    expect(isSameBoard(next, board)).toBe(true)
+  })
+
+  it('matches what the parser reads back', () => {
+    const next = setAppearance(board, A, { themeId: null, shadow: DEFAULT_SHADOW })
+    const parsed = parseScreenBoard(JSON.parse(JSON.stringify(next)))
+    expect(parsed.ok && isSameBoard(parsed.value, next)).toBe(true)
   })
 })
