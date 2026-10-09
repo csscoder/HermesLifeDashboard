@@ -254,10 +254,20 @@ describe('useActiveRect', () => {
     const active = setup()
     active.activate({ x: 0, y: 0, w: 1, h: 1 })
     active.onPointerDown(pointer(0, 0), 'move')
-    active.onPointerMove(pointer(3 * PITCH, 0))
+    // Off a cell boundary: the free card sits at 248 px, so its pose differs from the slot at x = 3.
+    active.onPointerMove(pointer(3 * PITCH + 20, 0))
+    advance(2400)
+    expect(active.rect.value).toEqual({ x: 3, y: 0, w: 1, h: 1 })
+    Object.assign(active.box, gridBox(8, 96))
     resizeGrid()
+    // The pose stays at 248 px, 76 px left of the new slot origin (3 * 108 px); a reset would give 0.
     expect(active.dragging.value).toBe(true)
-    active.onPointerMove(pointer(5 * PITCH, 0))
+    expect(Number(/translate3d\(([^p]+)px/.exec(active.cardStyle.value.transform ?? '')![1])).toBeCloseTo(
+      3 * PITCH + 20 - 3 * 108,
+      0,
+    )
+    // 96 px cells + 12 px gaps: the pitch is 108 px, so 5 * 108 + 20 px is cell 5.
+    active.onPointerMove(pointer(5 * 108 + 20, 0))
     expect(active.rect.value).toEqual({ x: 5, y: 0, w: 1, h: 1 })
   })
 
