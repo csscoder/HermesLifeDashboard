@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID_COLS, ROWS, findFreeRect, gridRows, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
+import { resolveWidgetLook } from '../theme/resolve'
 import { describeSource } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, withRows, type BoardMode } from './edit-session'
@@ -54,7 +55,7 @@ const shown = computed(() => (editing.value ? working.value : doc.value))
 const placed = computed(() =>
   shown.value.layout.flatMap((placement) => {
     const instance = shown.value.instances.find((item) => item.id === placement.instanceId)
-    return instance ? [{ instance, placement }] : []
+    return instance ? [{ instance, placement, look: resolveWidgetLook(instance.appearance, props.themeId) }] : []
   }),
 )
 
@@ -304,7 +305,7 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
         />
       </template>
       <div
-        v-for="{ instance, placement } in placed"
+        v-for="{ instance, placement, look } in placed"
         :key="instance.id"
         class="board__item"
         :class="{
@@ -328,7 +329,10 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
             class="board__content"
             :source="instance.source"
             :size="placement"
-            :theme-id="themeId"
+            :theme-id="look.themeId"
+            :skin="look.skin"
+            :foreign="look.foreign"
+            :shadow="instance.appearance?.shadow"
             :widget-id="instance.id"
             :config="instance.config"
           />

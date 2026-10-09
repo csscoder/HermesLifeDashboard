@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, useTemplateRef } from 'vue'
-import type { WidgetSource } from '@lifedashboard/contracts/board'
+import type { DropShadow, WidgetSource } from '@lifedashboard/contracts/board'
 import type { Size } from '@lifedashboard/contracts/grid'
 import { provideInProcessWidget } from '@lifedashboard/widget-sdk'
 import { api } from '../api'
 import { cancelConfirmations, requestConfirmation } from '../confirmations'
+import type { FrameSkin } from '../theme/resolve'
 import { showToast } from '../toasts'
 import { createGatewayClient } from './broker'
 import { describeSource } from './catalog'
@@ -18,7 +19,11 @@ import WidgetFrame from './WidgetFrame.vue'
 const props = defineProps<{
   source: WidgetSource
   size: Size
+  // Resolved by resolveWidgetLook on the board; the build draft passes only themeId.
   themeId: string
+  skin?: FrameSkin
+  foreign?: boolean
+  shadow?: DropShadow | null
   widgetId?: string
   config?: Record<string, unknown>
 }>()
@@ -30,6 +35,7 @@ const renderer = computed(() => (props.source.kind === 'builtin' ? builtinWidget
 const context = useWidgetContext({
   size: () => props.size,
   themeId: () => props.themeId,
+  foreign: () => props.foreign,
   config: () => props.config ?? {},
   frame: () => frame.value?.$el ?? null,
 })
@@ -56,7 +62,7 @@ if (props.widgetId && props.source.kind === 'builtin') {
 </script>
 
 <template>
-  <WidgetFrame ref="frameBox" :theme-id="themeId">
+  <WidgetFrame ref="frameBox" :theme-id="themeId" :skin="skin" :foreign="foreign" :shadow="shadow">
     <div v-if="!widgetId" class="grid place-items-center h-full text-center text-base font-strong text-secondary">{{ title }}</div>
     <component :is="renderer" v-else-if="renderer" />
     <SandboxWidget v-else-if="info?.hash" :widget-id="widgetId" :hash="info.hash" :title="title" :context="context" />

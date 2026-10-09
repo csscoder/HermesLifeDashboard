@@ -25,6 +25,8 @@ function rootFontSize(): number {
 export function useWidgetContext(source: {
   size: () => Size
   themeId: () => string
+  // True when the widget's theme differs from the board's: comfort.css swaps surface-1 and blur.
+  foreign: () => boolean
   config: () => Record<string, unknown>
   frame: () => Element | null
 }): WidgetContext {
@@ -64,7 +66,9 @@ export function useWidgetContext(source: {
   watch(source.config, (config) => {
     context.config = config
   })
-  watch(source.themeId, readTheme)
+  // `foreign` changes the computed tokens without changing the id (a widget fixed to Glass while the
+  // board switches Glass → Paper), so the pair is watched.
+  watch(() => [source.themeId(), source.foreign()] as const, readTheme)
   onMounted(() => {
     onResize()
     void readTheme()
