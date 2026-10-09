@@ -85,6 +85,8 @@ describe('error handling', () => {
     ['INVALID_INPUT', 400],
     ['CONFLICT', 409],
     ['PACKAGE_IN_USE', 409],
+    ['CONFIRMATION_REQUIRED', 428],
+    ['CONFIRMATION_INVALID', 409],
   ] as const)('maps %s to %i', async (code, status) => {
     const app = Fastify({ genReqId: newRequestId })
     registerErrorHandling(app)
@@ -94,6 +96,18 @@ describe('error handling', () => {
     const response = await app.inject({ url: '/x' })
     expect(response.statusCode).toBe(status)
     expect(response.json().error).toMatchObject({ code, message: 'm', retryable: false })
+    await app.close()
+  })
+
+  it('adds the confirmation id to the envelope only when the error has one', async () => {
+    const app = Fastify({ genReqId: newRequestId })
+    registerErrorHandling(app)
+    app.get('/x', async () => {
+      throw new ApiError('CONFIRMATION_REQUIRED', 'm', 'c1')
+    })
+    const response = await app.inject({ url: '/x' })
+    expect(response.statusCode).toBe(428)
+    expect(response.json().error).toMatchObject({ code: 'CONFIRMATION_REQUIRED', message: 'm', retryable: false, confirmationId: 'c1' })
     await app.close()
   })
 

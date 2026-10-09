@@ -16,14 +16,19 @@ const STATUS: Record<ErrorCode, number> = {
   INVALID_INPUT: 400,
   CONFLICT: 409,
   PACKAGE_IN_USE: 409,
+  CONFIRMATION_REQUIRED: 428,
+  CONFIRMATION_INVALID: 409,
 }
 
 export class ApiError extends Error {
   readonly code: ErrorCode
+  // Only CONFIRMATION_REQUIRED carries one.
+  readonly confirmationId: string | undefined
 
-  constructor(code: ErrorCode, message: string) {
+  constructor(code: ErrorCode, message: string, confirmationId?: string) {
     super(message)
     this.code = code
+    this.confirmationId = confirmationId
   }
 }
 
@@ -35,8 +40,10 @@ export function ok<T>(request: FastifyRequest, data: T): SuccessEnvelope<T> {
   return { data, meta: { requestId: request.id } }
 }
 
-function envelope(code: ErrorCode, message: string, requestId: string): ErrorEnvelope {
-  return { error: { code, message, requestId, retryable: code === 'RATE_LIMITED' } }
+function envelope(code: ErrorCode, message: string, requestId: string, confirmationId?: string): ErrorEnvelope {
+  const error: ErrorEnvelope['error'] = { code, message, requestId, retryable: code === 'RATE_LIMITED' }
+  if (confirmationId !== undefined) error.confirmationId = confirmationId
+  return { error }
 }
 
 function statusOf(error: unknown): number | undefined {
@@ -56,7 +63,7 @@ export function registerErrorHandling(app: FastifyInstance): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
       if (error.code === 'VALIDATION_ERROR') logRejection(request, error.message)
-      return reply.status(STATUS[error.code]).send(envelope(error.code, error.message, request.id))
+      return reply.status(STATUS[error.code]).send(envelope(error.code, error.message, request.id, error.confirmationId))
     }
     const status = statusOf(error)
     // Fastify's own client errors: malformed JSON, schema validation, body too large.

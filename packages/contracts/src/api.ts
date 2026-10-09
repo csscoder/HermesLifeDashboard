@@ -13,6 +13,9 @@ export type ErrorCode =
   | 'INVALID_INPUT'
   | 'CONFLICT'
   | 'PACKAGE_IN_USE'
+  // Widget operation confirmation (spec 2026-10-09).
+  | 'CONFIRMATION_REQUIRED'
+  | 'CONFIRMATION_INVALID'
 
 export interface SuccessEnvelope<T> {
   data: T
@@ -20,7 +23,8 @@ export interface SuccessEnvelope<T> {
 }
 
 export interface ErrorEnvelope {
-  error: { code: ErrorCode; message: string; requestId: string; retryable: boolean }
+  // confirmationId: only on CONFIRMATION_REQUIRED.
+  error: { code: ErrorCode; message: string; requestId: string; retryable: boolean; confirmationId?: string }
 }
 
 export interface PairRequest {

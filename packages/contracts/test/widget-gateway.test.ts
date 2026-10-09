@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { isGatewayOp, parseGatewayInput, parseSandboxMessage, sizeClass } from '../src/widget-gateway.ts'
+import {
+  BRIDGE_LIMITS,
+  CONFIRMATION_DIALOG_MS,
+  CONFIRMATION_TTL_MS,
+  confirmablePermissions,
+  GATEWAY_OPS,
+  isGatewayOp,
+  parseGatewayInput,
+  parseSandboxMessage,
+  sizeClass,
+} from '../src/widget-gateway.ts'
 
 // JSON of 'x'.repeat(n) is n + 2 bytes (the quotes).
 const exactly64k = 'x'.repeat(65_534)
@@ -86,5 +96,22 @@ describe('sizeClass', () => {
     [{ w: 12, h: 8 }, 'xl'],
   ] as const)('%j is %s', (size, expected) => {
     expect(sizeClass(size)).toBe(expected)
+  })
+})
+
+describe('confirmation policy', () => {
+  it('asks only for notifications.send, so only notifications offers a mode', () => {
+    expect(Object.fromEntries(Object.entries(GATEWAY_OPS).map(([op, spec]) => [op, spec.confirm]))).toEqual({
+      'state.get': 'never',
+      'state.set': 'never',
+      'notifications.send': 'optional',
+    })
+    expect(confirmablePermissions()).toEqual(['notifications'])
+  })
+
+  it('lets the dialog deadline, not the transport, end an unanswered call', () => {
+    expect(CONFIRMATION_DIALOG_MS).toBeLessThan(CONFIRMATION_TTL_MS)
+    // Spec «Contracts»: two dialogs and five API calls of 5 s (the UI's API_TIMEOUT_MS) fit inside the bridge timeout.
+    expect(2 * CONFIRMATION_DIALOG_MS + 5 * 5_000).toBeLessThan(BRIDGE_LIMITS.confirmTimeoutMs)
   })
 })

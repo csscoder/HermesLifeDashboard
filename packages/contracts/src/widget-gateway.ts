@@ -2,13 +2,26 @@ import type { Size } from './grid.ts'
 import { byteLength, fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
 import type { WidgetPermission } from './widget-package.ts'
 
+export type ConfirmPolicy = 'never' | 'optional' | 'always'
+
+// `confirm` (spec 2026-10-09): `optional` asks when the grant mode is `ask`, `always` asks every widget.
 export const GATEWAY_OPS = {
-  'state.get': { permission: 'state' },
-  'state.set': { permission: 'state' },
-  'notifications.send': { permission: 'notifications' },
-} as const satisfies Record<string, { permission: WidgetPermission }>
+  'state.get': { permission: 'state', confirm: 'never' },
+  'state.set': { permission: 'state', confirm: 'never' },
+  'notifications.send': { permission: 'notifications', confirm: 'optional' },
+} as const satisfies Record<string, { permission: WidgetPermission; confirm: ConfirmPolicy }>
 
 export type GatewayOp = keyof typeof GATEWAY_OPS
+
+/** Permissions with at least one `optional` operation: only these offer a mode. */
+export function confirmablePermissions(): WidgetPermission[] {
+  const permissions = Object.values(GATEWAY_OPS).flatMap((spec): WidgetPermission[] => (spec.confirm === 'optional' ? [spec.permission] : []))
+  return [...new Set(permissions)]
+}
+
+export const CONFIRMATION_TTL_MS = 120_000
+// The host closes an unanswered dialog this long after the 428 arrived, before the id expires.
+export const CONFIRMATION_DIALOG_MS = 110_000
 
 export const STATE_MAX_BYTES = 65_536
 const NOTIFICATION_TITLE_MAX = 80
@@ -125,6 +138,7 @@ export type WidgetErrorCode =
   | 'TIMEOUT'
   | 'BRIDGE_CLOSED'
   | 'UNAVAILABLE'
+  | 'DECLINED'
 
 export const SDK_VERSION = 1
 
@@ -163,6 +177,10 @@ export const BRIDGE_LIMITS = {
   maxMessageBytes: 131_072,
   maxInFlight: 16,
   requestTimeoutMs: 10_000,
+  // For ops with confirm !== 'never'. Worst case, one session renewal after an approval: two dialogs
+  // (2 × CONFIRMATION_DIALOG_MS) and five API calls of 5 s (call, repeat, session, call, repeat) is 245 s,
+  // so a dialog deadline, not this timeout, ends an unanswered call.
+  confirmTimeoutMs: 250_000,
   helloTimeoutMs: 10_000,
   maxMalformed: 20,
 } as const
