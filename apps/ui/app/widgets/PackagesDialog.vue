@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import { api, type ApiFailure } from '../api'
 import {
@@ -119,15 +119,18 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
   const select = event.target as HTMLSelectElement
   busy.value = true
   const result = await api.setGrantMode(packageId, grant.permission, select.value as GrantMode)
-  busy.value = false
-  if (!result.ok) {
+  if (result.ok) {
+    message.value = null
+    await loadPackages(api)
+  } else {
     // The list keeps showing the saved mode.
     select.value = grant.mode
     message.value = 'Не удалось сохранить режим'
-    return
   }
-  message.value = null
-  await loadPackages(api)
+  busy.value = false
+  // The select was disabled during the request; give keyboard focus back once it is enabled.
+  await nextTick()
+  select.focus()
 }
 </script>
 
@@ -272,7 +275,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
 
 .packages__item {
   display: grid;
-  grid-template-columns: 1fr auto auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1.5fr) auto;
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0;
@@ -280,6 +283,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
 }
 
 .packages__name {
+  overflow-wrap: anywhere;
   font-weight: var(--ld-weight-strong);
 }
 
@@ -303,6 +307,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
   background: var(--ld-surface-3);
   color: var(--ld-text-primary);
   font: inherit;
+  max-width: 100%;
 }
 
 .packages__select:focus-visible {
