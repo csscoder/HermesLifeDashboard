@@ -185,6 +185,43 @@ describe('createGatewayClient', () => {
     await expect(pending).rejects.toMatchObject({ code: 'DECLINED' })
     expect(api.declineConfirmation).not.toHaveBeenCalled()
   })
+
+  it('opens no dialog when the widget closes while the first call is in flight', async () => {
+    let release: (() => void) | undefined
+    const { api, client, confirm } = setup(() => new Promise((resolve) => { release = () => resolve(asked('c1')) }))
+    const pending = client.call('notifications.send', note)
+    await vi.waitFor(() => expect(api.gateway).toHaveBeenCalled())
+    await client.close()
+    release!()
+    await expect(pending).rejects.toMatchObject({ code: 'DECLINED', message: 'The widget was closed' })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(api.createWidgetSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates no new session when the widget closes before a renewal', async () => {
+    let release: (() => void) | undefined
+    const { api, client, confirm } = setup(() => new Promise((resolve) => { release = () => resolve({ ok: false, kind: 'session-expired' }) }))
+    const pending = client.call('notifications.send', note)
+    await vi.waitFor(() => expect(api.gateway).toHaveBeenCalled())
+    await client.close()
+    release!()
+    await expect(pending).rejects.toMatchObject({ code: 'DECLINED', message: 'The widget was closed' })
+    expect(api.createWidgetSession).toHaveBeenCalledTimes(1)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('ends a session whose creation finished after the widget closed', async () => {
+    const { api, client } = setup(answers())
+    let created: (() => void) | undefined
+    api.createWidgetSession.mockImplementationOnce(() => new Promise((resolve) => { created = () => resolve({ ok: true as const, data: { widgetSession: 'late', grants: [] } }) }))
+    const pending = client.call('state.get', {})
+    await vi.waitFor(() => expect(api.createWidgetSession).toHaveBeenCalled())
+    await client.close()
+    created!()
+    await expect(pending).rejects.toMatchObject({ code: 'DECLINED' })
+    expect(api.gateway).not.toHaveBeenCalled()
+    expect(api.endWidgetSession).toHaveBeenCalledWith('late')
+  })
 })
 
 describe('createHandshakes', () => {

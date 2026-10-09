@@ -60,12 +60,23 @@ export function createGatewayClient(deps: {
 
   async function start(): Promise<boolean> {
     const result = await deps.api.createWidgetSession(deps.widgetId)
-    token = result.ok ? result.data.widgetSession : null
+    // Closed while the session was created: nothing would ever end it.
+    if (closed && result.ok) void deps.api.endWidgetSession(result.data.widgetSession)
+    token = result.ok && !closed ? result.data.widgetSession : null
     return token !== null
   }
 
+  function closedError(): WidgetError {
+    return new WidgetError('DECLINED', 'The widget was closed')
+  }
+
   async function send(op: string, input: unknown, confirmationId?: string): Promise<ApiResult<unknown> | null> {
-    if (token === null && !(await start())) return null
+    // A removed widget opens no session and no dialog.
+    if (closed) throw closedError()
+    if (token === null && !(await start())) {
+      if (closed) throw closedError()
+      return null
+    }
     return deps.api.gateway(op, token!, input, confirmationId)
   }
 
@@ -79,10 +90,12 @@ export function createGatewayClient(deps: {
   async function attempt(op: GatewayOp, input: unknown): Promise<ApiResult<unknown> | null> {
     const result = await send(op, input)
     if (!result || result.ok || result.kind !== 'confirmation-required') return result
+    // Closed while the 428 was in flight: teardown already cancelled the queue, so do not add to it.
+    if (closed) throw closedError()
     const owner = token
     const answer = await deps.confirm(op, input)
     // Closed meanwhile: ending the session drops the id, so nothing is declined (spec «Error handling»).
-    if (closed) throw new WidgetError('DECLINED', 'The widget was closed')
+    if (closed) throw closedError()
     if (answer === 'approved') return send(op, input, result.confirmationId)
     if (owner !== null) void deps.api.declineConfirmation(owner, result.confirmationId)
     throw new WidgetError('DECLINED', answer === 'expired' ? 'The confirmation expired' : 'The user declined the call')
