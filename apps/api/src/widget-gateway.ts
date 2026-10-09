@@ -1,16 +1,18 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
 import {
+  CONFIRMATION_TTL_MS,
   GATEWAY_OPS,
   isGatewayOp,
   parseGatewayInput,
+  type ConfirmPolicy,
   type GatewayInputs,
   type GatewayOp,
   type WidgetSessionResponse,
 } from '@lifedashboard/contracts/widget-gateway'
-import type { WidgetPermission } from '@lifedashboard/contracts/widget-package'
+import { canonicalJson, type GrantMode, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import { ApiError, ok } from './errors.ts'
 import { grantsOf } from './widget-packages.ts'
 
@@ -33,13 +35,27 @@ export interface GatewayContext {
   grants: ReadonlySet<WidgetPermission>
 }
 
+interface PendingConfirmation {
+  id: string
+  op: GatewayOp
+  inputHash: string
+  expiresAt: number
+}
+
 interface WidgetSession extends GatewayContext {
   // Hash of the dashboard session that created it; a call must carry the same cookie.
   dashboard: string
   lastUsedAt: number
+  // At most one; it ends with the session (DELETE, idle expiry, eviction, API restart).
+  confirmation: PendingConfirmation | null
 }
 
 type Handlers = { [Op in GatewayOp]: (context: GatewayContext, input: GatewayInputs[Op]) => unknown }
+
+/** Spec 2026-10-09 «Gateway pipeline» step 1. `mode` is null for a built-in widget, which counts as `allow`. */
+export function needsConfirmation(policy: ConfirmPolicy, mode: GrantMode | null): boolean {
+  return policy === 'always' || (policy === 'optional' && mode === 'ask')
+}
 
 export interface WidgetGatewayDeps {
   db: DatabaseSync
@@ -53,6 +69,34 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   const sessions = new Map<string, WidgetSession>()
   const hits = new Map<string, number[]>()
   const handlers = operationHandlers(db, now)
+  const readMode = db.prepare('SELECT mode FROM widget_grants WHERE package_id = ? AND permission = ?')
+
+  // Read on every call, so a switch in the packages list takes effect at once. A missing row asks (fail closed).
+  function grantMode(session: WidgetSession, permission: WidgetPermission): GrantMode | null {
+    if (session.packageId === null) return null
+    const row = readMode.get(session.packageId, permission) as { mode: string } | undefined
+    return row?.mode === 'allow' ? 'allow' : 'ask'
+  }
+
+  // Steps 2–3: without the header, issue a single-use id (428); with it, spend the matching id or answer 409.
+  function confirmCall(session: WidgetSession, op: GatewayOp, input: unknown, header: unknown): void {
+    const t = now().getTime()
+    const inputHash = createHash('sha256').update(canonicalJson(input)).digest('hex')
+    const pending = session.confirmation !== null && session.confirmation.expiresAt > t ? session.confirmation : null
+    if (typeof header === 'string') {
+      if (!pending || pending.id !== header || pending.op !== op || pending.inputHash !== inputHash) {
+        throw new ApiError('CONFIRMATION_INVALID', 'The confirmation is not valid for this call')
+      }
+      // Single use; the rate limit was spent when the id was issued.
+      session.confirmation = null
+      return
+    }
+    if (pending) throw new ApiError('RATE_LIMITED', 'A confirmation is already pending')
+    rateLimit(session.widgetId, op)
+    const id = randomBytes(32).toString('base64url')
+    session.confirmation = { id, op, inputHash, expiresAt: t + CONFIRMATION_TTL_MS }
+    throw new ApiError('CONFIRMATION_REQUIRED', 'The user must confirm this call', id)
+  }
 
   function useSession(request: FastifyRequest): WidgetSession {
     const token = request.headers['x-widget-session']
@@ -97,7 +141,14 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     if (typeof widgetId !== 'string') throw new ApiError('VALIDATION_ERROR', 'widgetId must be a string')
     const { packageId, grants } = resolveWidget(db, widgetId)
     const token = randomBytes(32).toString('base64url')
-    sessions.set(token, { dashboard: request.sessionHash, widgetId, packageId, grants: new Set(grants), lastUsedAt: now().getTime() })
+    sessions.set(token, {
+      dashboard: request.sessionHash,
+      widgetId,
+      packageId,
+      grants: new Set(grants),
+      lastUsedAt: now().getTime(),
+      confirmation: null,
+    })
     while (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value!)
     const response: WidgetSessionResponse = { widgetSession: token, grants }
     return ok(request, response)
@@ -116,11 +167,15 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     let outcome = 'ok'
     try {
       if (!isGatewayOp(op)) throw new ApiError('UNKNOWN_OP', `Unknown operation "${op.slice(0, 100)}"`)
-      const { permission } = GATEWAY_OPS[op]
+      const { permission, confirm } = GATEWAY_OPS[op]
       if (!session.grants.has(permission)) throw new ApiError('PERMISSION_DENIED', `The widget has no "${permission}" permission`)
       const input = parseGatewayInput(op, request.body)
       if (!input.ok) throw new ApiError('INVALID_INPUT', input.error)
-      rateLimit(session.widgetId, op)
+      if (needsConfirmation(confirm, grantMode(session, permission))) {
+        confirmCall(session, op, input.value, request.headers['x-widget-confirmation'])
+      } else {
+        rateLimit(session.widgetId, op)
+      }
       const handler = handlers[op] as (context: GatewayContext, input: unknown) => unknown
       return ok(request, handler({ widgetId: session.widgetId, packageId: session.packageId, grants: session.grants }, input.value))
     } catch (error) {
@@ -129,6 +184,17 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     } finally {
       audit(session, op, outcome)
     }
+  })
+
+  // The host declines (user, dialog deadline). An unknown or foreign id is a no-op.
+  app.delete<{ Params: { id: string } }>('/api/v1/widget-gateway/confirmations/:id', async (request) => {
+    const session = useSession(request)
+    const pending = session.confirmation
+    if (pending !== null && pending.id === request.params.id) {
+      session.confirmation = null
+      audit(session, pending.op, 'DECLINED')
+    }
+    return ok(request, null)
   })
 }
 

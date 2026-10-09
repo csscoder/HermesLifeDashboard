@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
+import { needsConfirmation } from '../src/widget-gateway.ts'
 import { call, DAY, errorCode, HOUR, installPackage, pair, T0, testApp, widgetPackage, type TestApp } from './helpers.ts'
 
 const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
@@ -234,6 +235,8 @@ describe('notifications', () => {
       p.manifest.version = '1.1.0'
       p.manifest.permissions = ['state', 'notifications']
     }))
+    // These tests cover the call itself; describe('confirmation') covers the «ask» mode a new grant gets.
+    t.db.prepare("UPDATE widget_grants SET mode = 'allow'").run()
   })
 
   it('accepts the text limits and rejects text outside them', async () => {
@@ -258,5 +261,141 @@ describe('notifications', () => {
     expect((await gateway('state.get', fresh)).statusCode).toBe(200)
     t.clock.now += 1
     expect((await gateway('notifications.send', fresh, { title: 'x', body: '' })).statusCode).toBe(200)
+  })
+})
+
+describe('needsConfirmation', () => {
+  it.each([
+    ['never', 'ask', false],
+    ['never', 'allow', false],
+    ['never', null, false],
+    ['optional', 'ask', true],
+    ['optional', 'allow', false],
+    // A built-in widget (mode null) counts as allow.
+    ['optional', null, false],
+    ['always', 'ask', true],
+    ['always', 'allow', true],
+    ['always', null, true],
+  ] as const)('%s with mode %s → %s', (policy, mode, expected) => {
+    expect(needsConfirmation(policy, mode)).toBe(expected)
+  })
+})
+
+describe('confirmation', () => {
+  const note = { title: 'Hi', body: 'there' }
+
+  beforeEach(async () => {
+    // A new confirmable grant installs as «ask».
+    await installPackage(t, cookie, widgetPackage((p) => {
+      p.manifest.version = '1.1.0'
+      p.manifest.permissions = ['state', 'notifications']
+    }))
+  })
+
+  function send(token: string, confirmationId?: string, payload: unknown = note) {
+    return call(t.app, {
+      method: 'POST',
+      url: '/api/v1/widget-gateway/notifications.send',
+      cookie,
+      payload,
+      headers: confirmationId === undefined ? { 'x-widget-session': token } : { 'x-widget-session': token, 'x-widget-confirmation': confirmationId },
+    })
+  }
+
+  async function issue(token: string): Promise<string> {
+    const response = await send(token)
+    expect([response.statusCode, errorCode(response)]).toEqual([428, 'CONFIRMATION_REQUIRED'])
+    const id: string = response.json().error.confirmationId
+    expect(id).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    return id
+  }
+
+  function decline(token: string, id: string) {
+    return call(t.app, { method: 'DELETE', url: `/api/v1/widget-gateway/confirmations/${id}`, cookie, payload: {}, headers: { 'x-widget-session': token } })
+  }
+
+  function setMode(mode: string) {
+    return call(t.app, { method: 'PUT', url: '/api/v1/widget-packages/dev.test.hello/grants/notifications', cookie, payload: { mode } })
+  }
+
+  function outcomes(): string[] {
+    return (auditRows() as { outcome: string }[]).map((row) => row.outcome)
+  }
+
+  it('runs an asked call once with its confirmation and audits issue, use and reuse', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    expect((await send(token, id)).json().data).toEqual({ ok: true })
+    const reused = await send(token, id)
+    expect([reused.statusCode, errorCode(reused)]).toEqual([409, 'CONFIRMATION_INVALID'])
+    expect(reused.json().error.confirmationId).toBeUndefined()
+    expect(auditRows()).toEqual(
+      ['CONFIRMATION_REQUIRED', 'ok', 'CONFIRMATION_INVALID'].map((outcome) => ({
+        widget_id: PKG_WIDGET,
+        package_id: 'dev.test.hello',
+        op: 'notifications.send',
+        outcome,
+      })),
+    )
+  })
+
+  it('reads the grant mode on every call of a live session', async () => {
+    const token = await openSession(PKG_WIDGET)
+    expect((await setMode('allow')).statusCode).toBe(200)
+    expect((await send(token)).json().data).toEqual({ ok: true })
+    expect((await setMode('ask')).statusCode).toBe(200)
+    await issue(token)
+  })
+
+  it('binds a confirmation to its input and its widget session', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const other = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    for (const response of [await send(token, id, { title: 'Hi', body: 'other' }), await send(other, id)]) {
+      expect([response.statusCode, errorCode(response)]).toEqual([409, 'CONFIRMATION_INVALID'])
+    }
+    // The same input with its keys in another order is the same call.
+    expect((await send(token, id, { body: 'there', title: 'Hi' })).statusCode).toBe(200)
+  })
+
+  it('expires a confirmation after CONFIRMATION_TTL_MS and frees the slot', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const first = await issue(token)
+    t.clock.now += 120_000 - 1
+    expect((await send(token, first)).statusCode).toBe(200)
+    const second = await issue(token)
+    t.clock.now += 120_000
+    expect(errorCode(await send(token, second))).toBe('CONFIRMATION_INVALID')
+    await issue(token)
+  })
+
+  it('keeps one pending confirmation per session; a decline audits it and frees the slot', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    const second = await send(token)
+    expect([second.statusCode, errorCode(second)]).toEqual([429, 'RATE_LIMITED'])
+    expect(second.json().error.message).toBe('A confirmation is already pending')
+    // Another session of the same widget has its own slot.
+    await issue(await openSession(PKG_WIDGET))
+    expect((await decline(token, 'nope')).statusCode).toBe(200)
+    expect((await decline(token, id)).statusCode).toBe(200)
+    expect(errorCode(await send(token, id))).toBe('CONFIRMATION_INVALID')
+    await issue(token)
+    expect(outcomes()).toEqual([
+      'CONFIRMATION_REQUIRED',
+      'RATE_LIMITED',
+      'CONFIRMATION_REQUIRED',
+      'DECLINED',
+      'CONFIRMATION_INVALID',
+      'CONFIRMATION_REQUIRED',
+    ])
+  })
+
+  it('spends the rate limit once per confirmed call', async () => {
+    const token = await openSession(PKG_WIDGET)
+    for (let index = 0; index < 10; index++) {
+      expect((await send(token, await issue(token))).statusCode).toBe(200)
+    }
+    expect(errorCode(await send(token))).toBe('RATE_LIMITED')
   })
 })
