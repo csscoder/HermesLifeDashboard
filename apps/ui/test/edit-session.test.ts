@@ -1,6 +1,6 @@
 import { parseScreenBoard, type ScreenBoard } from '@lifedashboard/contracts/board'
 import { describe, expect, it } from 'vitest'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement } from '../app/board/edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, withRows } from '../app/board/edit-session'
 
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
@@ -91,5 +91,22 @@ describe('focusAfterRemoval', () => {
   it('returns null for the only widget and for an unknown id', () => {
     expect(focusAfterRemoval([board.layout[0]!], A)).toBeNull()
     expect(focusAfterRemoval(board.layout, 'zzz')).toBeNull()
+  })
+})
+
+describe('withRows', () => {
+  it('sets an integer in 4..100 and does not mutate its input', () => {
+    const before = structuredClone(board)
+    expect(withRows(board, 4)).toEqual({ ...board, rows: 4 })
+    expect(withRows(board, 100)).toEqual({ ...board, rows: 100 })
+    expect(board).toEqual(before)
+  })
+
+  it.each([Number.NaN, 4.5, 3, 101, 0, -12])('returns the same board for %s', (value) => {
+    expect(withRows(board, value)).toBe(board)
+  })
+
+  it('makes a board with only changed rows differ', () => {
+    expect(isSameBoard(withRows(board, 13), board)).toBe(false)
   })
 })
