@@ -241,6 +241,13 @@ function toggleSettings(event: MouseEvent, id: string) {
   if (anchor) settings.value?.open(anchor)
 }
 
+// The panel is placed once from its widget's rect; scrolling or resizing would leave it detached.
+// A scroll inside the panel itself is not that.
+function closeSettings(event?: Event) {
+  if (event?.target instanceof Node && settings.value?.$el.contains(event.target)) return
+  settings.value?.close()
+}
+
 function onSettingsToggle(open: boolean) {
   settingsOpen.value = open
   const byBoard = boardClosing
@@ -249,7 +256,7 @@ function onSettingsToggle(open: boolean) {
   // Esc, light dismiss or the gear: focus goes back to the gear, unless the user already moved it
   // to another element (clicking another widget focuses that widget).
   const focus = document.activeElement
-  if (!focus || focus === document.body || settings.value?.$el.contains(focus)) gearOf(settingsId.value)?.focus()
+  if (!focus || focus === document.body || settings.value?.$el.contains(focus)) gearOf(settingsId.value)?.focus({ preventScroll: true })
 }
 
 function changeAppearance(next: WidgetAppearance | null) {
@@ -295,6 +302,8 @@ function cancel() {
 }
 
 function onKeydown(event: KeyboardEvent) {
+  // A held Esc: the first keydown closed the panel natively, its auto-repeats must not cancel the edit.
+  if (event.key === 'Escape' && event.repeat) return
   // The open panel owns the keyboard: Esc closes only it (native), Backspace never deletes, Enter never confirms.
   if (settings.value?.isOpen()) return
   if (saving.value || mode.value === 'view' || isFormControlTarget(event.target)) return
@@ -336,11 +345,16 @@ watch(mode, (next) => {
 onMounted(() => {
   void load()
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', closeSettings)
+  // Capturing: scroll events do not bubble, and both the board and the page can scroll.
+  window.addEventListener('scroll', closeSettings, true)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', closeSettings)
+  window.removeEventListener('scroll', closeSettings, true)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 

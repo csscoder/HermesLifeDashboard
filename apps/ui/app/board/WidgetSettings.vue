@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useTemplateRef } from 'vue'
+import { computed, useId, useTemplateRef } from 'vue'
 import {
   BARE_THEME_ID,
   DEFAULT_SHADOW,
@@ -20,6 +20,7 @@ const emit = defineEmits<{
 }>()
 
 const panel = useTemplateRef<HTMLElement>('panelBox')
+const uid = useId()
 const shadow = computed(() => props.appearance?.shadow ?? null)
 // While the shadow is off the controls show DEFAULT_SHADOW, disabled; nothing is written.
 const shown = computed(() => shadow.value ?? DEFAULT_SHADOW)
@@ -51,6 +52,13 @@ function close() {
   if (isOpen()) panel.value?.hidePopover()
 }
 
+// Focus moved to another element: the board keyboard would stay locked out while the panel is open. A null
+// relatedTarget (a native colour or select popup, the window losing focus) keeps the panel open.
+function onFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget
+  if (next instanceof Element && !panel.value?.contains(next)) close()
+}
+
 function onToggle(event: ToggleEvent) {
   const opened = event.newState === 'open'
   if (opened) panel.value?.querySelector<HTMLElement>('select')?.focus()
@@ -75,7 +83,15 @@ defineExpose({ open, close, isOpen })
 </script>
 
 <template>
-  <div ref="panelBox" popover="auto" role="dialog" aria-label="Настройки виджета" class="settings" @toggle="onToggle">
+  <div
+    ref="panelBox"
+    popover="auto"
+    role="dialog"
+    aria-label="Настройки виджета"
+    class="settings"
+    @toggle="onToggle"
+    @focusout="onFocusOut"
+  >
     <label class="settings__row">
       <span class="settings__label">Стиль</span>
       <select class="settings__control" :value="styleValue(appearance)" @change="setStyle">
@@ -88,9 +104,11 @@ defineExpose({ open, close, isOpen })
       <span class="settings__label">Тень</span>
       <input type="checkbox" :checked="shadow !== null" @change="setShadowOn" />
     </label>
-    <label v-for="item in offsets" :key="item.key" class="settings__row">
-      <span class="settings__label">{{ item.label }}</span>
+    <!-- The value sits outside the label, so a slider's accessible name does not change while it is dragged. -->
+    <div v-for="item in offsets" :key="item.key" class="settings__row">
+      <label class="settings__label" :for="`${uid}-${item.key}`">{{ item.label }}</label>
       <input
+        :id="`${uid}-${item.key}`"
         type="range"
         class="settings__control"
         :min="item.limits[0]"
@@ -101,14 +119,15 @@ defineExpose({ open, close, isOpen })
         @input="setShadow(item.key, Number(valueOf($event)))"
       />
       <output class="settings__value">{{ shown[item.key] }} px</output>
-    </label>
+    </div>
     <label class="settings__row">
       <span class="settings__label">Цвет</span>
       <input type="color" :value="shown.color" :disabled="!shadow" @input="setShadow('color', valueOf($event))" />
     </label>
-    <label class="settings__row">
-      <span class="settings__label">Непрозрачность</span>
+    <div class="settings__row">
+      <label class="settings__label" :for="`${uid}-opacity`">Непрозрачность</label>
       <input
+        :id="`${uid}-opacity`"
         type="range"
         class="settings__control"
         min="0"
@@ -119,7 +138,7 @@ defineExpose({ open, close, isOpen })
         @input="setShadow('opacity', Number(valueOf($event)) / 100)"
       />
       <output class="settings__value">{{ percent }} %</output>
-    </label>
+    </div>
     <button type="button" class="settings__reset" @click="emit('change', null)">Сбросить</button>
   </div>
 </template>

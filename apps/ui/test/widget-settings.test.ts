@@ -44,11 +44,11 @@ describe('panelPosition', () => {
   const size = { width: 240, height: 300 }
   const viewport = { width: 1280, height: 800 }
 
-  it('places the panel right of the gear, top-aligned', () => {
+  it('places the panel right of the widget, top-aligned', () => {
     expect(panelPosition({ left: 100, top: 50, right: 124 }, size, viewport)).toEqual({ left: 132, top: 50 })
   })
 
-  it('flips left of the gear near the right edge', () => {
+  it('flips left of the widget near the right edge', () => {
     expect(panelPosition({ left: 1200, top: 50, right: 1224 }, size, viewport)).toEqual({ left: 952, top: 50 })
   })
 

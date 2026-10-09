@@ -18,7 +18,7 @@ export function withShadow(appearance: WidgetAppearance | undefined, shadow: Dro
 }
 
 /**
- * Top-left of a fixed panel beside the gear: to its right, else to its left, `margin` inside the viewport.
+ * Top-left of a fixed panel beside the widget: to its right, else to its left, `margin` inside the viewport.
  * CSS anchor positioning is not in every browser (spec «Decisions»).
  */
 export function panelPosition(
