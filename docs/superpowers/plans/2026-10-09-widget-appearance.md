@@ -1594,29 +1594,33 @@ git commit -m "feat(ui): widget settings panel behind a gear in edit mode"
 Run: `pnpm -r typecheck && pnpm test`
 Expected: every package PASS.
 
-- [ ] **Step 2: Start the app on an empty data directory**
+- [ ] **Step 2: Build the sandbox example and start the app on an empty data directory**
 
 ```bash
+pnpm -C examples/widgets/hello build
 export LIFEDASHBOARD_DATA_DIR="$(mktemp -d)"
 pnpm dev
 ```
 
-Run it in a background terminal; note the pairing code and `LIFEDASHBOARD_DATA_DIR`.
+Expected: `examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0.ldwidget.json` exists (`dist/` is git-ignored). Run `pnpm dev` in a background terminal; note the pairing code and `LIFEDASHBOARD_DATA_DIR`.
 
 - [ ] **Step 3: Browser acceptance in Orca's built-in browser**
 
-Load the `orca-cli` skill and control Orca's built-in browser through `orca` (project rule: no external browser). Open `http://127.0.0.1:3000`, pair, set the header «Тема» to Стекло, place the analog clock and a placeholder widget, then check in order. Take a screenshot for steps 3, 4 and 5.
+Load the `orca-cli` skill and control Orca's built-in browser through `orca` (project rule: no external browser). Open `http://127.0.0.1:3000`, pair, set the header «Тема» to Стекло. «Виджеты» → «Установить из файла» → `dev.lifedashboard.hello-1.0.0.ldwidget.json` → «Установить». Place the analog clock, a placeholder widget and «Привет», then check in order. Take a screenshot for checks 3–6.
+
+Sandbox tokens: `SandboxWidget.vue` posts `context.theme.tokens` into the iframe, where `packages/widget-sdk/src/sandbox.ts` sets them on the frame's `documentElement.style`. The iframe is sandboxed (opaque origin), so read the host side instead: load the `vue-runtime-inspect` skill and read the `SandboxWidget` instance's `context.theme.tokens['--ld-surface-1']` prop for «Привет». Glass values: `surface-1` `oklch(1 0 0 / 0.08)`, `surface-1-solid` `oklch(0.27 0.03 280)`.
 
 1. **Gear** — «Изменить»; hover the clock: «⚙» shows left of «×». Tab to a widget: both show on focus. Drag starting on «⚙» does not move the widget (acceptance 1).
 2. **Open / close / switch** — click «⚙»: the panel opens beside the widget, inside the viewport, focus on «Стиль». Click the same «⚙» again: the panel closes and focus is on the gear (Review Focus 1). Open it, then click the other widget's «⚙»: the panel now edits that widget.
-3. **Bare clock with a shadow** — clock: «Стиль» «Без оформления», «Тень» on, «Размытие» 24, «Y» 12: no card background, border or padding; the shadow is round and follows the dial (acceptance 3, 4; confirms the spec's «Unverified» note). Change «Цвет» and «Непрозрачность»: the board updates on every change.
-4. **Foreign widget** — placeholder: «Стиль» Бумага on the Glass board: it paints Paper's opaque sheet with readable text. Set it to Стекло and switch the header «Тема» to Бумага: the widget keeps Glass, paints the opaque `surface-1-solid` (`oklch(0.27 0.03 280)`), not the translucent white; check `getComputedStyle(frame).getPropertyValue('--ld-surface-1')` on its `.widget` and that the element has `widget--foreign`. Switch the header back to Стекло: `widget--foreign` is gone (acceptance 2). If a sandbox package widget is available (`examples/widgets/hello`, built as in `docs/superpowers/plans/2026-10-09-widget-op-confirmation.md` Task 9 Step 2), repeat with it and check that its iframe surface follows the switch (tokens re-read).
-5. **Keyboard with the panel open** — focus «Сбросить» or a slider, press Backspace: the widget stays. Press Enter on a slider: the board is not saved. Press Esc: only the panel closes, edit mode stays, focus is on the gear (acceptance 7, Review Focus 3).
-6. **Cancel** — «Отмена» (or Esc with no panel open): the board returns to the saved look.
-7. **Reset is a no-op** — «Изменить», on an unstyled widget set «Стиль» Бумага, then «Сбросить», then «Готово»: no `PUT /api/v1/rooms/…/board` in `orca` network output (Review Focus 4).
-8. **Persist** — style the clock again (bare + shadow) and the placeholder (Бумага), «Готово», reload: both looks remain (acceptance 5). While saving, the panel is closed.
-9. **Removal closes the panel** — «Изменить», open the panel of a widget, click its «×»: the panel closes and focus moves to the next widget (`focusAfterRemoval`); «Отмена».
-10. **Old boards** (acceptance 6) — covered by the Task 2 tests (version 4 database, round-trip without the key); additionally confirm an untouched widget's `GET` JSON has no `appearance` key.
+3. **Bare clock with a shadow** — clock: «Стиль» «Без оформления», «Тень» on, «Размытие» 24, «Y» 12: no card background, border or padding; the shadow is round and follows the dial (acceptance 3, 4). Change «Цвет» and «Непрозрачность»: the board updates on every change.
+4. **Bare sandbox widget with a shadow** — «Привет»: «Без оформления», «Тень» on: the shadow follows its content (text and button), with no rectangular shadow from the iframe box. This settles the spec's «Unverified (inferred)» note; if the shadow is rectangular, report it as a finding instead of patching around it.
+5. **Foreign widget** — placeholder: «Стиль» Бумага on the Glass board: it paints Paper's opaque sheet with readable text. Set the placeholder and «Привет» to Стекло and switch the header «Тема» to Бумага: both keep Glass and have `widget--foreign`; `getComputedStyle(<their .widget>).getPropertyValue('--ld-surface-1')` resolves to the opaque `surface-1-solid`, not the translucent white; «Привет»'s `context.theme.tokens['--ld-surface-1']` (see above) is `oklch(0.27 0.03 280)`. Switch the header back to Стекло: `widget--foreign` is gone and the token is `oklch(1 0 0 / 0.08)` again (acceptance 2; the end-to-end check of the Task 4 re-read).
+6. **Keyboard with the panel open** — focus «Сбросить» or a slider, press Backspace: the widget stays. Press Enter on a slider: the board is not saved. Press Esc: only the panel closes, edit mode stays, focus is on the gear (acceptance 7, Review Focus 3).
+7. **Cancel** — «Отмена» (or Esc with no panel open): the board returns to the saved look.
+8. **Reset is a no-op** — «Изменить», on an unstyled widget set «Стиль» Бумага, then «Сбросить», then «Готово»: no `PUT /api/v1/rooms/…/board` in `orca` network output (Review Focus 4).
+9. **Persist** — style the clock again (bare + shadow) and the placeholder (Бумага), «Готово», reload: both looks remain (acceptance 5). While saving, the panel is closed.
+10. **Removal closes the panel** — «Изменить», open the panel of a widget, click its «×»: the panel closes and focus moves to the next widget (`focusAfterRemoval`); «Отмена».
+11. **Old boards** (acceptance 6) — covered by the Task 2 tests (version 4 database, round-trip without the key); additionally confirm an untouched widget's `GET` JSON has no `appearance` key.
 
 Expected: every check passes. Report each check with its result in the final report; mark anything not run as `unverified`.
 
