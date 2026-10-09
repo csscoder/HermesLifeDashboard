@@ -236,8 +236,9 @@ function toggleSettings(event: MouseEvent, id: string) {
     return
   }
   settingsId.value = id
-  const gear = gearOf(id)
-  if (gear) settings.value?.open(gear)
+  // The panel anchors to the whole widget, not the gear: its own «⚙» and «×» stay reachable.
+  const anchor = gearOf(id)?.closest('.board__item') ?? gearOf(id)
+  if (anchor) settings.value?.open(anchor)
 }
 
 function onSettingsToggle(open: boolean) {

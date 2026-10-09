@@ -10,8 +10,9 @@ import {
 import { BUILTIN_THEMES } from '../theme/builtin'
 import { panelPosition, styleValue, withShadow, withStyle } from './widget-settings'
 
-// One per board: a non-modal popover beside the «⚙» of the widget being tuned. It sits in the top
-// layer, so the board never clips it; light dismiss and Esc are native (spec «Host UI»).
+// One per board: a non-modal popover beside the widget being tuned, anchored to the widget item so its
+// «⚙» and «×» stay clear. It sits in the top layer, so the board never clips it; light dismiss and Esc
+// are native (spec «Host UI»).
 const props = defineProps<{ appearance: WidgetAppearance | undefined }>()
 const emit = defineEmits<{
   change: [next: WidgetAppearance | null]
@@ -130,7 +131,7 @@ defineExpose({ open, close, isOpen })
   position: fixed;
   inset: auto;
   margin: 0;
-  width: 18rem;
+  width: 21rem;
   padding: 0.75rem;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: var(--ld-radius-card);
@@ -147,7 +148,7 @@ defineExpose({ open, close, isOpen })
 
 .settings__row {
   display: grid;
-  grid-template-columns: 7rem 1fr 3rem;
+  grid-template-columns: 9rem 1fr 3rem;
   align-items: center;
   gap: 0.5rem;
 }
@@ -158,6 +159,11 @@ defineExpose({ open, close, isOpen })
 
 .settings__control {
   min-width: 0;
+}
+
+/* The select has no value column: it spans the control and value columns so long names fit. */
+select.settings__control {
+  grid-column: 2 / -1;
 }
 
 .settings__value {
