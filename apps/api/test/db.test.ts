@@ -119,10 +119,25 @@ describe('openDatabase', () => {
     `)
     v3.close()
 
-    const db = await openDatabase(file)
+    const db = await openDatabase(file, MIGRATIONS.slice(0, 4))
     expect(userVersion(db)).toBe(4)
     expect(db.prepare('SELECT permission, mode FROM widget_grants').all()).toEqual([{ permission: 'notifications', mode: 'allow' }])
     db.close()
+  })
+
+  it('adds a nullable appearance column to widgets of a version 4 database', async () => {
+    const v4 = await openDatabase(file, MIGRATIONS.slice(0, 4))
+    v4.exec(`
+      INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
+      VALUES ('w1', '${SEED_SCREEN_ID}', 'builtin', 'placeholder', '{}', 1, 0, 0, 2, 2);
+    `)
+    v4.close()
+
+    const db = await openDatabase(file)
+    expect(userVersion(db)).toBe(5)
+    expect(db.prepare('SELECT id, appearance FROM widgets').all()).toEqual([{ id: 'w1', appearance: null }])
+    db.close()
+    expect(existsSync(`${file}.bak-v4`)).toBe(true)
   })
 
   it('uses WAL, foreign keys and a busy timeout on a file database', async () => {

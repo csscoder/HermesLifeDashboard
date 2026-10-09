@@ -240,3 +240,33 @@ describe('package widgets on the board', () => {
     expect(t.db.prepare('SELECT widget_id FROM widget_state').all()).toEqual([{ widget_id: A }])
   })
 })
+
+describe('widget appearance', () => {
+  const look = { themeId: 'builtin:bare', shadow: { x: 2, y: 4, blur: 12, color: '#102030', opacity: 0.25 } }
+  const styled = (appearance: unknown) => ({
+    ...screen,
+    instances: [{ ...screen.instances[0]!, appearance }, screen.instances[1]!],
+  })
+
+  it('round-trips appearance after config and leaves the key out for widgets without one', async () => {
+    const response = await put({ expectedRevision: 1, screens: [styled(look)] })
+    expect(response.statusCode).toBe(200)
+    const board = await getBoard()
+    expect(JSON.stringify(board.screens[0])).toBe(JSON.stringify(styled(look)))
+    expect(board.screens[0]!.instances[1]).not.toHaveProperty('appearance')
+  })
+
+  it('stores NULL for an empty appearance and reads the old board JSON back', async () => {
+    const response = await put({ expectedRevision: 1, screens: [styled({ themeId: null, shadow: null })] })
+    expect(response.statusCode).toBe(200)
+    expect(t.db.prepare('SELECT appearance FROM widgets ORDER BY rowid').all()).toEqual([{ appearance: null }, { appearance: null }])
+    expect(JSON.stringify((await getBoard()).screens[0])).toBe(JSON.stringify(screen))
+  })
+
+  it('answers 400 for an invalid appearance and changes nothing', async () => {
+    const response = await put({ expectedRevision: 1, screens: [styled({ themeId: null, shadow: { ...look.shadow, blur: 49 } })] })
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 1, screens: [EMPTY_SCREEN] })
+  })
+})

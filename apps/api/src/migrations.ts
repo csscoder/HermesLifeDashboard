@@ -106,4 +106,8 @@ DELETE FROM widgets;
 -- Spec 2026-10-09: grants approved before confirmation keep working without a dialog.
 ALTER TABLE widget_grants ADD COLUMN mode TEXT NOT NULL DEFAULT 'allow';
 `,
+  `
+-- Spec 2026-10-09-widget-appearance: per-widget theme and shadow as JSON; NULL means none.
+ALTER TABLE widgets ADD COLUMN appearance TEXT;
+`,
 ]

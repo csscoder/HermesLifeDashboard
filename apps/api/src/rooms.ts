@@ -6,6 +6,7 @@ import {
   type RoomSummary,
   type SaveBoardRequest,
   type ScreenBoard,
+  type WidgetAppearance,
   type WidgetSource,
 } from '@lifedashboard/contracts/board'
 import { ApiError, ok } from './errors.ts'
@@ -18,6 +19,7 @@ interface WidgetRow {
   source_version: string | null
   config: string
   config_version: number
+  appearance: string | null
   x: number
   y: number
   w: number
@@ -93,6 +95,8 @@ function readBoard(db: DatabaseSync, roomId: string): RoomBoard {
           source: sourceOf(row),
           configVersion: row.config_version,
           config: JSON.parse(row.config) as Record<string, unknown>,
+          // Last, as parseScreenBoard builds it: the UI compares boards as JSON.
+          ...(row.appearance !== null && { appearance: JSON.parse(row.appearance) as WidgetAppearance }),
         })),
         layout: placed.map((row) => ({ instanceId: row.id, x: row.x, y: row.y, w: row.w, h: row.h })),
       }
@@ -128,7 +132,7 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
     for (const screen of screens) setRows.run(screen.rows, screen.id)
     db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE room_id = ?)').run(roomId)
     const insert = db.prepare(
-      'INSERT INTO widgets (id, screen_id, source_kind, source_type, source_version, config, config_version, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO widgets (id, screen_id, source_kind, source_type, source_version, config, config_version, appearance, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     for (const screen of screens) {
       for (const instance of screen.instances) {
@@ -144,6 +148,8 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
             source.kind === 'package' ? source.version : null,
             JSON.stringify(instance.config),
             instance.configVersion,
+            // parseScreenBoard already dropped an empty appearance.
+            instance.appearance ? JSON.stringify(instance.appearance) : null,
             place.x,
             place.y,
             place.w,
