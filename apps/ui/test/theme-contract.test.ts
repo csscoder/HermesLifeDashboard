@@ -172,7 +172,7 @@ describe('stylesheets', () => {
     expect(reset.sort()).toEqual(Object.keys(OPTIONAL_TOKENS).map((name) => `--ld-${name}`).sort())
   })
 
-  it.each(['app.vue', 'board/WidgetBoard.vue', 'widgets/WidgetFrame.vue', 'widgets/WidgetHost.vue'])(
+  it.each(['app.vue', 'board/WidgetBoard.vue', 'board/WidgetSettings.vue', 'widgets/WidgetFrame.vue', 'widgets/WidgetHost.vue'])(
     '%s styles use theme tokens only',
     (file) => {
       const { descriptor } = parse(readFileSync(new URL(`../app/${file}`, import.meta.url), 'utf8'))

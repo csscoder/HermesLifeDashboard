@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import type { ScreenBoard, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
+import type { ScreenBoard, WidgetAppearance, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID_COLS, ROWS, findFreeRect, gridRows, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
 import { resolveWidgetLook } from '../theme/resolve'
 import { describeSource } from '../widgets/catalog'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setPlacement, withRows, type BoardMode } from './edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
+import WidgetSettings from './WidgetSettings.vue'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
 const props = defineProps<{ roomId: string; themeId: string; draftSource: WidgetSource }>()
@@ -47,6 +48,15 @@ const activeId = ref<string | null>(null)
 // Template ref keys must differ from setup bindings: ref="draft" would overwrite a setup binding.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
 const draftEl = useTemplateRef<HTMLElement>('draftBox')
+const settings = useTemplateRef<InstanceType<typeof WidgetSettings>>('settingsPanel')
+// The widget the settings panel edits; kept after the panel closes, so its gear can take focus back.
+const settingsId = ref<string | null>(null)
+// Mirrors the popover for aria-expanded; logic asks settings.value.isOpen(), which is synchronous.
+const settingsOpen = ref(false)
+// Board-caused closes (widget removed, mode left, save started) keep the board's own focus rules.
+let boardClosing = false
+// Light dismiss closes the panel on pointerup, before the gear's click; this is its state at pointerdown.
+let openAtPress: boolean | null = null
 
 const editing = computed(() => mode.value === 'edit')
 // The screen on display: the working copy in edit mode, the loaded screen otherwise.
@@ -203,6 +213,60 @@ function removeWidget(id: string) {
   if (next) void nextTick(() => focusWidget(next))
 }
 
+function gearOf(id: string) {
+  return gridEl.value?.querySelector<HTMLElement>(`[data-settings="${CSS.escape(id)}"]`) ?? null
+}
+
+function isSettingsOpenFor(id: string) {
+  return settings.value?.isOpen() === true && settingsId.value === id
+}
+
+function pressGear(id: string) {
+  openAtPress = isSettingsOpenFor(id)
+}
+
+// The same gear closes its panel; another gear moves the panel to its widget.
+function toggleSettings(event: MouseEvent, id: string) {
+  // detail 0: a keyboard click, no pointerdown before it.
+  const wasOpen = event.detail > 0 && openAtPress !== null ? openAtPress : isSettingsOpenFor(id)
+  openAtPress = null
+  select(id)
+  if (wasOpen) {
+    settings.value?.close()
+    return
+  }
+  settingsId.value = id
+  const gear = gearOf(id)
+  if (gear) settings.value?.open(gear)
+}
+
+function onSettingsToggle(open: boolean) {
+  settingsOpen.value = open
+  const byBoard = boardClosing
+  boardClosing = false
+  if (open || byBoard || !settingsId.value) return
+  // Esc, light dismiss or the gear: focus goes back to the gear, unless the user already moved it
+  // to another element (clicking another widget focuses that widget).
+  const focus = document.activeElement
+  if (!focus || focus === document.body || settings.value?.$el.contains(focus)) gearOf(settingsId.value)?.focus()
+}
+
+function changeAppearance(next: WidgetAppearance | null) {
+  if (editing.value && !saving.value && settingsId.value) working.value = setAppearance(working.value, settingsId.value, next)
+}
+
+const settingsInstance = computed(() => working.value.instances.find((item) => item.id === settingsId.value))
+
+// The panel closes with its widget, when the mode leaves edit and when a save starts.
+watch(
+  () => editing.value && !saving.value && settingsInstance.value !== undefined,
+  (keep) => {
+    if (keep || !settings.value?.isOpen()) return
+    boardClosing = true
+    settings.value.close()
+  },
+)
+
 function confirmBuild() {
   const rect = activeRect.value
   if (!rect) return
@@ -230,6 +294,8 @@ function cancel() {
 }
 
 function onKeydown(event: KeyboardEvent) {
+  // The open panel owns the keyboard: Esc closes only it (native), Backspace never deletes, Enter never confirms.
+  if (settings.value?.isOpen()) return
   if (saving.value || mode.value === 'view' || isFormControlTarget(event.target)) return
   const arrow = arrows[event.key]
   if (arrow) {
@@ -353,6 +419,18 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
         >
           ×
         </button>
+        <button
+          v-if="editing"
+          type="button"
+          class="board__settings"
+          :data-settings="instance.id"
+          aria-label="Настройки виджета"
+          :aria-expanded="settingsOpen && settingsId === instance.id"
+          @pointerdown.stop="pressGear(instance.id)"
+          @click="toggleSettings($event, instance.id)"
+        >
+          ⚙
+        </button>
       </div>
       <div
         v-if="mode === 'build' && activeRect"
@@ -374,6 +452,12 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
         </div>
       </div>
     </div>
+    <WidgetSettings
+      ref="settingsPanel"
+      :appearance="settingsInstance?.appearance"
+      @change="changeAppearance"
+      @toggle="onSettingsToggle"
+    />
     <p class="board__live" aria-live="polite">{{ liveLabel }}</p>
   </div>
 </template>
@@ -442,11 +526,13 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
 
 .board__draft:focus-visible,
 .board__item--editable:focus-visible,
-.board__remove:focus-visible {
+.board__remove:focus-visible,
+.board__settings:focus-visible {
   outline: 0.125rem solid var(--ld-focus-ring);
 }
 
-.board__remove:focus-visible {
+.board__remove:focus-visible,
+.board__settings:focus-visible {
   outline-offset: 0.125rem;
 }
 
@@ -494,7 +580,8 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
   cursor: nwse-resize;
 }
 
-.board__remove {
+.board__remove,
+.board__settings {
   position: absolute;
   top: 0.25rem;
   right: 0.25rem;
@@ -510,8 +597,15 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
   opacity: 0;
 }
 
+.board__settings {
+  right: 2rem;
+}
+
 .board__item:hover .board__remove,
-.board__item:focus-within .board__remove {
+.board__item:focus-within .board__remove,
+.board__item:hover .board__settings,
+.board__item:focus-within .board__settings,
+.board__settings[aria-expanded='true'] {
   opacity: 1;
 }
 
