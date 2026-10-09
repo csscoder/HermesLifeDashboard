@@ -88,6 +88,11 @@ describe('apiRequest', () => {
     expect(await api.gateway('notifications.send', 'tok', {})).toEqual({ ok: false, kind: 'invalid', code: 'CONFIRMATION_REQUIRED', message: 'm' })
   })
 
+  it('treats a 428 with an empty confirmationId as invalid', async () => {
+    vi.stubGlobal('fetch', respond(428, { error: { code: 'CONFIRMATION_REQUIRED', message: 'm', requestId: 'x', retryable: false, confirmationId: '' } }))
+    expect(await api.gateway('notifications.send', 'tok', {})).toEqual({ ok: false, kind: 'invalid', code: 'CONFIRMATION_REQUIRED', message: 'm' })
+  })
+
   it('maps 409 CONFIRMATION_INVALID to invalid, not to a state conflict', async () => {
     vi.stubGlobal('fetch', respond(409, { error: { code: 'CONFIRMATION_INVALID', message: 'm', requestId: 'x', retryable: false } }))
     expect(await api.gateway('notifications.send', 'tok', {}, 'c1')).toEqual({ ok: false, kind: 'invalid', code: 'CONFIRMATION_INVALID', message: 'm' })

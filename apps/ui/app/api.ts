@@ -47,8 +47,8 @@ export async function apiRequest<T>(
   }
   if (response.status === 428) {
     const confirmationId = errorField(payload, 'confirmationId')
-    // Without an id there is nothing to confirm: fall through to a rejected call (fail closed).
-    if (confirmationId !== undefined) return { ok: false, kind: 'confirmation-required', confirmationId }
+    // Without an id (absent or empty) there is nothing to confirm: fall through to a rejected call (fail closed).
+    if (confirmationId) return { ok: false, kind: 'confirmation-required', confirmationId }
   }
   if (response.status === 409 && errorField(payload, 'code') !== 'CONFIRMATION_INVALID') return { ok: false, kind: 'conflict' }
   if (response.status === 429) return { ok: false, kind: 'rate-limited' }

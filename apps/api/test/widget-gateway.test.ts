@@ -339,6 +339,15 @@ describe('confirmation', () => {
     )
   })
 
+  it('spends an approved id even when the mode flipped to allow mid-dialog', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    expect((await setMode('allow')).statusCode).toBe(200)
+    expect((await send(token, id)).json().data).toEqual({ ok: true })
+    expect((await setMode('ask')).statusCode).toBe(200)
+    await issue(token)
+  })
+
   it('reads the grant mode on every call of a live session', async () => {
     const token = await openSession(PKG_WIDGET)
     expect((await setMode('allow')).statusCode).toBe(200)

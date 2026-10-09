@@ -174,6 +174,8 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
       if (needsConfirmation(confirm, grantMode(session, permission))) {
         confirmCall(session, op, input.value, request.headers['x-widget-confirmation'])
       } else {
+        // An approval repeat spends its id even if the mode flipped to allow mid-dialog.
+        if (session.confirmation?.id === request.headers['x-widget-confirmation']) session.confirmation = null
         rateLimit(session.widgetId, op)
       }
       const handler = handlers[op] as (context: GatewayContext, input: unknown) => unknown
