@@ -1,6 +1,6 @@
 # PER-2: Monorepo scaffold — Nuxt UI + Fastify API
 
-- **Linear:** [PER-2](https://linear.app/csscoder-hse/issue/PER-2/e11-monorepo-scaffold-nuxt-ui-fastify-api-typescript)
+- **Linear:** PER-2
 - **Base design:** `docs/base-2026-10-04-lifegamehermes-design.md` (§3.1, §3.3, §4.1, §4.3, §13.1, §16 E1)
 - **Status:** approved design, 2026-10-04
 

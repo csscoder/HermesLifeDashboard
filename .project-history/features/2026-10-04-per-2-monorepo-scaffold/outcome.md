@@ -83,7 +83,7 @@ Not recorded.
   Spec created f51cae4 and revised ce7ce67 'address Codex review (E0 relation, root .env, components)'. Plan created 7045f66 and revised 6a2b516 'address Codex review (port, timeout, telemetry)'. Only the commit subjects record these reviews; the review reports themselves are not in the repo.
   Inspected by caller: true; helper validation: agent-attested-session.
   Capture: reference-only; summary preserved, original body not captured.
-- [linear-per-2] session: Current session: orca linear issue PER-2 --comments (workspace f643af3d-0981-453b-9851-48f9aaa1abe6)
+- [linear-per-2] session: Current session: orca linear issue PER-2 --comments
   PER-2 'E1.1: Monorepo scaffold — Nuxt UI + Fastify API (TypeScript)', state Backlog, unassigned, 0 comments. No task report posted.
   Inspected by caller: true; helper validation: agent-attested-session.
   Capture: reference-only; summary preserved, original body not captured.

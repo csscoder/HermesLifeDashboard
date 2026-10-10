@@ -103,7 +103,7 @@
     {
       "id": "linear-per-2",
       "kind": "session",
-      "reference": "Current session: orca linear issue PER-2 --comments (workspace f643af3d-0981-453b-9851-48f9aaa1abe6)",
+      "reference": "Current session: orca linear issue PER-2 --comments",
       "inspected": true,
       "summary": "PER-2 'E1.1: Monorepo scaffold — Nuxt UI + Fastify API (TypeScript)', state Backlog, unassigned, 0 comments. No task report posted.",
       "sha256": null,
