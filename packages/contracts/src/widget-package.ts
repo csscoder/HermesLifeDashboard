@@ -1,5 +1,5 @@
 import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
-import { byteLength, fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
+import { fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
 
 export const WIDGET_PERMISSIONS = ['state', 'notifications'] as const
 export type WidgetPermission = (typeof WIDGET_PERMISSIONS)[number]
@@ -13,8 +13,6 @@ export interface Grant {
 }
 
 export const PACKAGE_LIMITS = {
-  // v1 `.ldwidget.json` body limit; leaves with the v1 format.
-  maxBytes: 1_048_576,
   codeBytes: 10_485_760,
   manifestBytes: 65_536,
   maxFiles: 2000,
@@ -22,8 +20,6 @@ export const PACKAGE_LIMITS = {
   maxIdLength: 100,
   maxTextLength: 60,
 } as const
-
-const V1_MAX_FILES = 20
 
 export const CODE_TYPES: Readonly<Record<string, string>> = {
   js: 'text/javascript; charset=utf-8',
@@ -90,10 +86,8 @@ const SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/
 
 const ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/
-const FILE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
 
-const TOP_KEYS = ['format', 'manifest', 'files']
 const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions']
 const SIZING_KEYS = ['default', 'min', 'max']
 const SIZE_KEYS = ['w', 'h']
@@ -108,12 +102,6 @@ export interface WidgetPackageManifest {
   styles: string[]
   sizing: WidgetSizing
   permissions: WidgetPermission[]
-}
-
-export interface WidgetPackage {
-  format: 1
-  manifest: WidgetPackageManifest
-  files: Record<string, string>
 }
 
 /** `POST /widget-uploads` (hash null) and `POST /widget-uploads/:id/install` answer with this. */
@@ -226,37 +214,6 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
       permissions,
     },
   }
-}
-
-// Single validation point for a package from outside the process: the API, the CLI and the UI file check.
-export function parseWidgetPackage(raw: unknown): ParseResult<WidgetPackage> {
-  if (!isRecord(raw)) return fail('package must be an object')
-  const extra = unknownKey(raw, TOP_KEYS)
-  if (extra !== undefined) return fail(`unknown field "${extra}"`)
-  if (raw.format !== 1) return fail('format must be 1')
-  const parsed = parseManifest(raw.manifest)
-  if (!parsed.ok) return parsed
-  const manifest = parsed.value
-  if (!isRecord(raw.files)) return fail('files must be an object')
-  const names = Object.keys(raw.files)
-  if (names.length > V1_MAX_FILES) return fail(`files: at most ${V1_MAX_FILES} files`)
-  const files: Record<string, string> = {}
-  for (const name of names) {
-    if (!FILE_NAME_PATTERN.test(name) || name.includes('..')) return fail(`files: invalid name "${name}"`)
-    if (!name.endsWith('.js') && !name.endsWith('.css')) return fail(`files: "${name}" must be .js or .css`)
-    const content = raw.files[name]
-    if (typeof content !== 'string') return fail(`files: "${name}" must be a string`)
-    files[name] = content
-  }
-  if (!manifest.entry.endsWith('.js') || !Object.hasOwn(files, manifest.entry)) {
-    return fail('manifest.entry must name a .js file in files')
-  }
-  if (!manifest.styles.every((name) => name.endsWith('.css') && Object.hasOwn(files, name))) {
-    return fail('manifest.styles must name .css files in files')
-  }
-  const value: WidgetPackage = { format: 1, manifest, files }
-  if (byteLength(JSON.stringify(value)) > PACKAGE_LIMITS.maxBytes) return fail('package is larger than 1 MB')
-  return { ok: true, value }
 }
 
 export function fileExtension(path: string): string {

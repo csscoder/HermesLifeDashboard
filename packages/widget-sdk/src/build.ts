@@ -86,7 +86,8 @@ export async function buildWidget(dir: string, { source = true }: { source?: boo
       root,
       configFile: false,
       logLevel: 'warn',
-      plugins: [mediaImportGuard(), vue(), stripRegionMarkers()],
+      // transformAssetUrls off: `src="assets/bg.mp4"` must stay a URL, not become an import.
+      plugins: [mediaImportGuard(), vue({ template: { transformAssetUrls: false } }), stripRegionMarkers()],
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },
       build: {
         outDir: stage,

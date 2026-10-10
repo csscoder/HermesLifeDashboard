@@ -50,6 +50,13 @@ describe('buildWidget', () => {
     expect(existsSync(join(target, 'source', 'assets'))).toBe(false)
   }, 30_000)
 
+  it('keeps src="assets/..." in a template as a URL instead of importing it', async () => {
+    const dir = await copyOf('counter')
+    const vue = await readFile(join(dir, 'src', 'index.vue'), 'utf8')
+    await writeFile(join(dir, 'src', 'index.vue'), vue.replace('<template>', '<template>\n  <video src="assets/bg.mp4" />'))
+    expect(await readFile(join(await buildWidget(dir), 'index.js'), 'utf8')).toContain('assets/bg.mp4')
+  }, 30_000)
+
   it('drops .env*, .git, .DS_Store, node_modules and dist from source/ but keeps other dot files', async () => {
     const dir = await copyOf('counter')
     const files: [string, string][] = [['.env', 'SECRET=1'], ['.env.local', 'SECRET=2'], ['.git/HEAD', 'x'], ['.DS_Store', 'x'], ['node_modules/x/index.js', 'x'], ['src/node_modules/y.js', 'x'], ['dist/old.txt', 'x'], ['.npmrc', 'x'], ['src/.data.json', '{}']]

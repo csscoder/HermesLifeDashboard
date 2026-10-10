@@ -34,6 +34,13 @@ onMounted(async () => {
   await probe('fetch /api/v1/rooms', async () => (await fetch('/api/v1/rooms')).status)
   // The manifest grants `state` only.
   await probe('notifications.send', () => widget.notify({ title: 'hostile' }))
+  await probe('fetch https://example.com/', async () => (await fetch('https://example.com/')).status)
+  await probe('fetch source/', async () => (await fetch('source/src/index.vue')).status)
+  await probe('fetch widget.json', async () => (await fetch('widget.json')).status)
+  await probe('new Worker(index.js)', () => {
+    new Worker('index.js', { type: 'module' })
+    return 'constructed'
+  })
 })
 </script>
 

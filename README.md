@@ -32,7 +32,7 @@ The following describes the implementation in the repository as of **October 202
 | Persistence | Boards and widget instances saved through the local Fastify API to SQLite, with revision-based conflict detection. |
 | Appearance | Glass, Obsidian, and Paper themes; per-widget theme selection, a frameless style, and custom shadows are implemented in source. |
 | Built-in widgets | Animated analog clock and a placeholder. The built-in library is still small. |
-| Installable widgets | Local `.ldwidget.json` packages, versioned installation, permission review, and placement on the board. |
+| Installable widgets | Widget folders built by ld-widget build: code up to 10 MB, unlimited media, bundled sources; installed through the UI into the userwidgets library with permission review. |
 | Widget SDK | Initial `useWidget()` API, `ld-widget build` CLI, reactive widget context, persisted state, and host notifications. |
 | Isolation | Third-party widget packages run in sandboxed iframes with a restricted bridge to the host and API. |
 | Local access | Pairing code, authenticated browser sessions, and local API origin checks. |
@@ -47,7 +47,7 @@ The newest appearance features have not yet completed the full documented browse
 There are two widget types:
 
 1. **Built-in widgets** are trusted Vue components bundled with LifeDashboard. They use the same widget-facing API as external widgets.
-2. **Installable widgets** are separately built Vue components distributed as `.ldwidget.json` packages. The host validates the package, asks for its declared permissions, and executes it in a sandboxed iframe.
+2. **Installable widgets** are separately built Vue components distributed as built widget folders. The host validates the folder, asks for its declared permissions, and executes it in a sandboxed iframe.
 
 Widgets declare their preferred, minimum, and maximum sizes. The host provides a reactive context containing the current size, size class, theme tokens, configuration, locale, and visibility.
 
@@ -65,7 +65,7 @@ The initial SDK lives at [`packages/widget-sdk`](packages/widget-sdk). It curren
 | `widget.state.set(data, expectedRevision)` | Save state with optimistic concurrency control. |
 | `widget.notify({ title, body })` | Request a notification displayed by LifeDashboard. |
 | `widget.call(op, input)` | Call a supported, permission-checked gateway operation. |
-| `ld-widget build [dir]` | Compile a Vue widget project into an installable package. |
+| `ld-widget build [dir] [--no-source]` | Build a widget project into an installable folder `dist/<id>-<version>/`. |
 
 **Current gateway operations are limited to `state.get`, `state.set`, and `notifications.send`.** Widget access to external HTTP services, LifeDashboard data sources, local device actions, and Hermes is planned; it is not available through the SDK today.
 
@@ -79,11 +79,15 @@ my-widget/
     └── index.vue     # Vue single-file component
 ```
 
-The manifest describes the widget's identity, version, entry point, size constraints, and requested permissions. The current package format is `*.ldwidget.json` (up to 1 MB), containing compiled JavaScript and CSS; standalone image/font asset packaging still needs dedicated support.
+`ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, the project itself without `node_modules/`, `dist/`, `assets/`, `.git/` and `.env*` files. `--no-source` leaves `source/` out.
+
+Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Workers start from a `blob:` URL. A widget still has no network access beyond its own folder.
+
+To rebuild an installed widget, copy its `source/` and `assets/` (paths are shown in «Виджеты») into `examples/widgets/<name>/` of a LifeDashboard checkout and run `pnpm -C examples/widgets/<name> build`.
 
 **Existing examples:**
 
-- [`examples/widgets/hello`](examples/widgets/hello) demonstrates persisted state, revision conflicts, and notifications.
+- [`examples/widgets/hello`](examples/widgets/hello) demonstrates persisted state, revision conflicts, notifications, and a background video from `assets/`.
 - [`examples/widgets/hostile`](examples/widgets/hostile) is a security test fixture, **not** a production widget template.
 - [`apps/ui/app/widgets/builtin/clocks/analog_1`](apps/ui/app/widgets/builtin/clocks/analog_1) shows an animated built-in clock implemented with Vue, SVG, and GSAP.
 
@@ -92,10 +96,10 @@ Build the existing example from the repository root:
 ```bash
 pnpm install
 pnpm -C examples/widgets/hello build
-# examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0.ldwidget.json
+# examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0/
 ```
 
-Then start LifeDashboard and select **«Виджеты» → «Установить из файла»**. Review the permissions, install the package, and place it using **«Добавить виджет…»**.
+Then start LifeDashboard and select **«Виджеты» → «Выбрать папку»**, pick that folder (or drop it on the dialog), review the permissions and sizes, install the widget, and place it using **«Добавить виджет…»**.
 
 A package already used by a board cannot be removed until its widget instances are removed. Installed versions are immutable, and placed instances remain associated with their selected version.
 
@@ -114,7 +118,7 @@ Vue widget source + widget.json
        ↓
 ld-widget build
        ↓
-Install the .ldwidget.json package
+Install the built widget folder
        ↓
 Add it to your dashboard
 ```
@@ -123,7 +127,7 @@ Today, a coding agent can work from this repository's SDK and example widget. De
 
 Example prompt for a coding agent:
 
-> Create a LifeDashboard widget using `packages/widget-sdk` and `examples/widgets/hello` as references. Build a responsive analog clock with a transparent background and subtle animations. Respect `widget.context.size`, `sizeClass`, theme tokens, and visibility. Provide `widget.json`, a Vue component, and a buildable `.ldwidget.json` package. Do not use unavailable gateway operations.
+> Create a LifeDashboard widget using `packages/widget-sdk` and `examples/widgets/hello` as references. Build a responsive analog clock with a transparent background and subtle animations. Respect `widget.context.size`, `sizeClass`, theme tokens, and visibility. Provide `widget.json`, a Vue component, and a buildable widget folder. Do not use unavailable gateway operations.
 
 The goal is to make custom widgets possible **without changing or rebuilding LifeDashboard itself**.
 
