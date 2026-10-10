@@ -4,13 +4,18 @@ import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lif
 import { api, type ApiFailure } from '../api'
 import {
   CONFIRMABLE_PERMISSIONS,
+  filesFromEntry,
+  filesFromInput,
+  formatBytes,
   initialModes,
   installedPackages,
   loadPackages,
-  readPackageFile,
+  readFolder,
   relaxedPermissions,
   savedMode,
+  uploadFiles,
   type GrantModes,
+  type PickedFile,
 } from './catalog'
 
 const open = defineModel<boolean>('open', { required: true })
@@ -27,11 +32,17 @@ const VERSION_CONFLICT = 'Эта версия уже установлена с �
 
 // Template ref keys differ from setup bindings (see WidgetBoard.vue).
 const dialog = useTemplateRef<HTMLDialogElement>('dialogBox')
-const fileInput = useTemplateRef<HTMLInputElement>('fileBox')
+const folderInput = useTemplateRef<HTMLInputElement>('folderBox')
 const message = ref<string | null>(null)
 const busy = ref(false)
-// The chosen file and what the API says about it; the permissions screen shows while it is set.
-const pending = ref<{ body: unknown; inspection: PackageInspection } | null>(null)
+// The created upload and its files; the review screen shows while it is set.
+const pending = ref<{ uploadId: string; inspection: PackageInspection; files: PickedFile[] } | null>(null)
+// Files not sent yet; a retry sends only these.
+const remaining = ref<PickedFile[]>([])
+const progress = ref<{ sent: number; total: number } | null>(null)
+const failedPath = ref<string | null>(null)
+const confirmDelete = ref<string | null>(null)
+let controller: AbortController | null = null
 // Modes the user picks for new confirmable permissions on the install screen.
 const modes = ref<GrantModes>({})
 
@@ -53,6 +64,7 @@ watch(
   open,
   (value) => {
     if (!value) {
+      cancel()
       dialog.value?.close()
       return
     }
@@ -64,33 +76,73 @@ watch(
   { flush: 'post' },
 )
 
-async function chooseFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
+async function start(files: PickedFile[]) {
   message.value = null
-  const read = await readPackageFile(file)
+  const read = await readFolder(files)
   if (!read.ok) {
     message.value = read.message
     return
   }
   busy.value = true
-  const result = await api.inspectPackage(read.body)
+  const result = await api.createUpload(read.manifest, read.files)
   busy.value = false
-  if (result.ok) {
-    pending.value = { body: read.body, inspection: result.data }
-    modes.value = initialModes(result.data.newPermissions)
-  } else message.value = failureText(result, VERSION_CONFLICT)
+  if (!result.ok) {
+    message.value = failureText(result, VERSION_CONFLICT)
+    return
+  }
+  pending.value = { uploadId: result.data.uploadId, inspection: result.data.inspection, files }
+  remaining.value = files
+  progress.value = null
+  failedPath.value = null
+  modes.value = initialModes(result.data.inspection.newPermissions)
+}
+
+function chooseFolder(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = filesFromInput(input.files ?? [])
+  input.value = ''
+  if (files.length > 0) void start(files)
+}
+
+async function dropFolder(event: DragEvent) {
+  const entry = event.dataTransfer?.items[0]?.webkitGetAsEntry()
+  if (!entry?.isDirectory) {
+    message.value = 'Перетащите папку виджета'
+    return
+  }
+  await start(await filesFromEntry(entry as FileSystemDirectoryEntry))
 }
 
 async function install() {
   const current = pending.value
   if (!current) return
   busy.value = true
-  const result = await api.installPackage(current.body)
+  failedPath.value = null
+  message.value = null
+  const own = (controller = new AbortController())
+  const total = current.files.reduce((sum, item) => sum + item.file.size, 0)
+  progress.value ??= { sent: 0, total }
+  const sent = await uploadFiles(api, current.uploadId, remaining.value, own.signal, (file) => {
+    remaining.value = remaining.value.filter((item) => item !== file)
+    progress.value = { sent: progress.value!.sent + file.file.size, total }
+  })
+  // «Отмена» already reset the screen.
+  if (own.signal.aborted) return
+  if (!sent.ok) {
+    busy.value = false
+    failedPath.value = sent.path
+    // An ended session (API restart, expiry) cannot continue: start over.
+    if (sent.failure.kind === 'invalid' && sent.failure.code === 'NOT_FOUND') {
+      pending.value = null
+      message.value = `Загрузка прервана на ${sent.path}, начните заново`
+    } else message.value = `Не удалось загрузить ${sent.path}`
+    return
+  }
+  const result = await api.installUpload(current.uploadId, own.signal)
+  if (own.signal.aborted) return
   if (!result.ok) {
     busy.value = false
+    pending.value = null
     message.value = failureText(result, VERSION_CONFLICT)
     return
   }
@@ -99,11 +151,30 @@ async function install() {
   const saved = await Promise.all(relaxed.map((permission) => api.setGrantMode(current.inspection.manifest.id, permission, 'allow')))
   busy.value = false
   pending.value = null
+  progress.value = null
   message.value = saved.every((item) => item.ok) ? 'Виджет установлен' : 'Виджет установлен, но режим «Разрешить» не сохранён'
   await loadPackages(api)
 }
 
+function cancel() {
+  controller?.abort()
+  if (pending.value) void api.cancelUpload(pending.value.uploadId)
+  pending.value = null
+  progress.value = null
+  busy.value = false
+}
+
+async function copy(path: string) {
+  await navigator.clipboard.writeText(path)
+}
+
 async function remove(id: string) {
+  // The first click asks; the confirmation block calls this again.
+  if (confirmDelete.value !== id) {
+    confirmDelete.value = id
+    return
+  }
+  confirmDelete.value = null
   busy.value = true
   const result = await api.deletePackage(id)
   busy.value = false
@@ -135,7 +206,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
 </script>
 
 <template>
-  <dialog ref="dialogBox" class="packages" aria-labelledby="packages-title" @close="open = false">
+  <dialog ref="dialogBox" class="packages" aria-labelledby="packages-title" @close="open = false" @dragover.prevent @drop.prevent="dropFolder">
     <template v-if="pending && manifest">
       <h2 id="packages-title" class="packages__title">Установка виджета</h2>
       <dl class="packages__facts">
@@ -148,6 +219,11 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
         <dt>Размер</dt>
         <dd>
           от {{ manifest.sizing.min.w }}×{{ manifest.sizing.min.h }} до {{ manifest.sizing.max.w }}×{{ manifest.sizing.max.h }}
+        </dd>
+        <dt>Размер файлов</dt>
+        <dd>
+          Код {{ formatBytes(pending.inspection.sizes.code) }}, медиа {{ formatBytes(pending.inspection.sizes.assets) }},
+          исходники {{ formatBytes(pending.inspection.sizes.source) }}
         </dd>
       </dl>
       <p class="packages__warning">Это код стороннего автора</p>
@@ -174,9 +250,12 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
         Новые разрешения: {{ permissionList(pending.inspection.newPermissions) }}
       </p>
       <p v-if="pending.inspection.installed">Эта версия уже установлена</p>
+      <progress v-if="progress" class="packages__progress" :value="progress.sent" :max="progress.total" />
       <div class="packages__actions">
-        <button type="button" class="packages__button" :disabled="busy" @click="install">Установить</button>
-        <button type="button" class="packages__button" :disabled="busy" @click="pending = null">Отмена</button>
+        <button type="button" class="packages__button" :disabled="busy" @click="install">
+          {{ failedPath ? 'Повторить' : 'Установить' }}
+        </button>
+        <button type="button" class="packages__button" @click="cancel">Отмена</button>
       </div>
     </template>
     <template v-else>
@@ -205,13 +284,32 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
             </span>
           </span>
           <button type="button" class="packages__button" :disabled="busy" @click="remove(pkg.id)">Удалить</button>
+          <ul class="packages__sources">
+            <li v-for="version in pkg.versions" :key="version.version">
+              {{ version.version }} · Исходники:
+              <template v-if="version.paths.source">
+                <code class="packages__path">{{ version.paths.source }}</code>
+                <button type="button" class="packages__button" @click="copy(version.paths.source)">Копировать</button>
+              </template>
+              <template v-else>Исходники не включены</template>
+              <template v-if="version.paths.assets">
+                · Медиа: <code class="packages__path">{{ version.paths.assets }}</code>
+                <button type="button" class="packages__button" @click="copy(version.paths.assets)">Копировать</button>
+              </template>
+            </li>
+          </ul>
+          <p v-if="confirmDelete === pkg.id" class="packages__warning">
+            Исходники и медиа в userwidgets/{{ pkg.id }}/ тоже будут удалены
+            <button type="button" class="packages__button" :disabled="busy" @click="remove(pkg.id)">Удалить</button>
+            <button type="button" class="packages__button" @click="confirmDelete = null">Отмена</button>
+          </p>
         </li>
       </ul>
       <div class="packages__actions">
-        <button type="button" class="packages__button" :disabled="busy" @click="fileInput?.click()">Установить из файла</button>
+        <button type="button" class="packages__button" :disabled="busy" @click="folderInput?.click()">Выбрать папку</button>
         <button type="button" class="packages__button" @click="open = false">Закрыть</button>
       </div>
-      <input ref="fileBox" type="file" accept=".json,application/json" hidden @change="chooseFile" />
+      <input ref="folderBox" type="file" webkitdirectory hidden @change="chooseFolder" />
     </template>
     <p class="packages__message" role="status">{{ message }}</p>
   </dialog>
@@ -350,6 +448,29 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
 .packages__button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+.packages__item > .packages__warning {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.packages__progress {
+  width: 100%;
+}
+
+.packages__sources {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+  color: var(--ld-text-muted);
+}
+
+.packages__path {
+  overflow-wrap: anywhere;
+  font-family: monospace;
 }
 
 .packages__message {

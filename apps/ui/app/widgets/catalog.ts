@@ -3,8 +3,15 @@ import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { BUILTIN_WIDGETS, findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
 import type { WidgetSizing } from '@lifedashboard/contracts/grid'
 import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
-import { PACKAGE_LIMITS, type Grant, type GrantMode, type InstalledPackage, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
-import type { api } from '../api'
+import {
+  parseWidgetFolder,
+  type FolderFile,
+  type Grant,
+  type GrantMode,
+  type InstalledPackage,
+  type WidgetPermission,
+} from '@lifedashboard/contracts/widget-package'
+import type { ApiFailure, api } from '../api'
 
 // One trusted list shared with the API; the UI adds only renderers (registry.ts).
 export { BUILTIN_WIDGETS, findBuiltinWidget }
@@ -23,7 +30,14 @@ export interface PickerEntry {
   source: WidgetSource
 }
 
-export type PackageFile = { ok: true; body: unknown } | { ok: false; message: string }
+export interface PickedFile {
+  path: string
+  file: Blob
+}
+
+export type FolderRead = { ok: true; manifest: unknown; files: FolderFile[] } | { ok: false; message: string }
+
+export type UploadOutcome = { ok: true } | { ok: false; path: string; failure: ApiFailure }
 
 /** Installed packages, newest version first in each. Loaded when the app is ready and after install or delete. */
 export const installedPackages = ref<InstalledPackage[]>([])
@@ -60,14 +74,75 @@ export function pickerEntries(packages: readonly InstalledPackage[] = installedP
   return [...builtins, ...latest]
 }
 
-/** Reads a chosen package file; a file that is too large or not JSON never reaches the API. */
-export async function readPackageFile(file: Blob): Promise<PackageFile> {
-  if (file.size > PACKAGE_LIMITS.maxBytes) return { ok: false, message: 'Файл больше 1 МБ' }
-  try {
-    return { ok: true, body: JSON.parse(await file.text()) as unknown }
-  } catch {
-    return { ok: false, message: 'Это не пакет виджета' }
+/** `<input webkitdirectory>`: paths relative to the picked folder. */
+export function filesFromInput(files: ArrayLike<File>): PickedFile[] {
+  return Array.from(files, (file) => ({ path: file.webkitRelativePath.split('/').slice(1).join('/'), file }))
+}
+
+/** A dropped folder (`DataTransferItem.webkitGetAsEntry()`), walked recursively. */
+export async function filesFromEntry(entry: FileSystemDirectoryEntry, prefix = ''): Promise<PickedFile[]> {
+  const reader = entry.createReader()
+  const children: FileSystemEntry[] = []
+  // readEntries answers in batches; an empty batch ends the directory.
+  for (;;) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject))
+    if (batch.length === 0) break
+    children.push(...batch)
   }
+  const nested = await Promise.all(
+    children.map(async (child): Promise<PickedFile[]> => {
+      const path = `${prefix}${child.name}`
+      if (child.isDirectory) return filesFromEntry(child as FileSystemDirectoryEntry, `${path}/`)
+      const file = await new Promise<File>((resolve, reject) => (child as FileSystemFileEntry).file(resolve, reject))
+      return [{ path, file }]
+    }),
+  )
+  return nested.flat()
+}
+
+/** Reads widget.json and checks the folder with the API's rules before any request. */
+export async function readFolder(files: readonly PickedFile[]): Promise<FolderRead> {
+  const manifestFile = files.find((item) => item.path === 'widget.json')
+  if (!manifestFile) return { ok: false, message: 'В папке нет widget.json' }
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(await manifestFile.file.text())
+  } catch {
+    return { ok: false, message: 'widget.json не является JSON' }
+  }
+  const list = files.map((item) => ({ path: item.path, size: item.file.size }))
+  const parsed = parseWidgetFolder(manifest, list)
+  return parsed.ok ? { ok: true, manifest, files: list } : { ok: false, message: `Папка отклонена: ${parsed.error}` }
+}
+
+/** Sends files three at a time; stops at the first failure and names its file. */
+export async function uploadFiles(
+  client: Pick<typeof api, 'uploadFile'>,
+  uploadId: string,
+  files: readonly PickedFile[],
+  signal: AbortSignal,
+  onSent: (file: PickedFile) => void,
+): Promise<UploadOutcome> {
+  let next = 0
+  let failed: UploadOutcome | null = null
+  async function worker(): Promise<void> {
+    while (failed === null && next < files.length) {
+      const item = files[next++]!
+      const result = await client.uploadFile(uploadId, item.path, item.file, signal)
+      if (!result.ok) {
+        const { ok: _ok, ...failure } = result
+        failed ??= { ok: false, path: item.path, failure }
+        return
+      }
+      onSent(item)
+    }
+  }
+  await Promise.all([worker(), worker(), worker()])
+  return failed ?? { ok: true }
+}
+
+export function formatBytes(bytes: number): string {
+  return bytes < 1_048_576 ? `${Math.ceil(bytes / 1024)} КБ` : `${(bytes / 1_048_576).toFixed(1)} МБ`
 }
 
 export type GrantModes = Partial<Record<WidgetPermission, GrantMode>>

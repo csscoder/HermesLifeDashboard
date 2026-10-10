@@ -1,6 +1,6 @@
 import type { RoomBoard, RoomSummary, SaveBoardRequest } from '@lifedashboard/contracts/board'
 import type { WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
-import type { Grant, GrantMode, InstalledPackage, PackageInspection, WidgetPermission } from '@lifedashboard/contracts/widget-package'
+import type { FolderFile, Grant, GrantMode, InstalledPackage, PackageInspection, UploadCreated, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 
 // packages/contracts/test/widget-gateway.test.ts hardcodes this same 5 s in its confirmation timing budget.
 export const API_TIMEOUT_MS = 5000
@@ -18,24 +18,29 @@ export type ApiFailure =
 
 export type ApiResult<T> = { ok: true; data: T } | ({ ok: false } & ApiFailure)
 
-/** Never throws: every failure, including a timeout while the body is read, becomes a typed result. */
+/**
+ * Never throws: every failure, including a timeout while the body is read, becomes a typed result.
+ * `timeout` is a duration, or the caller's signal for calls whose length grows with file size.
+ * A `Blob` body is sent raw as `application/octet-stream`.
+ */
 export async function apiRequest<T>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
-  timeoutMs = API_TIMEOUT_MS,
+  timeout: number | AbortSignal = API_TIMEOUT_MS,
   headers: Record<string, string> = {},
 ): Promise<ApiResult<T>> {
   let response: Response
   let payload: unknown
   try {
     // The signal also aborts reading the body, so a stalled response ends as unavailable.
+    const raw = body instanceof Blob
     response = await fetch(`/api/v1${path}`, {
       method,
-      headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? headers : { 'Content-Type': raw ? 'application/octet-stream' : 'application/json', ...headers },
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       credentials: 'same-origin',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: typeof timeout === 'number' ? AbortSignal.timeout(timeout) : timeout,
     })
     payload = await response.json()
   } catch {
@@ -73,8 +78,13 @@ export const api = {
   // The API requires a JSON body on every mutation, DELETE included.
   pairCode: () => apiRequest<null>('POST', '/auth/pair-code', {}),
   widgetPackages: () => apiRequest<InstalledPackage[]>('GET', '/widget-packages'),
-  inspectPackage: (pkg: unknown) => apiRequest<PackageInspection>('POST', '/widget-packages/inspect', pkg),
-  installPackage: (pkg: unknown) => apiRequest<PackageInspection>('POST', '/widget-packages', pkg),
+  createUpload: (manifest: unknown, files: FolderFile[]) => apiRequest<UploadCreated>('POST', '/widget-uploads', { manifest, files }),
+  // No absolute timeout: the duration grows with the file; «Отмена» aborts through the signal.
+  uploadFile: (uploadId: string, path: string, file: Blob, signal: AbortSignal) =>
+    apiRequest<null>('PUT', `/widget-uploads/${encodeURIComponent(uploadId)}/files/${path.split('/').map(encodeURIComponent).join('/')}`, file, signal),
+  installUpload: (uploadId: string, signal: AbortSignal) =>
+    apiRequest<PackageInspection>('POST', `/widget-uploads/${encodeURIComponent(uploadId)}/install`, {}, signal),
+  cancelUpload: (uploadId: string) => apiRequest<null>('DELETE', `/widget-uploads/${encodeURIComponent(uploadId)}`, {}),
   deletePackage: (id: string) => apiRequest<null>('DELETE', `/widget-packages/${encodeURIComponent(id)}`, {}),
   createWidgetSession: (widgetId: string) => apiRequest<WidgetSessionResponse>('POST', '/widget-sessions', { widgetId }),
   endWidgetSession: (token: string) => apiRequest<null>('DELETE', `/widget-sessions/${encodeURIComponent(token)}`, {}),

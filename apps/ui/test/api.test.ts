@@ -167,3 +167,30 @@ describe('apiRequest', () => {
     expect(await apiRequest('GET', '/rooms', undefined, 20)).toEqual({ ok: false, kind: 'unavailable' })
   })
 })
+
+describe('upload calls', () => {
+  it('sends a file raw as octet-stream with encoded segments and the caller signal', async () => {
+    const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const file = new Blob(['abc'])
+    await api.uploadFile('u1', 'assets/a b.png', file, controller.signal)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/widget-uploads/u1/files/assets/a%20b.png')
+    expect(init?.method).toBe('PUT')
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/octet-stream' })
+    expect(init?.body).toBe(file)
+    expect(init?.signal).toBe(controller.signal)
+  })
+
+  it('installs with the caller signal and an empty JSON body', async () => {
+    const fetchMock = respond(200, { data: {}, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await api.installUpload('u1', controller.signal)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/widget-uploads/u1/install')
+    expect(init?.body).toBe('{}')
+    expect(init?.signal).toBe(controller.signal)
+  })
+})
