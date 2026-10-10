@@ -1,7 +1,39 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { PassThrough } from 'node:stream'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { call, errorCode, folderFiles, installPackage, pair, putFile, testApp, uploadPackage, widgetPackage, type TestApp } from './helpers.ts'
+
+// Holds the next `versionHash` open so a test can act while install is in progress.
+const gate = vi.hoisted(() => {
+  const state: { onEnter: (() => void) | null; released: Promise<void> | null } = { onEnter: null, released: null }
+  return {
+    state,
+    hold() {
+      let release!: () => void
+      state.released = new Promise<void>((resolve) => { release = resolve })
+      const entered = new Promise<void>((resolve) => { state.onEnter = resolve })
+      return { entered, release }
+    },
+  }
+})
+
+vi.mock('../src/userwidgets.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/userwidgets.ts')>()
+  return {
+    ...actual,
+    async versionHash(dir: string) {
+      const { onEnter, released } = gate.state
+      if (onEnter && released) {
+        gate.state.onEnter = null
+        gate.state.released = null
+        onEnter()
+        await released
+      }
+      return actual.versionHash(dir)
+    },
+  }
+})
 
 const UPLOADS = '/api/v1/widget-uploads'
 let t: TestApp
@@ -192,14 +224,41 @@ describe('POST /widget-uploads/:id/install', () => {
 
 describe('busy session', () => {
   it('rejects a PUT that arrives while install hashes the files', async () => {
-    // A large asset keeps install in versionHash long enough for the PUT to arrive.
-    const { uploadId } = await uploadPackage(t, cookie, widgetPackage((p) => { p.files['assets/big.bin'] = Buffer.alloc(20_000_000) }))
+    const { uploadId } = await uploadPackage(t, cookie)
+    const hold = gate.hold()
     const installing = install(uploadId)
-    // Let the install handler mark the session busy; the hashing below takes far longer than this.
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await hold.entered
     const put = await putFile(t, cookie, uploadId, 'index.js', 'export default {}')
     expect([put.statusCode, errorCode(put)]).toEqual([409, 'CONFLICT'])
+    hold.release()
     expect((await installing).statusCode).toBe(200)
+  })
+})
+
+describe('a PUT in flight', () => {
+  it('keeps the session from install, DELETE, eviction and expiry until the body ends', async () => {
+    const pkg = widgetPackage()
+    const { uploadId } = (await create(pkg.manifest, listOf(pkg))).json().data
+    for (const path of ['widget.json', 'style.css']) await putFile(t, cookie, uploadId, path, folderFiles(pkg)[path]!)
+    const body = new PassThrough()
+    body.write('export ')
+    const putting = call(t.app, { method: 'PUT', url: `${UPLOADS}/${uploadId}/files/index.js`, cookie, contentType: 'application/octet-stream', payload: body as any })
+    // The file exists once the handler has counted the write and opened the stream.
+    for (let i = 0; i < 200 && !existsSync(join(staging(), uploadId, 'index.js')); i++) await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(existsSync(join(staging(), uploadId, 'index.js'))).toBe(true)
+
+    const early = await install(uploadId)
+    expect([early.statusCode, errorCode(early)]).toEqual([409, 'CONFLICT'])
+    await call(t.app, { method: 'DELETE', url: `${UPLOADS}/${uploadId}`, cookie, payload: {} })
+    t.clock.now += 30 * 60_000 + 1
+    // A new session sweeps expired ones and evicts the oldest at the limit; neither may take this one.
+    for (let i = 0; i < 4; i++) await create(pkg.manifest, listOf(pkg))
+    expect(existsSync(join(staging(), uploadId))).toBe(true)
+
+    body.end('default {}')
+    expect((await putting).statusCode).toBe(200)
+    expect((await install(uploadId)).statusCode).toBe(200)
+    expect(readFileSync(versionPath('index.js'), 'utf8')).toBe('export default {}')
   })
 })
 

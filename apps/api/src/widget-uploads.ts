@@ -29,6 +29,8 @@ interface UploadSession {
   dir: string
   lastUsedAt: number
   busy: boolean
+  // PUTs currently writing a file.
+  writes: number
 }
 
 export interface WidgetUploadsDeps {
@@ -49,7 +51,7 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
   }
 
   function sweep(t: number): void {
-    for (const session of [...sessions.values()]) if (t - session.lastUsedAt > UPLOAD_IDLE_MS && !session.busy) end(session)
+    for (const session of [...sessions.values()]) if (t - session.lastUsedAt > UPLOAD_IDLE_MS && !session.busy && session.writes === 0) end(session)
   }
 
   function find(id: string): UploadSession {
@@ -67,7 +69,7 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
     if (!parsed.ok) throw new ApiError('VALIDATION_ERROR', parsed.error)
     const t = now().getTime()
     sweep(t)
-    const oldest = [...sessions.values()].filter((item) => !item.busy).sort((a, b) => a.lastUsedAt - b.lastUsedAt)
+    const oldest = [...sessions.values()].filter((item) => !item.busy && item.writes === 0).sort((a, b) => a.lastUsedAt - b.lastUsedAt)
     while (sessions.size >= MAX_UPLOADS && oldest.length > 0) end(oldest.shift()!)
     const id = randomBytes(16).toString('hex')
     const session: UploadSession = {
@@ -78,6 +80,7 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
       dir: stagingDir(root, id),
       lastUsedAt: t,
       busy: false,
+      writes: 0,
     }
     mkdirSync(session.dir, { recursive: true })
     sessions.set(id, session)
@@ -96,38 +99,45 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
 
     scope.put<{ Params: { id: string; '*': string } }>('/api/v1/widget-uploads/:id/files/*', async (request) => {
       const session = find(request.params.id)
-      const path = request.params['*']
-      const size = session.files.get(path)
-      if (size === undefined) throw new ApiError('VALIDATION_ERROR', `"${path}" is not in the declared file list`)
-      const target = join(session.dir, path)
-      mkdirSync(dirname(target), { recursive: true })
-      let received = 0
-      // Past the declared size the chunks are dropped, not errored: destroying the request would leave the reply unsent.
-      const limit = new Transform({
-        transform(chunk: Buffer, _encoding, done) {
-          received += chunk.length
-          done(null, received > size ? null : chunk)
-        },
-      })
-      // An empty body may arrive without a parsed stream.
-      const body = (request.body as Readable | undefined) ?? Readable.from([])
+      // While a write is in flight the session is not installed, evicted, expired or deleted.
+      session.writes += 1
       try {
-        await pipeline(body, limit, createWriteStream(target))
-      } catch (error) {
-        rmSync(target, { force: true })
-        throw error
+        const path = request.params['*']
+        const size = session.files.get(path)
+        if (size === undefined) throw new ApiError('VALIDATION_ERROR', `"${path}" is not in the declared file list`)
+        const target = join(session.dir, path)
+        mkdirSync(dirname(target), { recursive: true })
+        let received = 0
+        // Past the declared size the chunks are dropped, not errored: destroying the request would leave the reply unsent.
+        const limit = new Transform({
+          transform(chunk: Buffer, _encoding, done) {
+            received += chunk.length
+            done(null, received > size ? null : chunk)
+          },
+        })
+        // An empty body may arrive without a parsed stream.
+        const body = (request.body as Readable | undefined) ?? Readable.from([])
+        try {
+          await pipeline(body, limit, createWriteStream(target))
+        } catch (error) {
+          rmSync(target, { force: true })
+          throw error
+        }
+        if (received !== size) {
+          rmSync(target, { force: true })
+          throw new ApiError('VALIDATION_ERROR', received > size ? `"${path}" is larger than declared (${size} bytes)` : `"${path}" has ${received} bytes, ${size} declared`)
+        }
+        session.lastUsedAt = now().getTime()
+        return ok(request, null)
+      } finally {
+        session.writes -= 1
       }
-      if (received !== size) {
-        rmSync(target, { force: true })
-        throw new ApiError('VALIDATION_ERROR', received > size ? `"${path}" is larger than declared (${size} bytes)` : `"${path}" has ${received} bytes, ${size} declared`)
-      }
-      session.lastUsedAt = now().getTime()
-      return ok(request, null)
     })
   })
 
   app.post<{ Params: { id: string } }>('/api/v1/widget-uploads/:id/install', async (request) => {
     const session = find(request.params.id)
+    if (session.writes > 0) throw new ApiError('CONFLICT', 'A file is still being uploaded')
     session.busy = true
     try {
       for (const [path, size] of session.files) {
@@ -180,7 +190,7 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
 
   app.delete<{ Params: { id: string } }>('/api/v1/widget-uploads/:id', async (request) => {
     const session = sessions.get(request.params.id)
-    if (session && !session.busy) end(session)
+    if (session && !session.busy && session.writes === 0) end(session)
     return ok(request, null)
   })
 }
