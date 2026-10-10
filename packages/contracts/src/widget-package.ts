@@ -116,19 +116,27 @@ export interface WidgetPackage {
   files: Record<string, string>
 }
 
-/** `POST /widget-packages/inspect` and `POST /widget-packages` answer with this. */
+/** `POST /widget-uploads` (hash null) and `POST /widget-uploads/:id/install` answer with this. */
 export interface PackageInspection {
   manifest: WidgetPackageManifest
-  hash: string
+  hash: string | null
   installed: boolean
   // Manifest permissions the package does not hold yet.
   newPermissions: WidgetPermission[]
+  sizes: FolderSizes
+}
+
+export interface UploadCreated {
+  uploadId: string
+  inspection: PackageInspection
 }
 
 export interface InstalledPackageVersion {
   version: string
   hash: string
   manifest: WidgetPackageManifest
+  // Absolute paths for restoring the project; null when the folder is absent.
+  paths: { source: string | null; assets: string | null }
 }
 
 export interface InstalledPackage {

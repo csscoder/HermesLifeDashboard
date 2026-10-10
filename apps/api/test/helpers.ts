@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { expect } from 'vitest'
-import type { PackageInspection } from '@lifedashboard/contracts/widget-package'
+import type { PackageInspection, UploadCreated } from '@lifedashboard/contracts/widget-package'
 import { buildApp } from '../src/app.ts'
 import { openDatabase } from '../src/db.ts'
 
@@ -93,11 +93,16 @@ export function errorCode(response: LightMyRequestResponse): string {
   return response.json().error.code
 }
 
-/** A valid widget package; `change` edits it before it is returned. */
-export function widgetPackage(change?: (pkg: any) => void): any {
-  const pkg = {
-    format: 1,
+export interface TestPackage {
+  manifest: Record<string, any>
+  files: Record<string, string | Buffer>
+}
+
+/** A valid v2 folder; `widget.json` is written from `manifest` unless `files` has one. `change` edits it first. */
+export function widgetPackage(change?: (pkg: any) => void): TestPackage {
+  const pkg: TestPackage = {
     manifest: {
+      format: 2,
       id: 'dev.test.hello',
       version: '1.0.0',
       title: 'Hello',
@@ -114,8 +119,38 @@ export function widgetPackage(change?: (pkg: any) => void): any {
   return pkg
 }
 
-export async function installPackage(t: TestApp, cookie: string, pkg: unknown = widgetPackage()): Promise<PackageInspection> {
-  const response = await call(t.app, { method: 'POST', url: '/api/v1/widget-packages', cookie, payload: pkg })
+export function folderFiles(pkg: TestPackage): Record<string, string | Buffer> {
+  return { 'widget.json': JSON.stringify(pkg.manifest), ...pkg.files }
+}
+
+export function putFile(t: TestApp, cookie: string, uploadId: string, path: string, body: string | Buffer) {
+  return call(t.app, {
+    method: 'PUT',
+    url: `/api/v1/widget-uploads/${uploadId}/files/${path.split('/').map(encodeURIComponent).join('/')}`,
+    cookie,
+    contentType: 'application/octet-stream',
+    payload: body,
+  })
+}
+
+/** Creates an upload session and sends every file; does not install. */
+export async function uploadPackage(t: TestApp, cookie: string, pkg: TestPackage = widgetPackage()): Promise<UploadCreated> {
+  const files = folderFiles(pkg)
+  const created = await call(t.app, {
+    method: 'POST',
+    url: '/api/v1/widget-uploads',
+    cookie,
+    payload: { manifest: pkg.manifest, files: Object.entries(files).map(([path, body]) => ({ path, size: Buffer.byteLength(body) })) },
+  })
+  expect(created.statusCode).toBe(200)
+  const data: UploadCreated = created.json().data
+  for (const [path, body] of Object.entries(files)) expect((await putFile(t, cookie, data.uploadId, path, body)).statusCode).toBe(200)
+  return data
+}
+
+export async function installPackage(t: TestApp, cookie: string, pkg: TestPackage = widgetPackage()): Promise<PackageInspection> {
+  const { uploadId } = await uploadPackage(t, cookie, pkg)
+  const response = await call(t.app, { method: 'POST', url: `/api/v1/widget-uploads/${uploadId}/install`, cookie, payload: {} })
   expect(response.statusCode).toBe(200)
   return response.json().data
 }

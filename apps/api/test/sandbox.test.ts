@@ -13,17 +13,24 @@ let cookie: string
 let pkg: any
 let hash: string
 
+const VIDEO = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 256))
+
 beforeEach(async () => {
   t = await testApp()
   cookie = await pair(t)
   pkg = widgetPackage((p) => {
     p.manifest.entry = 'main.js'
-    p.files = { 'main.js': 'export default {}', 'style.css': '.hello{}' }
+    p.files = {
+      'main.js': 'export default {}',
+      'style.css': '.hello{}',
+      'assets/clip.mp4': VIDEO,
+      'assets/Big.MP4': VIDEO,
+      'assets/evil.svg': '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      'source/src/index.vue': '<template/>',
+    }
   })
-  hash = (await installPackage(t, cookie, pkg)).hash
+  hash = (await installPackage(t, cookie, pkg)).hash!
 })
-
-const VIDEO = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 256))
 
 function versionPath(...parts: string[]) {
   return join(t.dataDir, 'userwidgets', 'dev.test.hello', '1.0.0', ...parts)
@@ -133,10 +140,6 @@ describe('GET /sandbox/packages/:hash/:file', () => {
 
 describe('package files from disk', () => {
   beforeEach(() => {
-    addFile('assets/clip.mp4', VIDEO)
-    addFile('assets/Big.MP4', VIDEO)
-    addFile('assets/evil.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
-    addFile('source/src/index.vue', '<template/>')
     addFile(`${'a'.repeat(210)}.js`, 'export default 1')
   })
 

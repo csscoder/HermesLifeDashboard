@@ -32,8 +32,8 @@ const clock: InstalledPackage = {
   title: 'Часы',
   author: 'a',
   versions: [
-    { version: '2.0.0', hash: 'h2', manifest: manifest('2.0.0', 'Часы 2') },
-    { version: '1.0.0', hash: 'h1', manifest: manifest('1.0.0', 'Часы') },
+    { version: '2.0.0', hash: 'h2', manifest: manifest('2.0.0', 'Часы 2'), paths: { source: null, assets: null } },
+    { version: '1.0.0', hash: 'h1', manifest: manifest('1.0.0', 'Часы'), paths: { source: null, assets: null } },
   ],
   grants: [],
 }

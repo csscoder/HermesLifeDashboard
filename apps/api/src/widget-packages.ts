@@ -1,29 +1,17 @@
-import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
 import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
 import {
-  canonicalJson,
   compareVersions,
-  PACKAGE_LIMITS,
-  parseWidgetPackage,
   type Grant,
   type InstalledPackage,
-  type PackageInspection,
-  type WidgetPackage,
   type WidgetPackageManifest,
   type WidgetPermission,
 } from '@lifedashboard/contracts/widget-package'
 import { ApiError, ok } from './errors.ts'
-import { cleanUserwidgets, moveToOrphaned, userwidgetsDir, versionDir, writeV1Version } from './userwidgets.ts'
-
-const PACKAGE_BODY = { bodyLimit: PACKAGE_LIMITS.maxBytes }
-
-interface ParsedPackage {
-  pkg: WidgetPackage
-  hash: string
-}
+import { cleanUserwidgets, userwidgetsDir, versionDir } from './userwidgets.ts'
 
 export interface WidgetPackagesDeps {
   db: DatabaseSync
@@ -43,14 +31,10 @@ export function registerWidgetPackages(app: FastifyInstance, { db, now, dataDir 
   // Spec «Startup cleanup»: runs once per process, after migrations.
   cleanUserwidgets(root, installedVersions(db), now())
 
-  app.post('/api/v1/widget-packages/inspect', PACKAGE_BODY, async (request) => ok(request, inspect(db, parse(request.body))))
-
-  app.post('/api/v1/widget-packages', PACKAGE_BODY, async (request) => ok(request, install(db, root, parse(request.body), now())))
-
-  app.get('/api/v1/widget-packages', async (request) => ok(request, listPackages(db)))
+  app.get('/api/v1/widget-packages', async (request) => ok(request, listPackages(db, root)))
 
   app.delete<{ Params: { id: string } }>('/api/v1/widget-packages/:id', async (request) => {
-    deletePackage(db, request.params.id)
+    deletePackage(db, root, request.params.id)
     return ok(request, null)
   })
 
@@ -60,69 +44,30 @@ export function registerWidgetPackages(app: FastifyInstance, { db, now, dataDir 
   )
 }
 
-export function packageHash(pkg: WidgetPackage): string {
-  return createHash('sha256').update(canonicalJson({ manifest: pkg.manifest, files: pkg.files })).digest('hex')
-}
-
 export function grantsOf(db: DatabaseSync, packageId: string): Grant[] {
   return db.prepare('SELECT permission, mode FROM widget_grants WHERE package_id = ? ORDER BY permission').all(packageId) as unknown as Grant[]
 }
 
-function parse(body: unknown): ParsedPackage {
-  const result = parseWidgetPackage(body)
-  if (!result.ok) throw new ApiError('VALIDATION_ERROR', result.error)
-  return { pkg: result.value, hash: packageHash(result.value) }
-}
-
-function inspect(db: DatabaseSync, { pkg, hash }: ParsedPackage): PackageInspection {
-  const { manifest } = pkg
-  const stored = db.prepare('SELECT hash FROM widget_package_versions WHERE package_id = ? AND version = ?').get(manifest.id, manifest.version) as
-    | { hash: string }
-    | undefined
-  // A version is immutable: the same version with other content is never installed.
-  if (stored && stored.hash !== hash) {
-    throw new ApiError('CONFLICT', `Version ${manifest.version} of ${manifest.id} is already installed with different content`)
-  }
+export function newPermissionsOf(db: DatabaseSync, manifest: WidgetPackageManifest): WidgetPermission[] {
   const granted = new Set(grantsOf(db, manifest.id).map((grant) => grant.permission))
-  return {
-    manifest,
-    hash,
-    installed: stored !== undefined,
-    newPermissions: manifest.permissions.filter((permission) => !granted.has(permission)),
-  }
+  return manifest.permissions.filter((permission) => !granted.has(permission))
 }
 
-function install(db: DatabaseSync, root: string, parsed: ParsedPackage, now: Date): PackageInspection {
-  db.exec('BEGIN IMMEDIATE')
-  try {
-    const inspection = inspect(db, parsed)
-    if (!inspection.installed) {
-      const { manifest, files } = parsed.pkg
-      const at = now.toISOString()
-      db.prepare(
-        'INSERT INTO widget_packages (id, title, author, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title, author = excluded.author',
-      ).run(manifest.id, manifest.title, manifest.author, at)
-      db.prepare('INSERT INTO widget_package_versions (package_id, version, hash, manifest, installed_at) VALUES (?, ?, ?, ?, ?)').run(
-        manifest.id, manifest.version, parsed.hash, JSON.stringify(manifest), at,
-      )
-      // ponytail: transitional v1 route, replaced by uploads in Task 5.
-      const dir = versionDir(root, manifest.id, manifest.version)
-      if (existsSync(dir)) moveToOrphaned(root, manifest.id, manifest.version, now)
-      writeV1Version(dir, manifest, files)
-      // A new confirmable grant asks; OR IGNORE keeps the mode of a grant the package already holds.
-      const confirmable = new Set<WidgetPermission>(confirmablePermissions())
-      const grant = db.prepare('INSERT OR IGNORE INTO widget_grants (package_id, permission, granted_at, mode) VALUES (?, ?, ?, ?)')
-      for (const permission of manifest.permissions) grant.run(manifest.id, permission, at, confirmable.has(permission) ? 'ask' : 'allow')
-    }
-    db.exec('COMMIT')
-    return { ...inspection, installed: true, newPermissions: [] }
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+/** Package, version and grants rows; the caller holds the transaction. */
+export function insertVersion(db: DatabaseSync, manifest: WidgetPackageManifest, hash: string, at: string): void {
+  db.prepare(
+    'INSERT INTO widget_packages (id, title, author, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title, author = excluded.author',
+  ).run(manifest.id, manifest.title, manifest.author, at)
+  db.prepare('INSERT INTO widget_package_versions (package_id, version, hash, manifest, installed_at) VALUES (?, ?, ?, ?, ?)').run(
+    manifest.id, manifest.version, hash, JSON.stringify(manifest), at,
+  )
+  // A new confirmable grant asks; OR IGNORE keeps the mode of a grant the package already holds.
+  const confirmable = new Set<WidgetPermission>(confirmablePermissions())
+  const grant = db.prepare('INSERT OR IGNORE INTO widget_grants (package_id, permission, granted_at, mode) VALUES (?, ?, ?, ?)')
+  for (const permission of manifest.permissions) grant.run(manifest.id, permission, at, confirmable.has(permission) ? 'ask' : 'allow')
 }
 
-function listPackages(db: DatabaseSync): InstalledPackage[] {
+function listPackages(db: DatabaseSync, root: string): InstalledPackage[] {
   const packages = db.prepare('SELECT id, title, author FROM widget_packages ORDER BY title, id').all() as unknown as {
     id: string
     title: string
@@ -140,19 +85,24 @@ function listPackages(db: DatabaseSync): InstalledPackage[] {
     author: pkg.author,
     versions: versions
       .filter((row) => row.package_id === pkg.id)
-      .map((row) => ({ version: row.version, hash: row.hash, manifest: JSON.parse(row.manifest) as WidgetPackageManifest }))
+      .map((row) => {
+        const dir = versionDir(root, row.package_id, row.version)
+        const optional = (name: string) => (existsSync(join(dir, name)) ? join(dir, name) : null)
+        return { version: row.version, hash: row.hash, manifest: JSON.parse(row.manifest) as WidgetPackageManifest, paths: { source: optional('source'), assets: optional('assets') } }
+      })
       .sort((a, b) => compareVersions(b.version, a.version)),
     grants: grantsOf(db, pkg.id),
   }))
 }
 
-function deletePackage(db: DatabaseSync, id: string): void {
+function deletePackage(db: DatabaseSync, root: string, id: string): void {
   if (!db.prepare('SELECT 1 FROM widget_packages WHERE id = ?').get(id)) throw new ApiError('NOT_FOUND', 'Widget package not found')
   if (db.prepare("SELECT 1 FROM widgets WHERE source_kind = 'package' AND source_type = ? LIMIT 1").get(id)) {
     throw new ApiError('PACKAGE_IN_USE', 'Widgets of this package are placed on a board')
   }
   // Versions and grants go with it (ON DELETE CASCADE).
   db.prepare('DELETE FROM widget_packages WHERE id = ?').run(id)
+  rmSync(join(root, id), { recursive: true, force: true })
 }
 
 function setGrantMode(db: DatabaseSync, packageId: string, permission: string, mode: unknown): Grant[] {

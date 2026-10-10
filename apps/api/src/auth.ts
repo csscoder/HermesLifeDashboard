@@ -25,6 +25,8 @@ export const SESSION_COOKIE = 'ld_session'
 
 const PUBLIC_PATHS = new Set(['/api/v1/auth/pair', '/api/v1/auth/pair-code'])
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+// Spec 2026-10-10 «API»: the only mutating route without JSON; octet-stream still forces a CORS preflight.
+const UPLOAD_FILE_PATH = /^\/api\/v1\/widget-uploads\/[^/]+\/files\//
 
 const PAIR_SCHEMA = {
   body: {
@@ -63,7 +65,7 @@ export function registerAuth(app: FastifyInstance, { db, config, now, onPairingC
   }
 
   // No CSRF token (spec deviation): SameSite=Strict, an allowlisted Origin and a JSON body cover it.
-  function checkRequest(request: FastifyRequest): void {
+  function checkRequest(request: FastifyRequest, path: string): void {
     const host = request.headers.host
     if (host === undefined || !hosts.has(host)) throw new ApiError('FORBIDDEN', 'Host is not allowed')
     const origin = request.headers.origin
@@ -71,7 +73,10 @@ export function registerAuth(app: FastifyInstance, { db, config, now, onPairingC
     if (MUTATING_METHODS.has(request.method)) {
       if (origin === undefined) throw new ApiError('FORBIDDEN', 'Origin is required')
       const type = request.headers['content-type']?.split(';')[0]?.trim().toLowerCase()
-      if (type !== 'application/json') throw new ApiError('FORBIDDEN', 'A JSON body is required')
+      const required = request.method === 'PUT' && UPLOAD_FILE_PATH.test(path) ? 'application/octet-stream' : 'application/json'
+      if (type !== required) {
+        throw new ApiError('FORBIDDEN', required === 'application/json' ? 'A JSON body is required' : 'An application/octet-stream body is required')
+      }
     }
   }
 
@@ -99,7 +104,7 @@ export function registerAuth(app: FastifyInstance, { db, config, now, onPairingC
   app.addHook('onRequest', async (request, reply) => {
     const path = request.url.split('?')[0] ?? ''
     if (!path.startsWith('/api/')) return
-    checkRequest(request)
+    checkRequest(request, path)
     if (!PUBLIC_PATHS.has(path)) authenticate(request, reply)
   })
 

@@ -7,6 +7,7 @@ import { registerRooms } from './rooms.ts'
 import { registerSandbox } from './sandbox.ts'
 import { registerWidgetGateway } from './widget-gateway.ts'
 import { registerWidgetPackages } from './widget-packages.ts'
+import { registerWidgetUploads } from './widget-uploads.ts'
 
 export interface AppDeps {
   db: DatabaseSync
@@ -23,6 +24,7 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   registerAuth(app, { db, config, now, onPairingCode })
   registerRooms(app, { db, now })
   registerWidgetPackages(app, { db, now, dataDir: config.dataDir })
+  registerWidgetUploads(app, { db, now, dataDir: config.dataDir })
   registerWidgetGateway(app, { db, now })
   registerSandbox(app, { db, config })
   return app
