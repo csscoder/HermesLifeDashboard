@@ -98,6 +98,24 @@ describe('POST /widget-uploads', () => {
     expect(errorCode(await putFile(t, cookie, ids[0]!, 'index.js', 'export default {}'))).toBe('NOT_FOUND')
   })
 
+  it('rejects a fourth session while three are writing and cannot be evicted', async () => {
+    const bodies: PassThrough[] = []
+    const puts: Promise<unknown>[] = []
+    for (let i = 0; i < 3; i++) {
+      const { uploadId } = (await create(widgetPackage().manifest, listOf())).json().data
+      const body = new PassThrough()
+      body.write('export ')
+      bodies.push(body)
+      puts.push(call(t.app, { method: 'PUT', url: `${UPLOADS}/${uploadId}/files/index.js`, cookie, contentType: 'application/octet-stream', payload: body as any }))
+      for (let n = 0; n < 200 && !existsSync(join(staging(), uploadId, 'index.js')); n++) await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    const fourth = await create(widgetPackage().manifest, listOf())
+    expect([fourth.statusCode, errorCode(fourth)]).toEqual([409, 'CONFLICT'])
+    expect(readdirSync(staging())).toHaveLength(3)
+    for (const body of bodies) body.end()
+    await Promise.all(puts)
+  })
+
   it('expires a session idle for 30 minutes', async () => {
     const { uploadId } = (await create(widgetPackage().manifest, listOf())).json().data
     t.clock.now += 30 * 60_000 + 1

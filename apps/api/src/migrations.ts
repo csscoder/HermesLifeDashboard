@@ -14,8 +14,6 @@ export const SEED_SCREEN_ID = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
-// Applied in order inside a transaction; migration n sets PRAGMA user_version = n.
-// Never edit a released migration: add a new one.
 function movePackageFilesToDisk(db: DatabaseSync, { dataDir }: MigrationContext): void {
   const root = userwidgetsDir(dataDir)
   const now = new Date()
@@ -50,6 +48,8 @@ ALTER TABLE widget_package_versions_new RENAME TO widget_package_versions;
 `)
 }
 
+// Applied in order inside a transaction; migration n sets PRAGMA user_version = n.
+// Never edit a released migration: add a new one.
 export const MIGRATIONS: readonly Migration[] = [
   `
 CREATE TABLE rooms (

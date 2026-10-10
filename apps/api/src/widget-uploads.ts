@@ -71,6 +71,8 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
     sweep(t)
     const oldest = [...sessions.values()].filter((item) => !item.busy && item.writes === 0).sort((a, b) => a.lastUsedAt - b.lastUsedAt)
     while (sessions.size >= MAX_UPLOADS && oldest.length > 0) end(oldest.shift()!)
+    // Sessions installing or receiving a file are never evicted; without a free slot the new one is refused.
+    if (sessions.size >= MAX_UPLOADS) throw new ApiError('CONFLICT', 'Too many uploads in progress')
     const id = randomBytes(16).toString('hex')
     const session: UploadSession = {
       id,
