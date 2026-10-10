@@ -46,9 +46,10 @@ This is sub-project 1 of 2:
 | v1 packages | Replaced by v2 with a migration; `.ldwidget.json` install is removed | One format and one storage path; the project is in early development |
 | Sources | `ld-widget build` copies the source project into `source/` by default; `--no-source` turns it off | Sources survive the deletion of the development folder; a forgotten flag must not lose them |
 | Sources access | Absolute paths of `source/` and `assets/` shown in the packages list with a copy button | No zip writer in Node; a download would need a new dependency |
-| Media references | Document-relative URLs `assets/...`; importing a media file over 100 KB into code fails the build | Vite library mode inlines imported assets as base64 into the JS |
+| Rebuild location | A restored project builds inside a LifeDashboard checkout (for example `examples/widgets/<name>`) | The SDK is a private workspace package (`workspace:*`); publishing it is out of scope |
+| Media references | Document-relative URLs `assets/...`; importing any audio or video file, or another media file over 100 KB, into code fails the build | Vite library mode inlines imported assets as `data:` URLs into the JS; `media-src` does not allow `data:` |
 | Workers | Allowed only from `blob:` URLs | An opaque-origin frame cannot construct a worker from an http URL |
-| Network | Still none: `connect-src` allows only the package itself, `data:` and `blob:` | External sources belong to the gateway and the audio spec |
+| Network | `connect-src`, `media-src`, `img-src`, `font-src` reach only the package itself, `data:` and `blob:` | External sources belong to the gateway and the audio spec. Self-navigation of the frame to an external URL stays the residual risk accepted in v1 |
 
 ## Package folder
 
@@ -61,7 +62,7 @@ dev.example.clock-1.2.0/
 ├── chunk-*.js           │ code, root only: .js .mjs .css .wasm, ≤ 10 MB total
 ├── style.css            ┘
 ├── assets/              media copied verbatim from the project's assets/, no limit
-└── source/              the project without node_modules/, dist/, assets/ and dot entries
+└── source/              the project without node_modules/, dist/, assets/, .git/, .env* and .DS_Store
 ```
 
 ### File classes
@@ -77,9 +78,13 @@ gets an exact `Content-Type` from this table (`SERVED_TYPES` in contracts) and `
 
 ### Path rules
 
-- Segments match `[A-Za-z0-9._-]+`; no segment starts with `.`; no `..`; separator `/`.
+- Segments match `[A-Za-z0-9._-]+`; no segment is `.` or `..`; separator `/`.
+- Outside `source/`, no segment starts with `.`. Inside `source/` dot-prefixed names are allowed
+  (`.npmrc`, `.data.json`): `source/` is never served.
 - A path is at most 200 characters; a package has at most 2000 files including `widget.json`.
-- Two paths that differ only in letter case are rejected (one file on a case-insensitive disk).
+- Paths are compared in lower case (one file on a case-insensitive disk). Rejected: two equal
+  paths, and a path equal to a directory prefix of another path (`assets/a.mp4` and
+  `assets/A.MP4/x.png`).
 - `widget.json` is required; `manifest.entry` and every `manifest.styles` item must be code files in
   the root.
 
@@ -113,14 +118,17 @@ path. It covers `widget.json`, code, `assets/` and `source/`. A version stays im
 
 ### Referencing media
 
-The sandbox document lives at `/sandbox/packages/<hash>/`, so `<video src="assets/bg.mp4">`,
+The sandbox document has `<base href="<base>/sandbox/packages/<hash>/">`, so `<video src="assets/bg.mp4">`,
 `fetch('assets/model.glb')` and CSS `url(assets/font.woff2)` resolve without SDK help. Workers:
 `fetch` the script, then `new Worker(URL.createObjectURL(blob))`.
 
 ### Restoring the project
 
-`source/` plus `assets/` of the same version is the complete project. `pnpm install` and
-`ld-widget build` there produce a new version.
+`source/` plus `assets/` of the same version is the complete project. Copy both into a
+LifeDashboard checkout as `examples/widgets/<name>/` (`assets/` next to `source/`'s files), then
+`pnpm install` at the repository root and `pnpm -C examples/widgets/<name> build` produce a new
+version. Outside a checkout the `workspace:*` SDK dependency does not resolve until the SDK is
+published (out of scope).
 
 ## Contracts (`packages/contracts/src/widget-package.ts`)
 
@@ -150,43 +158,59 @@ The sandbox document lives at `/sandbox/packages/<hash>/`, so `<video src="asset
 `openDatabase` passes the context and runs a function entry inside the same transaction as SQL ones.
 The new entry:
 
-1. For each `widget_package_versions` row: write every file of `files` and a v2 `widget.json`
-   (`format: 2` plus the stored manifest) into `userwidgets/<id>/<version>/`, overwriting existing
-   files. Writes are idempotent.
+1. For each `widget_package_versions` row: if `userwidgets/<id>/<version>/` already exists (a v2
+   install of the same version before an older database was restored, or a failed earlier
+   attempt), move it to `userwidgets/.orphaned/<id>-<version>-<timestamp>/`; then write every file
+   of `files` and a v2 `widget.json` (`format: 2` plus the stored manifest) into a new
+   `userwidgets/<id>/<version>/`. The migration never overwrites an existing file.
 2. Rebuild `widget_package_versions` without `files` (create new table, copy, drop, rename).
 3. The stored `hash` stays: it identifies the version in sandbox URLs and on boards.
 
 A write failure throws; the transaction rolls back, the API does not start, and the database keeps
-`files` (the pre-migration backup `lifedashboard.db.bak-v<n>` exists as before). Files already
-written are rewritten on the next start.
+`files` (the pre-migration backup `lifedashboard.db.bak-v<n>` exists as before). Folders written
+by the failed attempt move to `.orphaned/` on the next start. The error names the package and file;
+a v1 file or version whose name the filesystem cannot hold (over 255 bytes) is such a failure. The v1
+builder only emits `index.js` and `style.css`, so this needs a hand-made v1 package.
 
 Migrated versions have no `source/`; reinstalling the same version from a v2 build is a `CONFLICT`
-because the hash scheme differs.
+because the hash scheme differs. Their file names follow the v1 pattern `^[a-z0-9][a-z0-9._-]*$`
+without a length limit, so serving does not apply the 200-character upload limit (see «Sandbox
+serving»).
 
 ### Startup cleanup
 
-After migrations, the API deletes `userwidgets/.staging/` and every `userwidgets/<id>/<version>/`
-without a `widget_package_versions` row (left by a crash between the folder move and the commit).
+After migrations, the API deletes `userwidgets/.staging/` (uploads never installed). It never
+deletes a version folder: a `userwidgets/<id>/<version>/` without a `widget_package_versions` row
+(a crash between the folder move and the commit, or a restored older database backup) moves to
+`userwidgets/.orphaned/<id>-<version>-<timestamp>/`, so its `source/` and `assets/` survive. The
+user deletes that folder by hand.
 
 ## API
 
-All routes need a dashboard session and pass the existing origin checks.
+All routes need a dashboard session and pass the existing Host and Origin checks. The mutating
+request check in `apps/api/src/auth.ts` (`checkRequest`) requires `application/json`; it gains one
+exception: `PUT /api/v1/widget-uploads/:id/files/*` requires `application/octet-stream` instead.
+That type is not CORS-safelisted, so a cross-site page still cannot send it without a preflight,
+which the Origin allowlist rejects. `install` and `DELETE` send an empty JSON object.
 
 | Route | Body | Result |
 | --- | --- | --- |
 | `POST /api/v1/widget-uploads` | `{ manifest, files: [{ path, size }] }` (JSON, default 1 MB body limit) | `{ uploadId, inspection }`; `inspection.hash = null` |
 | `PUT /api/v1/widget-uploads/:id/files/*` | `application/octet-stream`, streamed | `null` |
-| `POST /api/v1/widget-uploads/:id/install` | none | `PackageInspection` with `installed: true` |
-| `DELETE /api/v1/widget-uploads/:id` | none | `null` |
+| `POST /api/v1/widget-uploads/:id/install` | `{}` | `PackageInspection` with `installed: true` |
+| `DELETE /api/v1/widget-uploads/:id` | `{}` | `null` |
 
 `POST /widget-packages/inspect` and `POST /widget-packages` are removed. `GET /widget-packages`,
-`DELETE /widget-packages/:id` and the grant route stay; delete also removes `userwidgets/<id>/`.
+`DELETE /widget-packages/:id` and the grant route stay; delete also removes `userwidgets/<id>/`,
+including its `source/` and `assets/`. It is the only operation that deletes a version folder.
 
 ### Upload sessions
 
 - Kept in memory: `uploadId` (random), declared manifest and files, staging path, last use. At most
   3 sessions; a new one evicts the oldest and deletes its staging folder. A session idle for 30
   minutes is deleted. An API restart drops all sessions (startup cleanup removes the folders).
+  A session ends (and its staging folder is deleted) on install, cancel, eviction or expiry, never
+  on a failed `PUT`.
 - Create: `parseWidgetFolder`; the inspection reports `installed` (the version exists),
   `newPermissions` and `sizes`.
 - `PUT`: a content-type parser for `application/octet-stream` hands the raw stream to the route
@@ -194,16 +218,19 @@ All routes need a dashboard session and pass the existing origin checks.
   list. The stream goes to `<staging>/<path>` through `stream.pipeline`; more bytes than declared
   abort the request with `VALIDATION_ERROR` and delete the partial file. A repeated `PUT` of a path
   overwrites it.
-- Install, under `BEGIN IMMEDIATE`:
+- Install. The session is marked busy, so a `PUT` or a second install for it is rejected until it
+  ends. Asynchronous steps run before the transaction; the transaction holds no `await`, so no
+  other request's write on the shared `DatabaseSync` can fall inside it:
   1. every declared file exists with its declared size;
   2. `widget.json` read from staging parses with `parseWidgetManifest` and equals the declared
      manifest;
-  3. compute the version hash;
-  4. if the version row exists: same hash → delete staging, return `installed: true`; other hash →
-     `CONFLICT`;
-  5. `rename` staging to `userwidgets/<id>/<version>/` (same volume, atomic);
+  3. compute the version hash (streamed);
+  4. `BEGIN IMMEDIATE`, then synchronously: if the version row exists, same hash → roll back, delete
+     staging, return `installed: true`; other hash → `CONFLICT`;
+  5. if `userwidgets/<id>/<version>/` exists without a row, move it to `.orphaned/` as at startup;
+     `renameSync` staging to `userwidgets/<id>/<version>/` (same volume, atomic);
   6. insert package, version and grants as v1 install does (new confirmable grants start as `ask`);
-  7. commit; on any failure after step 5 delete the version folder and roll back.
+  7. commit; on any failure after step 5 roll back and move the version folder back to staging.
   The session ends after install, success or not.
 
 ### Errors
@@ -213,13 +240,15 @@ All routes need a dashboard session and pass the existing origin checks.
 | Manifest, path, extension, limits, size mismatch, missing file, `widget.json` changed | `VALIDATION_ERROR` with a readable message |
 | Unknown or expired `uploadId` | `NOT_FOUND` |
 | Same version with another hash | `CONFLICT` |
-| Disk write failure | `INTERNAL_ERROR`; the staging folder is deleted |
+| Disk write failure in a `PUT` | `INTERNAL_ERROR`; only that partial file is deleted, the session stays and the file can be sent again |
+| Disk failure during install | `INTERNAL_ERROR`; rollback as in install step 7; the session ends |
 
 ## Sandbox serving (`apps/api/src/sandbox.ts`)
 
 - `GET /sandbox/packages/:hash/` keeps serving the document; the manifest comes from SQLite.
 - `GET /sandbox/packages/:hash/*`:
-  - the hash selects `<id>/<version>`; the path must pass the path rules and be root code or
+  - the hash selects `<id>/<version>`; the path must pass the path rules except the length limit
+    (migrated v1 names may be longer) and be root code or
     `assets/**`; `widget.json` and `source/**` are `NOT_FOUND`;
   - the resolved path must stay inside the version folder;
   - `Content-Type` from `SERVED_TYPES`, `nosniff`, `cache-control: public, max-age=31536000, immutable`;
@@ -241,10 +270,17 @@ media-src <package> blob:
 font-src <package> data:
 connect-src <package> data: blob:
 worker-src blob:
-frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
+base-uri <package>
+frame-src 'none'; object-src 'none'; form-action 'none'
 ```
 
 `<package>` is `<base>/sandbox/packages/<hash>/`. The iframe keeps `sandbox="allow-scripts"`.
+
+The document gains `<base href="<package>">` as the first element of `<head>`. The iframe loads the
+document through the UI origin (`/sandbox` on port 3000 is proxied with `changeOrigin`), while
+`<base>` comes from the API Host (port 3001). Without the `<base>` element a relative
+`assets/bg.mp4` would resolve against port 3000, which the CSP does not allow. `base-uri` allows
+exactly that one URL, replacing v1's `'none'`.
 
 ## SDK (`packages/widget-sdk`)
 
@@ -252,11 +288,12 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 
 1. Vite library build as today with `vue` and the SDK external; code splitting stays on, so
    `import()` produces chunks. Every emitted file goes to the package root.
-2. A build plugin fails the build when code imports a file with a media extension larger than
-   100 KB: «reference media by URL: assets/<name>».
+2. A build plugin fails the build when code imports an audio or video file of any size, or another
+   media file larger than 100 KB: «reference media by URL: assets/<name>».
 3. Copy `<project>/assets/` verbatim to `assets/`.
 4. Unless `--no-source`, copy the project to `source/`, excluding `node_modules/`, `dist/`,
-   `assets/` and every entry whose name starts with `.`.
+   `assets/`, `.git/`, `.DS_Store` and every name matching `.env*`. Other dot files (`.npmrc`,
+   `.data.json`) are kept: a rebuild may need them.
 5. Write `widget.json` with `format: 2`.
 6. Validate the output with `parseWidgetFolder`; a path that breaks the path rules fails the build
    and names the path.
@@ -273,11 +310,14 @@ The sandbox runtime (`sandbox.ts`) is unchanged.
 - Review screen from the create response: title, author, version, «уже установлена» when
   `installed`, permissions with modes, sizes (код / медиа / исходники).
 - «Установить» uploads files three at a time with one overall progress bar, then calls install,
-  then saves relaxed grant modes as today.
+  then saves relaxed grant modes as today. File `PUT` and install calls pass no absolute timeout
+  (the client default `API_TIMEOUT_MS` = 5 s stays for other calls): their duration grows with
+  file size; «Отмена» aborts them.
 - «Отмена» at any step calls `DELETE /widget-uploads/:id`. A failed file can be retried; any other
   error shows its message and offers to start over.
 - Packages list: per version a row «Исходники» with the `source/` and `assets/` paths and copy
   buttons, or «Исходники не включены» when `paths.source` is `null`.
+- Deleting a package warns that its sources and media in `userwidgets/<id>/` are deleted too.
 - `readPackageFile` and the `.ldwidget.json` file input are removed.
 
 ## Examples and docs
@@ -296,11 +336,17 @@ The sandbox runtime (`sandbox.ts`) is unchanged.
 - Paths are validated against the declared list on every `PUT` and on serving; resolved paths must
   stay inside their folder; the server creates every file itself, so no symlinks exist in
   `userwidgets/`.
-- `source/` is never served to the sandbox; `ld-widget build` excludes dot entries so `.env` files
-  do not ship.
+- `source/` is never served to the sandbox; `ld-widget build` excludes `.env*` and `.git/` so
+  secrets and history do not ship. Other files in the project ship in `source/`; the author
+  decides what lives there or builds with `--no-source`.
 - `'wasm-unsafe-eval'` permits WebAssembly compilation only, not JS `eval`.
-- `connect-src` and `media-src` reach only the package's own folder: a widget still cannot send data
-  anywhere.
+- `connect-src`, `media-src`, `img-src` and `font-src` reach only the package's own folder, `data:`
+  and `blob:`: a widget cannot fetch or load anything from another host. Self-navigation of the
+  frame to an external URL remains the residual risk accepted in v1.
+- The upload `PUT` is the only mutating route without a JSON body; its `application/octet-stream`
+  type still forces a CORS preflight.
+- Only an explicit package delete removes a version folder; startup and install move orphans to
+  `userwidgets/.orphaned/`.
 - An unlimited media quota lets a package fill the disk; this is the user's explicit choice and the
   review screen shows the sizes before the upload starts.
 
@@ -309,24 +355,37 @@ The sandbox runtime (`sandbox.ts`) is unchanged.
 Vitest, test first for every behavior change.
 
 - `contracts`: `parseWidgetManifest` (format 2, v1 rules); `parseWidgetFolder` — path rules, dot
-  segments, `..`, case collisions, extension per class, 10 MB code limit, 2000 files, `entry` and
+  segments outside and inside `source/`, `..`, case collisions of paths and of a file with a
+  directory prefix, extension per class, 10 MB code limit, 2000 files, `entry` and
   `styles`, sizes per class.
 - `api` (`widget-packages.test.ts` and a new `widget-uploads.test.ts`):
-  - create rejects invalid folders; `PUT` of an undeclared path; `PUT` over the declared size aborts
-    and deletes the partial file; repeated `PUT` overwrites;
+  - create rejects invalid folders; the octet-stream `PUT` passes `checkRequest`, other mutating
+    routes still require JSON; `PUT` of an undeclared path; `PUT` over the declared size aborts
+    and deletes the partial file; repeated `PUT` overwrites; a failed `PUT` keeps the session and
+    the other uploaded files;
   - install: missing file, size mismatch, changed `widget.json`, same hash → installed, other hash →
-    `CONFLICT`, success moves the folder and writes rows, a failing insert removes the folder;
+    `CONFLICT`, success moves the folder and writes rows, a failing insert moves the folder back;
+    a `PUT` during install is rejected; an existing folder without a row moves to `.orphaned/`;
   - cancel, eviction of the fourth session, idle expiry;
-  - startup cleanup of `.staging/` and orphan version folders; delete removes `userwidgets/<id>/`.
+  - startup deletes `.staging/` and moves orphan version folders to `.orphaned/`; delete removes
+    `userwidgets/<id>/`.
 - `api` (`db.test.ts`): the v1 → v2 migration writes files and `widget.json`, keeps hashes, drops
-  `files`; a write failure rolls back and keeps `files`.
-- `api` (`sandbox.test.ts`): document CSP; file types; `206`, `416` and full responses; `NOT_FOUND`
+  `files`; an existing version folder moves to `.orphaned/` and is not overwritten; a write
+  failure rolls back and keeps `files`.
+- `api` (`sandbox.test.ts`): document CSP with `base-uri <package>` and the `<base href>` element;
+  file types; a migrated v1 file name longer than 200 characters is served; `206`, `416` and full responses; `NOT_FOUND`
   for `source/**`, `widget.json`, `..` and unknown paths; the `sandbox` CSP header on files.
 - `widget-sdk`: build of a fixture project — folder layout, chunks, `assets/` copy, `source/`
-  exclusions, `--no-source`, the media-import error, an invalid file name error.
-- `ui`: building the file list from a picked folder and from a dropped directory entry.
-- Browser acceptance in Orca's browser: install `hello`, video plays and seeks; packages list shows
-  the paths; a v1 package placed before the upgrade still renders; every `hostile` attack fails.
+  exclusions (`.env*`, `.git/` dropped, other dot files kept), `--no-source`, the media-import
+  error for any audio/video and for large images, an invalid file name error; restoration — a
+  temporary LifeDashboard-style workspace gets the built `source/` and `assets/`, and building
+  there yields the same code files as the original build.
+- `ui`: building the file list from a picked folder and from a dropped directory entry; upload
+  calls without the 5 s timeout.
+- Browser acceptance in Orca's browser (UI on port 3000, proxied sandbox): install `hello`, video
+  plays and seeks; packages list shows the paths; restore `hello` from its `source/` and `assets/`
+  into `examples/widgets/hello-restored/`, build it as version 1.0.1 and install it; a v1 package
+  placed before the upgrade still renders; every `hostile` attack fails.
 
 ## Acceptance criteria
 
@@ -336,8 +395,8 @@ Vitest, test first for every behavior change.
    uploads with progress and installs into `userwidgets/<id>/<version>/`.
 3. Code over 10 MB, a forbidden path or extension, and a changed `widget.json` are rejected with a
    readable message; media size is not limited.
-4. The sandbox loads package images, video (with seeking), fonts, WASM and data files; external
-   network stays blocked.
+4. The sandbox loads package images, video (with seeking), fonts, WASM and data files; `fetch`
+   and media requests to another host fail.
 5. Opening a package SVG directly in a tab does not run its script.
 6. The packages list shows `source/` and `assets/` paths, or «Исходники не включены».
 7. Packages installed in format v1 keep working after the migration; `.ldwidget.json` install no
@@ -351,5 +410,7 @@ Vitest, test first for every behavior change.
 - Dev mode: a watched source folder with live preview.
 - Zip export or download of sources; «Показать в Finder» (Tauri).
 - Building packages on the host.
+- Publishing the SDK outside the monorepo; rebuilding restored sources outside a LifeDashboard
+  checkout.
 - Disk quotas for media.
 - Distribution as a single file (archive) and package signing.
