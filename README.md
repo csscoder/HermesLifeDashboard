@@ -1,75 +1,279 @@
 # LifeDashboard
 
-Personal AI environment around Hermes Agent: Nuxt UI + Fastify API.
-Design: `docs/base-2026-10-04-lifegamehermes-design.md`.
+**Your workspace. Your widgets. Your rules.**
 
-## Requirements
+LifeDashboard is an open-source, customizable, widget-based personal workspace. Build a dashboard that looks and works the way you want: choose ready-made widgets, arrange them freely, personalize their appearance, or create entirely new ones with the **LifeDashboard Widget SDK** and tools such as **Claude Code**, **OpenAI Codex**, or your preferred coding agent.
 
-- Node.js 24 LTS (`.nvmrc`)
-- pnpm 10.30.2 (`corepack enable` picks it from `packageManager`)
+The long-term goal is a beautiful, local-first desktop environment that can also serve as a visual interface for a personal AI agent. **Hermes Agent** is the planned AI integration, not a requirement for using the dashboard or ordinary widgets.
 
-## Setup
+> **Status: early development.** The project currently runs as a local web application. The Widget SDK and installable widget packages have an initial implementation; the Tauri desktop app, Hermes integration, and many planned widgets are not available yet. Interfaces and package contracts may evolve before a stable release.
+
+## The idea
+
+LifeDashboard is a **widget platform first**. It is not a fixed productivity dashboard, a replacement for Hermes Agent, or another general-purpose AI chat application.
+
+The user owns the workspace:
+
+- **Compose:** select widgets from a growing library and arrange them on a customizable board.
+- **Personalize:** adjust widget sizes, themes, frames, shadows, and eventually backgrounds and animations.
+- **Extend:** install independently distributed widget packages without modifying the application.
+- **Create:** build custom widgets manually or with an AI coding agent using a documented SDK.
+- **Connect:** add optional AI, data sources, and device integrations as the platform evolves.
+
+A widget can be practical, decorative, interactive, or AI-powered. Clocks, weather, music, calendars, notes, system information, visualizations, and AI conversations are all valid uses of the same system. **Visual quality and creative freedom are core product goals**, not secondary features.
+
+## What works today
+
+The following describes the implementation in the repository as of **October 2026**, not a completed product release.
+
+| Area | Current state |
+| --- | --- |
+| Widget board | 24-column fluid grid; configurable number of rows; add, move, resize, and remove widgets; pointer and keyboard controls. |
+| Persistence | Boards and widget instances saved through the local Fastify API to SQLite, with revision-based conflict detection. |
+| Appearance | Glass, Obsidian, and Paper themes; per-widget theme selection, a frameless style, and custom shadows are implemented in source. |
+| Built-in widgets | Animated analog clock and a placeholder. The built-in library is still small. |
+| Installable widgets | Local `.ldwidget.json` packages, versioned installation, permission review, and placement on the board. |
+| Widget SDK | Initial `useWidget()` API, `ld-widget build` CLI, reactive widget context, persisted state, and host notifications. |
+| Isolation | Third-party widget packages run in sandboxed iframes with a restricted bridge to the host and API. |
+| Local access | Pairing code, authenticated browser sessions, and local API origin checks. |
+| Rooms and screens | Data contracts exist, but the UI currently displays the initial room and its first screen; management/navigation is planned. |
+| Hermes Agent | Planned; no Hermes adapter or chat UI is implemented in the current application. |
+| Desktop app / animated backgrounds | Planned; there is no Tauri desktop distribution or animated-background system yet. |
+
+The newest appearance features have not yet completed the full documented browser-acceptance checks. Treat the current code as a development build.
+
+## Widget ecosystem
+
+There are two widget types:
+
+1. **Built-in widgets** are trusted Vue components bundled with LifeDashboard. They use the same widget-facing API as external widgets.
+2. **Installable widgets** are separately built Vue components distributed as `.ldwidget.json` packages. The host validates the package, asks for its declared permissions, and executes it in a sandboxed iframe.
+
+Widgets declare their preferred, minimum, and maximum sizes. The host provides a reactive context containing the current size, size class, theme tokens, configuration, locale, and visibility.
+
+**The intended ecosystem is open-ended:** the official library is only a starting point. Anyone should be able to create, install, share, or independently distribute widgets and themed packs. An online marketplace is not required for this model.
+
+### Widget SDK
+
+The initial SDK lives at [`packages/widget-sdk`](packages/widget-sdk). It currently provides:
+
+| API | Purpose |
+| --- | --- |
+| `useWidget()` | Access the host-provided widget API from a Vue component. |
+| `widget.context` | Reactive size, `sizeClass`, theme, `rootFontSize`, config, locale, and visibility. |
+| `widget.state.get<T>()` | Read instance-specific persisted state and its revision. |
+| `widget.state.set(data, expectedRevision)` | Save state with optimistic concurrency control. |
+| `widget.notify({ title, body })` | Request a notification displayed by LifeDashboard. |
+| `widget.call(op, input)` | Call a supported, permission-checked gateway operation. |
+| `ld-widget build [dir]` | Compile a Vue widget project into an installable package. |
+
+**Current gateway operations are limited to `state.get`, `state.set`, and `notifications.send`.** Widget access to external HTTP services, LifeDashboard data sources, local device actions, and Hermes is planned; it is not available through the SDK today.
+
+A widget project contains at least:
+
+```text
+my-widget/
+├── widget.json       # ID, version, author, sizing, permissions, entry, styles
+├── package.json
+└── src/
+    └── index.vue     # Vue single-file component
+```
+
+The manifest describes the widget's identity, version, entry point, size constraints, and requested permissions. The current package format is `*.ldwidget.json` (up to 1 MB), containing compiled JavaScript and CSS; standalone image/font asset packaging still needs dedicated support.
+
+**Existing examples:**
+
+- [`examples/widgets/hello`](examples/widgets/hello) demonstrates persisted state, revision conflicts, and notifications.
+- [`examples/widgets/hostile`](examples/widgets/hostile) is a security test fixture, **not** a production widget template.
+- [`apps/ui/app/widgets/builtin/clocks/analog_1`](apps/ui/app/widgets/builtin/clocks/analog_1) shows an animated built-in clock implemented with Vue, SVG, and GSAP.
+
+Build the existing example from the repository root:
 
 ```bash
 pnpm install
-cp .env.example .env   # optional; defaults work without it
+pnpm -C examples/widgets/hello build
+# examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0.ldwidget.json
 ```
 
-## Commands
+Then start LifeDashboard and select **«Виджеты» → «Установить из файла»**. Review the permissions, install the package, and place it using **«Добавить виджет…»**.
 
-| Command | What it does |
+A package already used by a board cannot be removed until its widget instances are removed. Installed versions are immutable, and placed instances remain associated with their selected version.
+
+### Creating widgets with Claude Code, Codex, or other AI tools
+
+**AI-assisted widget development is a central use case, not a dependency on a particular AI provider.** The intended workflow is:
+
+```text
+Describe your idea
+       ↓
+Claude Code / Codex / another coding agent
+       ↓
+LifeDashboard Widget SDK + examples
+       ↓
+Vue widget source + widget.json
+       ↓
+ld-widget build
+       ↓
+Install the .ldwidget.json package
+       ↓
+Add it to your dashboard
+```
+
+Today, a coding agent can work from this repository's SDK and example widget. Dedicated starter templates, self-contained SDK documentation, local preview tooling, and AI-friendly development instructions are on the roadmap.
+
+Example prompt for a coding agent:
+
+> Create a LifeDashboard widget using `packages/widget-sdk` and `examples/widgets/hello` as references. Build a responsive analog clock with a transparent background and subtle animations. Respect `widget.context.size`, `sizeClass`, theme tokens, and visibility. Provide `widget.json`, a Vue component, and a buildable `.ldwidget.json` package. Do not use unavailable gateway operations.
+
+The goal is to make custom widgets possible **without changing or rebuilding LifeDashboard itself**.
+
+## Visual customization
+
+LifeDashboard treats visual design as a first-class feature:
+
+- A responsive-to-window-width board with square grid cells and explicit drag/resize editing.
+- Built-in **Glass**, **Obsidian**, and **Paper** themes.
+- Per-widget appearance: inherit the board theme, use another theme, or remove the frame.
+- Configurable widget shadows, including shadows that can follow the shape of frameless content.
+- A shared design-token vocabulary for consistent UI across widgets.
+- Animations where they improve the experience, with consideration for reduced-motion preferences.
+
+**Planned:** static and animated backgrounds, additional skins and themes, richer visual widgets, themed widget packs, and more flexible personalization. A frameless clock is one example of the intended direction: widgets should be able to feel like objects on a desktop, not just rectangles in a grid.
+
+Theme contracts and token rules are documented in [`docs/theme-contract.md`](docs/theme-contract.md).
+
+## Hermes Agent: optional intelligence
+
+LifeDashboard's long-term AI layer is designed around **[Hermes Agent](https://github.com/NousResearch/hermes-agent)**. Hermes remains responsible for agent reasoning, sessions, tools, profiles, and memory-related capabilities. LifeDashboard provides the visual workspace and controlled interaction with these capabilities.
+
+Planned integration includes a connection to an existing Hermes installation, discovery of supported API capabilities, conversations/sessions, relevant context from the active workspace, and AI-powered widgets where explicitly enabled.
+
+Important boundaries:
+
+- **Hermes is optional.** The dashboard, visual widgets, and local functionality must remain usable without it.
+- **Hermes is managed separately.** LifeDashboard is not intended to bundle or replace the agent runtime.
+- **No duplicate AI runtime.** LifeDashboard does not implement its own LLM agent loop or memory system.
+- **Controlled access.** Widget or UI access to AI capabilities will go through the LifeDashboard backend, with explicit permissions and limits.
+- **No provider lock-in for widget creation.** A widget may be authored with Claude Code, Codex, or another tool; Hermes is not required to build it.
+
+The Hermes integration described here is **product direction, not a currently implemented feature**.
+
+## Architecture
+
+LifeDashboard is currently a TypeScript monorepo managed with pnpm:
+
+```text
+LifeDashboard UI (Nuxt 4 / Vue 3)
+  ├── Widget board, themes, and package manager
+  ├── Built-in Vue widgets
+  └── Installed widgets (sandboxed iframes)
+             │
+             │ Host broker / permissions / HTTP API
+             ▼
+LifeDashboard Core (Fastify)
+  ├── Authentication and pairing
+  ├── Rooms and board persistence
+  ├── Widget package registry and gateway
+  └── SQLite storage
+
+Planned: Tauri desktop host; optional Hermes Agent adapter
+```
+
+| Path | Responsibility |
 | --- | --- |
-| `pnpm dev` | Starts the API (`127.0.0.1:3001`) and the UI (`127.0.0.1:3000`) together |
-| `pnpm build` | Compiles the API to `apps/api/dist` and generates the static UI in `apps/ui/.output/public` |
-| `pnpm typecheck` | Type-checks all packages |
-| `pnpm test` | Runs Vitest suites |
+| [`apps/ui`](apps/ui) | Nuxt SPA, board editor, widgets, appearance, package UI, and sandbox host. |
+| [`apps/api`](apps/api) | Fastify API, authentication, persistence, package management, and widget gateway. |
+| [`packages/contracts`](packages/contracts) | Shared TypeScript contracts, validation, grid and package formats. |
+| [`packages/widget-sdk`](packages/widget-sdk) | Public widget-facing API, sandbox runtime, and build CLI. |
+| [`examples/widgets`](examples/widgets) | Example and security-test widget projects. |
+| [`docs/theme-contract.md`](docs/theme-contract.md) | Theme token contract and validation rules. |
 
-## Configuration
+The current UI runs in a browser with a local API. **Tauri packaging is a future delivery target**, not the current runtime. The desktop version is intended to reuse the same UI and backend rather than maintain a second implementation of the application.
 
-| Variable | Default | Used by |
-| --- | --- | --- |
-| `LIFEDASHBOARD_API_PORT` | `3001` | API listen port and the UI dev proxy target |
-| `LIFEDASHBOARD_DATA_DIR` | OS data directory (macOS: `~/Library/Application Support/LifeDashboard`) | Absolute directory of `lifedashboard.db` |
-| `LIFEDASHBOARD_UI_ORIGINS` | `http://127.0.0.1:3000` | Comma-separated browser origins allowed to call the API |
+## Run locally
 
-Values from the process environment override the root `.env`.
+### Requirements
 
-## Pairing
+- **Node.js 24 LTS** (see [`.nvmrc`](.nvmrc))
+- **pnpm 10.30.2**, selected by the root `packageManager` field via Corepack
+- A desktop browser at **1280 px width or more**; narrow-screen and mobile layouts are not supported yet
 
-The API prints `LifeDashboard pairing code: NNNNNN` in the `pnpm dev` terminal. Open
-`http://127.0.0.1:3000` (not `localhost`, unless it is added to `LIFEDASHBOARD_UI_ORIGINS`) and
-enter the code once. A code is valid for 10 minutes; «Новый код» prints a fresh one. The browser
-then stays signed in while it is used at least once in 29 days.
-
-## Layout
-
-- `apps/api` — Fastify API: `GET /health`, pairing, rooms and boards, widget packages, widget sessions and the widget gateway in SQLite (`node:sqlite`); sandbox documents under `/sandbox`.
-- `packages/contracts` — grid, board, widget package and gateway contracts shared by the API, the UI and the SDK.
-- `packages/widget-sdk` — `useWidget()`, the sandbox runtime (`dist/sandbox.js`) and the `ld-widget` CLI.
-- `apps/ui` — Nuxt 4 SPA; `/api`, `/health` and `/sandbox` are proxied to the API in development.
-- `examples/widgets` — `hello` (state and a notification) and `hostile` (probes the sandbox boundary).
-
-## Widget packages
-
-An installed widget is a Vue SFC packaged as one `*.ldwidget.json` file. It runs in a sandboxed
-iframe and reaches data only through the API's widget gateway, with the permissions accepted at
-install (`docs/superpowers/specs/2026-10-08-widget-runtime-sandbox-design.md`).
-
-A widget project holds `widget.json` (the manifest: `id`, `version`, `title`, `author`, `sdk`,
-`entry`, `styles`, `sizing`, `permissions`) and `src/index.vue`. Build it with `ld-widget build`
-(from `@lifedashboard/widget-sdk`):
+### Start the development app
 
 ```bash
-pnpm -C examples/widgets/hello build   # → examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0.ldwidget.json
+corepack enable
+pnpm install
+cp .env.example .env  # optional; the defaults are usable without .env
+pnpm dev
 ```
 
-Widget code imports only `vue` and `@lifedashboard/widget-sdk`: `useWidget()` gives `context`
-(size, `sizeClass`, theme, `rootFontSize`, config, locale, visibility), `state.get()` /
-`state.set(data, expectedRevision)`, `notify({ title, body })` and `call(op, input)`. Style with the
-theme's `var(--ld-…)` tokens; UnoCSS classes are not available in the sandbox.
+Development services:
 
-Install: «Виджеты» → «Установить из файла», check the permissions screen, «Установить». Place it
-from «Добавить виджет…». A package with widgets on the board cannot be deleted.
+- UI: <http://127.0.0.1:3000>
+- API: <http://127.0.0.1:3001>
+- Health check: <http://127.0.0.1:3001/health>
 
-`pnpm dev` also rebuilds the sandbox runtime `packages/widget-sdk/dist/sandbox.js`, which the API
-serves at `/sandbox/runtime/sdk.js`; `pnpm build` builds it once.
+The API writes a **six-digit pairing code** to the terminal. Open the UI, enter the code, and start using the board. The code expires after 10 minutes; a new code can be requested. Use `127.0.0.1` rather than `localhost` unless you explicitly configure that origin.
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `pnpm dev` | Run the API, UI, and supporting workspace development tasks. |
+| `pnpm build` | Build the API and generate the static UI. |
+| `pnpm typecheck` | Run TypeScript checks across the workspace. |
+| `pnpm test` | Run the available Vitest test suites. |
+| `pnpm -C examples/widgets/hello build` | Build the example installable widget. |
+
+`pnpm build` produces the compiled API in `apps/api/dist` and static UI output in `apps/ui/.output/public`. **This is not yet a packaged desktop installer.**
+
+### Configuration
+
+Environment variables can be set in a root `.env` file or passed through the process environment:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LIFEDASHBOARD_API_PORT` | `3001` | Fastify port and target for the Nuxt development proxy. |
+| `LIFEDASHBOARD_DATA_DIR` | OS-specific user data directory | Directory containing `lifedashboard.db`. |
+| `LIFEDASHBOARD_UI_ORIGINS` | `http://127.0.0.1:3000` | Comma-separated origins permitted to call the API. |
+
+On macOS, the default data directory is `~/Library/Application Support/LifeDashboard`. Environment variables override the values in `.env`. See [`.env.example`](.env.example).
+
+## Roadmap
+
+The roadmap describes intended directions rather than release promises or delivery dates.
+
+1. **Widget experience:** polish the board editor, broaden the built-in library, improve animations and appearance controls, and support static/animated backgrounds.
+2. **Widget SDK developer experience:** stable versioned contracts, starter projects, documentation tailored to human and AI developers, preview tooling, and richer asset support.
+3. **Workspace organization:** multiple editable rooms/screens, presets, portable layouts, and import/export of configurations.
+4. **Widget ecosystem:** practical and decorative widget collections, themed packs, easier package discovery and updates, and optional independently sold premium packs.
+5. **Data and AI integrations:** permission-controlled data sources, external service access, device integrations, and Hermes sessions/conversations and AI-powered widgets.
+6. **Desktop release:** Tauri packaging, native lifecycle and security checks, installation, and platform-specific testing.
+
+The order may change based on actual usage and implementation constraints. **A strong, delightful widget platform comes before a large collection of unrelated productivity features.**
+
+## Security and privacy
+
+LifeDashboard is designed to be **local-first**, with the API bound to the loopback interface and project data stored locally in SQLite. The initial implementation includes pairing-based authentication, request origin checks, and permission-aware widget operations.
+
+Installable widgets run inside sandboxed iframes and communicate with the host through a constrained message bridge. Packages cannot directly use arbitrary host APIs through the Widget SDK. Currently supported permissions are `state` and `notifications`; notification calls may require confirmation depending on the saved grant mode.
+
+Sandboxing **reduces risk but is not a guarantee against all malicious or resource-intensive code**. Only install widget packages from sources you trust. Future native, network, or AI capabilities will require separate security review and explicit authorization.
+
+There is no mandatory cloud account or hosted backend in the current architecture. A mobile app, cloud sync, and multi-user service are not initial goals.
+
+## License and distribution
+
+LifeDashboard is licensed under the **[MIT License](LICENSE)**.
+
+The core application and the Widget SDK are intended to remain open and extensible. Independently distributed widgets, artwork, animations, or premium widget packs may have **their own clearly stated licenses**; the MIT license of this repository does not automatically apply to separate products that are not included in it.
+
+## Contributing
+
+Bug reports, ideas, and contributions are welcome through the repository's [GitHub Issues](https://github.com/csscoder/HermesLifeDashboard/issues) and pull requests.
+
+Before contributing, review the existing TypeScript contracts, follow the widget permission model, add or update tests for behavior changes, and keep claims about shipped features separate from roadmap items. The implementation and test suites are the reference for **current behavior**; this README defines the **product direction**.
+
+---
+
+**LifeDashboard is an open canvas for your personal desktop: use the widgets you love, build the widgets you need, and make the whole space your own.**
