@@ -4,6 +4,7 @@ import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lif
 import { api, type ApiFailure } from '../api'
 import {
   CONFIRMABLE_PERMISSIONS,
+  describeUploadFailure,
   filesFromEntry,
   filesFromInput,
   formatBytes,
@@ -43,6 +44,8 @@ const progress = ref<{ sent: number; total: number } | null>(null)
 const failedPath = ref<string | null>(null)
 const confirmDelete = ref<string | null>(null)
 let controller: AbortController | null = null
+// Bumped by every start and cancel: an answer from an older run is discarded.
+let run = 0
 // Modes the user picks for new confirmable permissions on the install screen.
 const modes = ref<GrantModes>({})
 
@@ -77,6 +80,9 @@ watch(
 )
 
 async function start(files: PickedFile[]) {
+  if (busy.value) return
+  if (pending.value) cancel()
+  const mine = ++run
   message.value = null
   const read = await readFolder(files)
   if (!read.ok) {
@@ -85,6 +91,11 @@ async function start(files: PickedFile[]) {
   }
   busy.value = true
   const result = await api.createUpload(read.manifest, read.files)
+  if (mine !== run) {
+    // The dialog closed or another folder replaced this run: release the session nobody owns.
+    if (result.ok) void api.cancelUpload(result.data.uploadId)
+    return
+  }
   busy.value = false
   if (!result.ok) {
     message.value = failureText(result, VERSION_CONFLICT)
@@ -105,6 +116,7 @@ function chooseFolder(event: Event) {
 }
 
 async function dropFolder(event: DragEvent) {
+  if (busy.value) return
   const entry = event.dataTransfer?.items[0]?.webkitGetAsEntry()
   if (!entry?.isDirectory) {
     message.value = 'Перетащите папку виджета'
@@ -123,6 +135,7 @@ async function install() {
   const total = current.files.reduce((sum, item) => sum + item.file.size, 0)
   progress.value ??= { sent: 0, total }
   const sent = await uploadFiles(api, current.uploadId, remaining.value, own.signal, (file) => {
+    if (own.signal.aborted) return
     remaining.value = remaining.value.filter((item) => item !== file)
     progress.value = { sent: progress.value!.sent + file.file.size, total }
   })
@@ -131,11 +144,9 @@ async function install() {
   if (!sent.ok) {
     busy.value = false
     failedPath.value = sent.path
-    // An ended session (API restart, expiry) cannot continue: start over.
-    if (sent.failure.kind === 'invalid' && sent.failure.code === 'NOT_FOUND') {
-      pending.value = null
-      message.value = `Загрузка прервана на ${sent.path}, начните заново`
-    } else message.value = `Не удалось загрузить ${sent.path}`
+    const failure = describeUploadFailure(sent)
+    if (failure.restart) pending.value = null
+    message.value = failure.message
     return
   }
   const result = await api.installUpload(current.uploadId, own.signal)
@@ -157,6 +168,7 @@ async function install() {
 }
 
 function cancel() {
+  run++
   controller?.abort()
   if (pending.value) void api.cancelUpload(pending.value.uploadId)
   pending.value = null

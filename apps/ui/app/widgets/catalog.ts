@@ -141,6 +141,14 @@ export async function uploadFiles(
   return failed ?? { ok: true }
 }
 
+/** An ended session (API restart, expiry) cannot continue: start over. Any other failure keeps the session for a retry. */
+export function describeUploadFailure(outcome: Extract<UploadOutcome, { ok: false }>): { restart: boolean; message: string } {
+  const { failure, path } = outcome
+  return failure.kind === 'invalid' && failure.code === 'NOT_FOUND'
+    ? { restart: true, message: `Загрузка прервана на ${path}, начните заново` }
+    : { restart: false, message: `Не удалось загрузить ${path}` }
+}
+
 export function formatBytes(bytes: number): string {
   return bytes < 1_048_576 ? `${Math.ceil(bytes / 1024)} КБ` : `${(bytes / 1_048_576).toFixed(1)} МБ`
 }

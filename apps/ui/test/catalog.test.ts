@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Grant, InstalledPackage, WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import {
   describeSource,
+  describeUploadFailure,
   filesFromEntry,
   filesFromInput,
   findBuiltinWidget,
@@ -163,12 +164,37 @@ describe('uploadFiles', () => {
   })
 
   it('stops at the first failure and names the file', async () => {
+    const requested: string[] = []
     const client = {
-      uploadFile: async (_id: string, path: string) =>
-        path === 'b' ? { ok: false as const, kind: 'invalid' as const, code: 'NOT_FOUND', message: 'Upload not found or expired' } : { ok: true as const, data: null },
+      uploadFile: async (_id: string, path: string) => {
+        requested.push(path)
+        if (path === 'b') return { ok: false as const, kind: 'invalid' as const, code: 'NOT_FOUND', message: 'Upload not found or expired' }
+        // The others are still in flight when b fails.
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return { ok: true as const, data: null }
+      },
     }
-    const result = await uploadFiles(client, 'u1', [picked('a', ''), picked('b', ''), picked('c', '')], new AbortController().signal, () => {})
+    const files = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => picked(name, ''))
+    const result = await uploadFiles(client, 'u1', files, new AbortController().signal, () => {})
     expect(result).toEqual({ ok: false, path: 'b', failure: { kind: 'invalid', code: 'NOT_FOUND', message: 'Upload not found or expired' } })
+    expect(requested.sort()).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('describeUploadFailure', () => {
+  it('asks to start over when the upload session is gone', () => {
+    const failure = { kind: 'invalid' as const, code: 'NOT_FOUND', message: 'Upload not found or expired' }
+    expect(describeUploadFailure({ ok: false, path: 'assets/a.png', failure })).toEqual({
+      restart: true,
+      message: 'Загрузка прервана на assets/a.png, начните заново',
+    })
+  })
+
+  it.each([
+    { kind: 'unavailable' as const },
+    { kind: 'invalid' as const, code: 'TOO_LARGE', message: 'Too large' },
+  ])('offers a retry for $kind', (failure) => {
+    expect(describeUploadFailure({ ok: false, path: 'index.js', failure })).toEqual({ restart: false, message: 'Не удалось загрузить index.js' })
   })
 })
 
