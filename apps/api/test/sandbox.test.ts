@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sandboxDocument } from '../src/sandbox.ts'
 import { call, HOST, installPackage, pair, testApp, widgetPackage, type TestApp } from './helpers.ts'
@@ -21,6 +23,17 @@ beforeEach(async () => {
   hash = (await installPackage(t, cookie, pkg)).hash
 })
 
+const VIDEO = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 256))
+
+function versionPath(...parts: string[]) {
+  return join(t.dataDir, 'userwidgets', 'dev.test.hello', '1.0.0', ...parts)
+}
+
+function addFile(path: string, content: string | Buffer) {
+  mkdirSync(join(versionPath(path), '..'), { recursive: true })
+  writeFileSync(versionPath(path), content)
+}
+
 afterEach(async () => {
   await t.close()
 })
@@ -37,6 +50,8 @@ describe('GET /sandbox/packages/:hash/', () => {
         '@lifedashboard/widget-entry': `${BASE}/sandbox/packages/${hash}/main.js`,
       },
     })
+    const pkgDir = `${BASE}/sandbox/packages/${hash}/`
+    expect(response.body.startsWith(`<!doctype html>\n<html>\n<head>\n  <base href="${pkgDir}">\n  <meta charset="utf-8">\n`)).toBe(true)
     expect(response.body).toContain(`<script type="importmap">${importMap}</script>`)
     expect(response.body).toContain(`<link rel="stylesheet" href="${BASE}/sandbox/packages/${hash}/style.css">`)
     expect(response.body).toContain(`<script type="module" src="${BASE}/sandbox/runtime/sdk.js"></script>`)
@@ -45,15 +60,16 @@ describe('GET /sandbox/packages/:hash/', () => {
     expect(response.headers['content-security-policy']).toBe(
       [
         "default-src 'none'",
-        `script-src ${BASE}/sandbox/runtime/ ${BASE}/sandbox/packages/${hash}/ 'sha256-${sha}'`,
-        `style-src ${BASE}/sandbox/packages/${hash}/ 'unsafe-inline'`,
-        'img-src data:',
-        "connect-src 'none'",
-        "font-src 'none'",
+        `script-src ${BASE}/sandbox/runtime/ ${pkgDir} 'sha256-${sha}' 'wasm-unsafe-eval'`,
+        `style-src ${pkgDir} 'unsafe-inline'`,
+        `img-src ${pkgDir} data: blob:`,
+        `media-src ${pkgDir} blob:`,
+        `font-src ${pkgDir} data:`,
+        `connect-src ${pkgDir} data: blob:`,
+        'worker-src blob:',
         "frame-src 'none'",
-        "worker-src 'none'",
         "object-src 'none'",
-        "base-uri 'none'",
+        `base-uri ${pkgDir}`,
         "form-action 'none'",
       ].join('; '),
     )
@@ -113,6 +129,70 @@ describe('GET /sandbox/packages/:hash/:file', () => {
     expect((await call(t.app, { url: `/sandbox/packages/${hash}/other.js` })).statusCode).toBe(404)
     expect((await call(t.app, { url: `/sandbox/packages/${hash}/toString` })).statusCode).toBe(404)
   })
+})
+
+describe('package files from disk', () => {
+  beforeEach(() => {
+    addFile('assets/clip.mp4', VIDEO)
+    addFile('assets/Big.MP4', VIDEO)
+    addFile('assets/evil.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+    addFile('source/src/index.vue', '<template/>')
+    addFile(`${'a'.repeat(210)}.js`, 'export default 1')
+  })
+
+  const url = (path: string) => `/sandbox/packages/${hash}/${path}`
+
+  it('serves an asset with its type, immutable cache, ranges and the sandbox CSP', async () => {
+    const response = await call(t.app, { url: url('assets/clip.mp4'), origin: 'null' })
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['content-type']).toBe('video/mp4')
+    expect(response.headers['accept-ranges']).toBe('bytes')
+    expect(response.headers['content-length']).toBe('1000')
+    expect(response.headers['cache-control']).toBe(IMMUTABLE)
+    expect(response.headers['content-security-policy']).toBe("sandbox; default-src 'none'")
+    expect(response.headers['x-content-type-options']).toBe('nosniff')
+    expect(response.rawPayload.equals(VIDEO)).toBe(true)
+  })
+
+  it('serves an upper-case extension with the lower-case type', async () => {
+    expect((await call(t.app, { url: url('assets/Big.MP4') })).headers['content-type']).toBe('video/mp4')
+  })
+
+  it.each([
+    ['bytes=0-99', 206, 'bytes 0-99/1000', 0, 100],
+    ['bytes=900-', 206, 'bytes 900-999/1000', 900, 100],
+    ['bytes=-10', 206, 'bytes 990-999/1000', 990, 10],
+    ['bytes=990-5000', 206, 'bytes 990-999/1000', 990, 10],
+  ])('answers %s with a partial response', async (range, status, contentRange, start, length) => {
+    const response = await call(t.app, { url: url('assets/clip.mp4'), headers: { range } })
+    expect(response.statusCode).toBe(status)
+    expect(response.headers['content-range']).toBe(contentRange)
+    expect(response.rawPayload.equals(VIDEO.subarray(start, start + length))).toBe(true)
+  })
+
+  it('answers 416 for an unsatisfiable range and 200 for a multi-range', async () => {
+    const unsatisfiable = await call(t.app, { url: url('assets/clip.mp4'), headers: { range: 'bytes=1000-' } })
+    expect(unsatisfiable.statusCode).toBe(416)
+    expect(unsatisfiable.headers['content-range']).toBe('bytes */1000')
+    expect((await call(t.app, { url: url('assets/clip.mp4'), headers: { range: 'bytes=0-1,5-6' } })).statusCode).toBe(200)
+  })
+
+  it('puts the sandbox CSP on an SVG so a direct visit runs no script', async () => {
+    const response = await call(t.app, { url: url('assets/evil.svg') })
+    expect(response.headers['content-type']).toBe('image/svg+xml')
+    expect(response.headers['content-security-policy']).toBe("sandbox; default-src 'none'")
+  })
+
+  it('serves a migrated v1 file name longer than 200 characters', async () => {
+    expect((await call(t.app, { url: url(`${'a'.repeat(210)}.js`) })).statusCode).toBe(200)
+  })
+
+  it.each(['source/src/index.vue', 'widget.json', 'assets/missing.png', 'assets/..%2Fwidget.json', '..%2F..%2Fx.js', 'assets/x.exe'])(
+    'answers 404 for %s',
+    async (path) => {
+      expect((await call(t.app, { url: url(path) })).statusCode).toBe(404)
+    },
+  )
 })
 
 describe('GET /sandbox/runtime/:file', () => {
