@@ -190,8 +190,8 @@ describe('package widgets on the board', () => {
   function installVersion(): void {
     t.db.exec(`
       INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.test.hello', 'Hello', 'test', 'x');
-      INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at)
-      VALUES ('dev.test.hello', '1.0.0', '${'a'.repeat(64)}', '{}', '{}', 'x');
+      INSERT INTO widget_package_versions (package_id, version, hash, manifest, installed_at)
+      VALUES ('dev.test.hello', '1.0.0', '${'a'.repeat(64)}', '{}', 'x');
     `)
   }
 

@@ -10,7 +10,7 @@ let db: DatabaseSync
 try {
   config = loadConfig(process.env)
   mkdirSync(config.dataDir, { recursive: true })
-  db = await openDatabase(join(config.dataDir, DB_FILE))
+  db = await openDatabase(join(config.dataDir, DB_FILE), { dataDir: config.dataDir })
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(1)

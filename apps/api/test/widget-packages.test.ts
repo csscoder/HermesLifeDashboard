@@ -1,3 +1,5 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { packageHash } from '../src/widget-packages.ts'
@@ -101,7 +103,9 @@ describe('POST /widget-packages', () => {
         grants: [{ permission: 'state', mode: 'allow' }],
       },
     ])
-    expect(t.db.prepare('SELECT files FROM widget_package_versions').get()).toEqual({ files: JSON.stringify(pkg.files) })
+    const dir = join(t.dataDir, 'userwidgets', 'dev.test.hello', '1.0.0')
+    expect(readFileSync(join(dir, 'index.js'), 'utf8')).toBe(pkg.files['index.js'])
+    expect(JSON.parse(readFileSync(join(dir, 'widget.json'), 'utf8'))).toEqual({ format: 2, ...pkg.manifest })
   })
 
   it('treats a repeated install of the same content as a no-op', async () => {
@@ -160,7 +164,7 @@ describe('POST /widget-packages', () => {
 
   it('keeps the package after an API restart', async () => {
     await installPackage(t, cookie)
-    const restarted = await testApp(t.db)
+    const restarted = await testApp(t)
     try {
       const response = await call(restarted.app, { url: PACKAGES, cookie })
       expect(response.json().data.map((item: { id: string }) => item.id)).toEqual(['dev.test.hello'])
@@ -252,5 +256,19 @@ describe('grant modes', () => {
       p.manifest.permissions = ['notifications', 'state']
     }))
     expect((await list())[0].grants).toEqual([{ permission: 'notifications', mode: 'allow' }, { permission: 'state', mode: 'allow' }])
+  })
+})
+
+describe('startup cleanup', () => {
+  it('moves a version folder without a row to .orphaned on restart', async () => {
+    await installPackage(t, cookie)
+    t.db.prepare('DELETE FROM widget_packages').run()
+    const restarted = await testApp(t)
+    try {
+      expect(readdirSync(join(t.dataDir, 'userwidgets', '.orphaned'))).toHaveLength(1)
+      expect(existsSync(join(t.dataDir, 'userwidgets', 'dev.test.hello'))).toBe(false)
+    } finally {
+      await restarted.close()
+    }
   })
 })

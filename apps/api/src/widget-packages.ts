@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
 import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
@@ -15,6 +16,7 @@ import {
   type WidgetPermission,
 } from '@lifedashboard/contracts/widget-package'
 import { ApiError, ok } from './errors.ts'
+import { cleanUserwidgets, moveToOrphaned, userwidgetsDir, versionDir, writeV1Version } from './userwidgets.ts'
 
 const PACKAGE_BODY = { bodyLimit: PACKAGE_LIMITS.maxBytes }
 
@@ -26,13 +28,24 @@ interface ParsedPackage {
 export interface WidgetPackagesDeps {
   db: DatabaseSync
   now: () => Date
+  dataDir: string
+}
+
+/** `"<id>/<version>"` of every installed version. */
+export function installedVersions(db: DatabaseSync): Set<string> {
+  const rows = db.prepare('SELECT package_id, version FROM widget_package_versions').all() as unknown as { package_id: string; version: string }[]
+  return new Set(rows.map((row) => `${row.package_id}/${row.version}`))
 }
 
 // Spec «API»: packages arrive as files from other people; every body is validated again here.
-export function registerWidgetPackages(app: FastifyInstance, { db, now }: WidgetPackagesDeps): void {
+export function registerWidgetPackages(app: FastifyInstance, { db, now, dataDir }: WidgetPackagesDeps): void {
+  const root = userwidgetsDir(dataDir)
+  // Spec «Startup cleanup»: runs once per process, after migrations.
+  cleanUserwidgets(root, installedVersions(db), now())
+
   app.post('/api/v1/widget-packages/inspect', PACKAGE_BODY, async (request) => ok(request, inspect(db, parse(request.body))))
 
-  app.post('/api/v1/widget-packages', PACKAGE_BODY, async (request) => ok(request, install(db, parse(request.body), now())))
+  app.post('/api/v1/widget-packages', PACKAGE_BODY, async (request) => ok(request, install(db, root, parse(request.body), now())))
 
   app.get('/api/v1/widget-packages', async (request) => ok(request, listPackages(db)))
 
@@ -79,7 +92,7 @@ function inspect(db: DatabaseSync, { pkg, hash }: ParsedPackage): PackageInspect
   }
 }
 
-function install(db: DatabaseSync, parsed: ParsedPackage, now: Date): PackageInspection {
+function install(db: DatabaseSync, root: string, parsed: ParsedPackage, now: Date): PackageInspection {
   db.exec('BEGIN IMMEDIATE')
   try {
     const inspection = inspect(db, parsed)
@@ -89,9 +102,13 @@ function install(db: DatabaseSync, parsed: ParsedPackage, now: Date): PackageIns
       db.prepare(
         'INSERT INTO widget_packages (id, title, author, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title, author = excluded.author',
       ).run(manifest.id, manifest.title, manifest.author, at)
-      db.prepare(
-        'INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(manifest.id, manifest.version, parsed.hash, JSON.stringify(manifest), JSON.stringify(files), at)
+      db.prepare('INSERT INTO widget_package_versions (package_id, version, hash, manifest, installed_at) VALUES (?, ?, ?, ?, ?)').run(
+        manifest.id, manifest.version, parsed.hash, JSON.stringify(manifest), at,
+      )
+      // ponytail: transitional v1 route, replaced by uploads in Task 5.
+      const dir = versionDir(root, manifest.id, manifest.version)
+      if (existsSync(dir)) moveToOrphaned(root, manifest.id, manifest.version, now)
+      writeV1Version(dir, manifest, files)
       // A new confirmable grant asks; OR IGNORE keeps the mode of a grant the package already holds.
       const confirmable = new Set<WidgetPermission>(confirmablePermissions())
       const grant = db.prepare('INSERT OR IGNORE INTO widget_grants (package_id, permission, granted_at, mode) VALUES (?, ?, ?, ?)')

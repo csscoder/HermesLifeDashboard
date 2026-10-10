@@ -177,7 +177,7 @@ describe('gateway pipeline', () => {
       INSERT INTO widget_audit (at, widget_id, package_id, op, outcome) VALUES ('${new Date(T0 - 31 * DAY).toISOString()}', 'w', NULL, 'state.get', 'ok');
       INSERT INTO widget_audit (at, widget_id, package_id, op, outcome) VALUES ('${new Date(T0 - 29 * DAY).toISOString()}', 'w', NULL, 'state.set', 'ok');
     `)
-    const restarted = await testApp(t.db)
+    const restarted = await testApp(t)
     await restarted.close()
     expect(t.db.prepare('SELECT op FROM widget_audit').all()).toEqual([{ op: 'state.set' }])
   })
@@ -207,7 +207,7 @@ describe('state', () => {
 
   it('survives an API restart', async () => {
     await gateway('state.set', await openSession(PKG_WIDGET), { data: { n: 7 }, expectedRevision: 0 })
-    const restarted = await testApp(t.db)
+    const restarted = await testApp(t)
     try {
       const token = await openSession(PKG_WIDGET, restarted.app)
       expect((await gateway('state.get', token, {}, cookie, restarted.app)).json().data).toEqual({ data: { n: 7 }, revision: 1 })

@@ -10,7 +10,7 @@ import { registerWidgetPackages } from './widget-packages.ts'
 
 export interface AppDeps {
   db: DatabaseSync
-  config: Pick<ApiConfig, 'port' | 'uiOrigins'>
+  config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir'>
   onPairingCode: (code: string, expiresAt: Date) => void
   now?: () => Date
   logger?: boolean
@@ -22,7 +22,7 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   app.get('/health', async () => ({ status: 'ok' as const }))
   registerAuth(app, { db, config, now, onPairingCode })
   registerRooms(app, { db, now })
-  registerWidgetPackages(app, { db, now })
+  registerWidgetPackages(app, { db, now, dataDir: config.dataDir })
   registerWidgetGateway(app, { db, now })
   registerSandbox(app, { db, config })
   return app

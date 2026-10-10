@@ -1,4 +1,7 @@
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { expect } from 'vitest'
 import type { PackageInspection } from '@lifedashboard/contracts/widget-package'
@@ -14,19 +17,21 @@ export const DAY = 24 * HOUR
 export interface TestApp {
   app: FastifyInstance
   db: DatabaseSync
+  dataDir: string
   codes: string[]
   clock: { now: number }
   close(): Promise<void>
 }
 
-/** A test app on an in-memory database, or on `db` when given (then the caller closes `db`). */
-export async function testApp(db?: DatabaseSync): Promise<TestApp> {
-  const database = db ?? (await openDatabase(':memory:'))
+/** A test app on an in-memory database and a temporary data dir, or on `base` (then the caller closes both). */
+export async function testApp(base?: Pick<TestApp, 'db' | 'dataDir'>): Promise<TestApp> {
+  const dataDir = base?.dataDir ?? mkdtempSync(join(tmpdir(), 'ld-api-'))
+  const database = base?.db ?? (await openDatabase(':memory:', { dataDir }))
   const codes: string[] = []
   const clock = { now: T0 }
   const app = buildApp({
     db: database,
-    config: { port: 3001, uiOrigins: [ORIGIN] },
+    config: { port: 3001, uiOrigins: [ORIGIN], dataDir },
     now: () => new Date(clock.now),
     onPairingCode: (code) => codes.push(code),
   })
@@ -34,11 +39,15 @@ export async function testApp(db?: DatabaseSync): Promise<TestApp> {
   return {
     app,
     db: database,
+    dataDir,
     codes,
     clock,
     async close() {
       await app.close()
-      if (!db) database.close()
+      if (!base) {
+        database.close()
+        rmSync(dataDir, { recursive: true, force: true })
+      }
     },
   }
 }

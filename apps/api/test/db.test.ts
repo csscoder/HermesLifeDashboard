@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -8,6 +8,7 @@ import { MIGRATIONS, SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 
 let dir: string
 let file: string
+const ctx = () => ({ dataDir: dir })
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'ld-db-'))
@@ -29,7 +30,7 @@ function tables(db: DatabaseSync): string[] {
 
 describe('openDatabase', () => {
   it('creates the schema and the seed room with one screen', async () => {
-    const db = await openDatabase(':memory:')
+    const db = await openDatabase(':memory:', ctx())
     expect(userVersion(db)).toBe(MIGRATIONS.length)
     expect(tables(db)).toEqual([
       'rooms',
@@ -52,7 +53,7 @@ describe('openDatabase', () => {
   })
 
   it('migrates a version 1 database with widgets and sessions to version 2', async () => {
-    const v1 = await openDatabase(file, [MIGRATIONS[0]!])
+    const v1 = await openDatabase(file, ctx(), [MIGRATIONS[0]!])
     v1.exec(`
       INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
       VALUES ('w1', '${SEED_SCREEN_ID}', 'builtin', 'placeholder', '{}', 1, 0, 0, 2, 2);
@@ -60,7 +61,7 @@ describe('openDatabase', () => {
     `)
     v1.close()
 
-    const db = await openDatabase(file, MIGRATIONS.slice(0, 2))
+    const db = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 2))
     expect(userVersion(db)).toBe(2)
     expect(db.prepare('SELECT id, source_kind, source_version FROM widgets').all()).toEqual([
       { id: 'w1', source_kind: 'builtin', source_version: null },
@@ -73,7 +74,7 @@ describe('openDatabase', () => {
     expect(tables(saved)).not.toContain('widget_packages')
     saved.close()
 
-    const again = await openDatabase(file, MIGRATIONS.slice(0, 2))
+    const again = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 2))
     expect(userVersion(again)).toBe(2)
     expect(again.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 1 })
     again.close()
@@ -81,7 +82,7 @@ describe('openDatabase', () => {
   })
 
   it('migrates a version 2 database to version 3: rows 12, layouts reset, packages kept', async () => {
-    const v2 = await openDatabase(file, MIGRATIONS.slice(0, 2))
+    const v2 = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 2))
     v2.exec(`
       INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.test.hello', 'Hello', 'test', 'x');
       INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at)
@@ -94,7 +95,7 @@ describe('openDatabase', () => {
     `)
     v2.close()
 
-    const db = await openDatabase(file, MIGRATIONS.slice(0, 3))
+    const db = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 3))
     expect(userVersion(db)).toBe(3)
     expect(db.prepare('SELECT id, rows FROM screens').all()).toEqual([{ id: SEED_SCREEN_ID, rows: 12 }])
     expect(db.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 0 })
@@ -112,28 +113,28 @@ describe('openDatabase', () => {
   })
 
   it('gives grants of a version 3 database the mode allow', async () => {
-    const v3 = await openDatabase(file, MIGRATIONS.slice(0, 3))
+    const v3 = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 3))
     v3.exec(`
       INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.a.b', 'A', 'a', 'x');
       INSERT INTO widget_grants (package_id, permission, granted_at) VALUES ('dev.a.b', 'notifications', 'x');
     `)
     v3.close()
 
-    const db = await openDatabase(file, MIGRATIONS.slice(0, 4))
+    const db = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 4))
     expect(userVersion(db)).toBe(4)
     expect(db.prepare('SELECT permission, mode FROM widget_grants').all()).toEqual([{ permission: 'notifications', mode: 'allow' }])
     db.close()
   })
 
   it('adds a nullable appearance column to widgets of a version 4 database', async () => {
-    const v4 = await openDatabase(file, MIGRATIONS.slice(0, 4))
+    const v4 = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 4))
     v4.exec(`
       INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
       VALUES ('w1', '${SEED_SCREEN_ID}', 'builtin', 'placeholder', '{}', 1, 0, 0, 2, 2);
     `)
     v4.close()
 
-    const db = await openDatabase(file)
+    const db = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 5))
     expect(userVersion(db)).toBe(5)
     expect(db.prepare('SELECT id, appearance FROM widgets').all()).toEqual([{ id: 'w1', appearance: null }])
     db.close()
@@ -141,7 +142,7 @@ describe('openDatabase', () => {
   })
 
   it('uses WAL, foreign keys and a busy timeout on a file database', async () => {
-    const db = await openDatabase(file)
+    const db = await openDatabase(file, ctx())
     expect(db.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 })
     expect(db.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 5000 })
@@ -149,8 +150,8 @@ describe('openDatabase', () => {
   })
 
   it('changes nothing when opened again', async () => {
-    ;(await openDatabase(file)).close()
-    const db = await openDatabase(file)
+    ;(await openDatabase(file, ctx())).close()
+    const db = await openDatabase(file, ctx())
     expect(userVersion(db)).toBe(MIGRATIONS.length)
     expect(db.prepare('SELECT count(*) AS n FROM rooms').get()).toEqual({ n: 1 })
     expect(existsSync(`${file}.bak-v1`)).toBe(false)
@@ -162,7 +163,7 @@ describe('openDatabase', () => {
     raw.exec(`PRAGMA user_version = ${MIGRATIONS.length + 1}`)
     raw.close()
 
-    await expect(openDatabase(file)).rejects.toThrow(/newer than this LifeDashboard supports/)
+    await expect(openDatabase(file, ctx())).rejects.toThrow(/newer than this LifeDashboard supports/)
 
     const check = new DatabaseSync(file)
     expect(userVersion(check)).toBe(MIGRATIONS.length + 1)
@@ -171,8 +172,8 @@ describe('openDatabase', () => {
   })
 
   it('backs up an existing database before applying a pending migration', async () => {
-    ;(await openDatabase(file, [MIGRATIONS[0]!])).close()
-    const db = await openDatabase(file, [MIGRATIONS[0]!, 'CREATE TABLE extra (id INTEGER);'])
+    ;(await openDatabase(file, ctx(), [MIGRATIONS[0]!])).close()
+    const db = await openDatabase(file, ctx(), [MIGRATIONS[0]!, 'CREATE TABLE extra (id INTEGER);'])
     expect(userVersion(db)).toBe(2)
     db.close()
 
@@ -183,18 +184,70 @@ describe('openDatabase', () => {
   })
 
   it('rolls back a failing migration whole and keeps the previous version', async () => {
-    ;(await openDatabase(file, [MIGRATIONS[0]!])).close()
+    ;(await openDatabase(file, ctx(), [MIGRATIONS[0]!])).close()
     // The first two statements succeed; the third fails, so all three must be undone.
     const failing = `
       CREATE TABLE half (id INTEGER);
       UPDATE rooms SET title = 'changed';
       CREATE TABLE broken (;
     `
-    await expect(openDatabase(file, [MIGRATIONS[0]!, failing])).rejects.toThrow()
+    await expect(openDatabase(file, ctx(), [MIGRATIONS[0]!, failing])).rejects.toThrow()
     const check = new DatabaseSync(file)
     expect(userVersion(check)).toBe(1)
     expect(tables(check)).not.toContain('half')
     expect(check.prepare('SELECT title FROM rooms').all()).toEqual([{ title: 'Главная' }])
     check.close()
+  })
+})
+
+describe('migration 6: package files to disk', () => {
+  const MANIFEST = { id: 'dev.test.hello', version: '1.0.0', title: 'Hello', author: 'test', sdk: 1, entry: 'index.js', styles: ['style.css'], sizing: { default: { w: 3, h: 3 }, min: { w: 2, h: 2 }, max: { w: 6, h: 6 } }, permissions: ['state'] }
+  const HASH = 'a'.repeat(64)
+
+  async function v5WithPackage(): Promise<void> {
+    const v5 = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 5))
+    v5.prepare("INSERT INTO widget_packages (id, title, author, created_at) VALUES ('dev.test.hello', 'Hello', 'test', 'x')").run()
+    v5.prepare('INSERT INTO widget_package_versions (package_id, version, hash, manifest, files, installed_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'dev.test.hello', '1.0.0', HASH, JSON.stringify(MANIFEST), JSON.stringify({ 'index.js': 'export default {}', 'style.css': '.a{}' }), 'x',
+    )
+    v5.close()
+  }
+
+  const versionPath = (...parts: string[]) => join(dir, 'userwidgets', 'dev.test.hello', '1.0.0', ...parts)
+
+  it('writes files and a v2 widget.json, keeps the hash and drops files', async () => {
+    await v5WithPackage()
+    const db = await openDatabase(file, ctx())
+    expect(userVersion(db)).toBe(6)
+    expect(readFileSync(versionPath('index.js'), 'utf8')).toBe('export default {}')
+    expect(readFileSync(versionPath('style.css'), 'utf8')).toBe('.a{}')
+    expect(JSON.parse(readFileSync(versionPath('widget.json'), 'utf8'))).toEqual({ format: 2, ...MANIFEST })
+    expect(db.prepare('SELECT hash, manifest FROM widget_package_versions').get()).toEqual({ hash: HASH, manifest: JSON.stringify(MANIFEST) })
+    const columns = db.prepare('PRAGMA table_info(widget_package_versions)').all().map((row: any) => row.name)
+    expect(columns).toEqual(['package_id', 'version', 'hash', 'manifest', 'installed_at'])
+    db.close()
+  })
+
+  it('moves an existing version folder to .orphaned instead of overwriting it', async () => {
+    await v5WithPackage()
+    mkdirSync(versionPath('source'), { recursive: true })
+    writeFileSync(versionPath('source', 'keep.txt'), 'v2 sources')
+    const db = await openDatabase(file, ctx())
+    const [orphan] = readdirSync(join(dir, 'userwidgets', '.orphaned'))
+    expect(readFileSync(join(dir, 'userwidgets', '.orphaned', orphan!, 'source', 'keep.txt'), 'utf8')).toBe('v2 sources')
+    expect(existsSync(versionPath('source'))).toBe(false)
+    db.close()
+  })
+
+  it('rolls back and keeps files when a write fails, naming the package', async () => {
+    await v5WithPackage()
+    mkdirSync(join(dir, 'userwidgets'), { recursive: true })
+    // A regular file where the package folder must go: mkdir fails.
+    writeFileSync(join(dir, 'userwidgets', 'dev.test.hello'), 'x')
+    await expect(openDatabase(file, ctx())).rejects.toThrow(/dev\.test\.hello@1\.0\.0/)
+    const raw = new DatabaseSync(file)
+    expect(userVersion(raw)).toBe(5)
+    expect(raw.prepare('SELECT files FROM widget_package_versions').get()).toBeDefined()
+    raw.close()
   })
 })

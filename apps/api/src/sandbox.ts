@@ -4,10 +4,11 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
-import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
+import { classifyPath, type WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import { allowedHosts } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { ApiError } from './errors.ts'
+import { resolveInside, userwidgetsDir, versionDir } from './userwidgets.ts'
 
 const require = createRequire(import.meta.url)
 const HASH = /^[0-9a-f]{64}$/
@@ -23,7 +24,7 @@ const RUNTIME_FILES = new Map<string, () => string>([
 
 export interface SandboxDeps {
   db: DatabaseSync
-  config: Pick<ApiConfig, 'port' | 'uiOrigins'>
+  config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir'>
 }
 
 /**
@@ -70,14 +71,16 @@ export function registerSandbox(app: FastifyInstance, { db, config }: SandboxDep
   const hosts = allowedHosts(config)
   const origins = new Set(config.uiOrigins)
 
-  function findVersion(hash: string): { manifest: WidgetPackageManifest; files: Record<string, string> } {
+  const root = userwidgetsDir(config.dataDir)
+
+  function findVersion(hash: string): { manifest: WidgetPackageManifest; dir: string } {
     const row = HASH.test(hash)
-      ? (db.prepare('SELECT manifest, files FROM widget_package_versions WHERE hash = ?').get(hash) as
-          | { manifest: string; files: string }
+      ? (db.prepare('SELECT package_id, version, manifest FROM widget_package_versions WHERE hash = ?').get(hash) as
+          | { package_id: string; version: string; manifest: string }
           | undefined)
       : undefined
     if (!row) throw new ApiError('NOT_FOUND', 'Widget package not found')
-    return { manifest: JSON.parse(row.manifest) as WidgetPackageManifest, files: JSON.parse(row.files) as Record<string, string> }
+    return { manifest: JSON.parse(row.manifest) as WidgetPackageManifest, dir: versionDir(root, row.package_id, row.version) }
   }
 
   app.addHook('onRequest', async (request, reply) => {
@@ -109,9 +112,16 @@ export function registerSandbox(app: FastifyInstance, { db, config }: SandboxDep
   })
 
   app.get<{ Params: { hash: string; file: string } }>('/sandbox/packages/:hash/:file', async (request, reply) => {
-    const { files } = findVersion(request.params.hash)
+    const { dir } = findVersion(request.params.hash)
     const { file } = request.params
-    if (!Object.hasOwn(files, file)) throw new ApiError('NOT_FOUND', 'File not found')
-    return reply.header('cache-control', IMMUTABLE).type(file.endsWith('.css') ? CSS : JS).send(files[file])
+    const full = classifyPath(file, Infinity) === 'code' ? resolveInside(dir, file) : null
+    if (full === null) throw new ApiError('NOT_FOUND', 'File not found')
+    let body: string
+    try {
+      body = await readFile(full, 'utf8')
+    } catch {
+      throw new ApiError('NOT_FOUND', 'File not found')
+    }
+    return reply.header('cache-control', IMMUTABLE).type(file.endsWith('.css') ? CSS : JS).send(body)
   })
 }

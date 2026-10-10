@@ -195,7 +195,7 @@ describe('sessions', () => {
 
   it('survives a rebuilt app on the same database', async () => {
     const cookie = await pair(t)
-    const restarted = await testApp(t.db)
+    const restarted = await testApp(t)
     expect((await call(restarted.app, { url: PROBE, cookie })).statusCode).toBe(404)
     await restarted.close()
   })
