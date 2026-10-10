@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "board-edit-mode",
+    "name": "Board edit mode: move, resize and delete placed widgets",
+    "slug": "board-edit-mode"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": null,
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "alex/go-4-povisit-bezopasnost",
+    "commit": "f4ab72c41c5e8d1033e37f1daa3bc8bb0e6af8c3",
+    "headDescribe": "f4ab72c",
+    "workingTree": "dirty",
+    "statusSha256": "3feeb11c574051f07180d143624339e80c9b8898ad0043feaf59dcc3c578e710",
+    "contentStateSha256": "23a5b7c3a1587aa1315046c002b280a88496435c3684ae9734bd889d3c3ce879",
+    "treeStateSha256": "1e4d68d0a16ee1b79ccee8b806f452210f417349fb1b7fe49cfc0fc948654ce5",
+    "indexStateSha256": "fbe7c6657f3a3511a99d98036b6b30b7ac39e6527da18f9c8fb48eaf55648e9b",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-05-board-edit-mode-design.md",
+      "archivePath": "spec.md",
+      "sha256": "194d44a0724dcb75a53bfb53313c36ce14452303a04cfeb11505d906e5f8d427",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-05-board-edit-mode.md",
+      "archivePath": "plan.md",
+      "sha256": "b5c567177155d569798013e12318de11c5cf9afe46e392d052543d5ca3c9c209",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "fdc3cd538957e8237663586a962d4ee6f86e78eb149c569b364ebf83773e5871"
+    }
+  },
+  "areas": [
+    "ui"
+  ],
+  "tags": [
+    "board",
+    "edit-mode"
+  ],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "The user named the spec explicitly. The plan names it as its Spec and shares its title and scope (three tasks: edit session operations, active-rect composable with builder refactor, edit mode in the board and header). Spec history: 17fe89b, Codex-review fix ded8859; plan history: 2a5bd0f, Codex-review fix a19f4f8; neither file has uncommitted changes or a draft/obsolete/superseded marker, and both predate the implementation commits d9da676, 86bbb6f, 1c5a112 (2026-10-05, ancestors of main). The spec was read in full. The plan's goal, architecture, constraints, review focus, task headings and the end of Task 3 (root checks, manual check list) were read; the bodies of Tasks 1-3 were not read line by line. Both files were grep-scanned for secret patterns with no hits. No tracker key exists in the materials, so the ID is the spec slug. Implementation evidence: the three commits (6 files, 726 insertions) and the current code at f4ab72c read at grep level against the spec. No implementation-review report, test log or manual-check report exists for this feature, so review and verification are recorded as unverified. No completion date is recorded. Areas come from the paths changed (all under apps/ui).",
+    "evidence": [
+      "spec-doc",
+      "plan-doc",
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "spec-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-05-board-edit-mode-design.md",
+      "inspected": true,
+      "summary": "Approved design: an 'Изменить' header button enables an edit mode where placed widgets move and resize cell by cell (pointer and keyboard) and are deleted; changes are batched in a working copy, 'Готово' saves once and 'Отмена' discards; BoardMode view|build|edit; builder mechanics extracted into the useActiveRect composable; pure edit-session helpers; a local snapshot comparison against localStorage stands in for expectedRevision; acceptance criteria and a manual browser check list.",
+      "sha256": "194d44a0724dcb75a53bfb53313c36ce14452303a04cfeb11505d906e5f8d427",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "plan-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/plans/2026-10-05-board-edit-mode.md",
+      "inspected": true,
+      "summary": "Three-task TDD plan (edit-session.ts operations; use-active-rect.ts composable and builder refactor; edit mode in WidgetBoard.vue and app.vue with a twelve-item manual browser check). All checkboxes are unticked; that is not evidence of the implementation state. No new dependencies; native Pointer Events and existing GSAP motion.",
+      "sha256": "b5c567177155d569798013e12318de11c5cf9afe46e392d052543d5ca3c9c209",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "git-history",
+      "kind": "session",
+      "reference": "This session: git log for both source files, git log d9da676^..1c5a112, git diff --stat d9da676^..1c5a112, git merge-base --is-ancestor 1c5a112 main, git show 37af818 --stat for edit-session.ts",
+      "inspected": true,
+      "summary": "Implementation commits d9da676 (edit session document operations), 86bbb6f (extract active rect mechanics), 1c5a112 (edit mode to move, resize and delete placed widgets), all 2026-10-05, 6 files changed (app.vue, WidgetBoard.vue, edit-session.ts, use-active-rect.ts and two test files), 1c5a112 is an ancestor of main. Commit 37af818 later changed edit-session.ts (6 insertions, 25 deletions), dropping the local conflict check when the board moved to the API.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "code-vs-spec",
+      "kind": "session",
+      "reference": "This session: greps of apps/ui/app/board/{edit-session,use-active-rect,WidgetBoard}.vue/.ts, apps/ui/app/app.vue and a listing of apps/ui/test at HEAD f4ab72c",
+      "inspected": true,
+      "summary": "Present at the grep level: BoardMode = 'view' | 'build' | 'edit' exported from edit-session.ts with setPlacement, removeInstance, isSameBoard, readingOrder, focusAfterRemoval (and later withRows); useActiveRect in use-active-rect.ts; app.vue holds a mode ref and sets mode = 'edit' from 'Изменить'; WidgetBoard.vue takes a mode model, handles Delete and Backspace only from inside the board, renders role=group items with aria-labels including the delete button label 'Удалить виджет W×H'; edit-session.test.ts and use-active-rect.test.ts exist. 'Изменить' is now enabled by boardRef.loaded, not by the board having widgets. Test bodies and most code were not read.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "go4-postmerge-tests",
+      "kind": "session",
+      "reference": "This session: read of evidence entry tests-postmerge in the frozen GO-4 archive metadata (.project-history/features/2026-10-09-go-4-widget-operation-confirmation/metadata.json)",
+      "inspected": true,
+      "summary": "Attested by another session: on the tree merged with main (which contained this feature) the per-package suites reported contracts 141, widget-sdk 19, api 160, ui 264 passed, 0 failed and pnpm typecheck exit 0; the test exit code was not printed. Indirect evidence about the whole tree, not a run of this feature.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "review": {
+    "status": "unverified",
+    "evidence": []
+  },
+  "verification": {
+    "status": "unverified",
+    "evidence": [
+      "go4-postmerge-tests"
+    ],
+    "checks": [
+      {
+        "command": "pnpm typecheck and pnpm test (plan Task 3 steps 4-5), as covered by the GO-4 post-merge run",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": [
+          "go4-postmerge-tests"
+        ]
+      },
+      {
+        "command": "Manual check in Orca's built-in browser from the plan's Task 3 step 7 (view mode, drag/resize, delete, keyboard, cancel and save, delete all, two-tab conflict, storage failures, unknown widget type)",
+        "result": "not-run",
+        "exitCode": null,
+        "evidence": []
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "Pure edit-session helpers in apps/ui/app/board/edit-session.ts: BoardMode type, setPlacement, removeInstance, isSameBoard, plus reading-order focus helpers, with unit tests.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "The useActiveRect composable (use-active-rect.ts) extracted from the builder draft mechanics, with unit tests.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "Edit mode in WidgetBoard.vue and app.vue: an 'Изменить' header button, a mode ref replacing the building flag, move/resize/delete of placed widgets by pointer and keyboard on a working copy, 'Готово' and 'Отмена'.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "not-recorded",
+      "evidence": [],
+      "items": []
+    },
+    "excludedScope": [
+      {
+        "text": "Out of scope per the spec: reset layout, expectedRevision and API routes, Rooms and moving widgets between rooms, undo inside the mode, multi-select, component and e2e tests, mobile layout.",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ],
+    "followUps": [],
+    "risks": [
+      {
+        "text": "No implementation-review report, test log or manual browser check report was found for this feature.",
+        "evidence": [
+          "git-history"
+        ]
+      },
+      {
+        "text": "Parts of the spec are historical: the localStorage snapshot conflict check was replaced by a per-room revision through the API (commit 37af818, storage spec), 'Изменить' is enabled once the board is loaded rather than only when widgets exist, and the grid became 24 columns with per-screen rows.",
+        "evidence": [
+          "git-history",
+          "code-vs-spec"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "Scope is move, resize and delete, saved as a batch: 'Готово' writes once and 'Отмена' discards everything including deletions, which protects against accidental deletion and maps to a single future write. The hover delete button exists only in edit mode.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Builder draft mechanics are extracted into one composable (useActiveRect) used by build and edit modes, so drag, resize, keyboard and GSAP motion have one implementation and WidgetBoard.vue stops growing; document operations live in a pure edit-session module.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Mode state is one BoardMode value ('view' | 'build' | 'edit') replacing a boolean, so impossible combinations cannot be expressed.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Native Pointer Events and existing GSAP motion are used instead of a drag/resize library (grid-layout-plus candidate in the base design), because libraries tend to push neighbours, contradicting 'block, don't shift'; no new dependency. Move and resize never enter occupied cells.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Cross-tab conflicts (DATA-06): the original design compared the stored document with an entry snapshot on 'Готово' and refused to write on mismatch, showing 'Доска изменена в другой вкладке'; widget content gets pointer-events: none in edit mode so dragging never conflicts with future interactive widgets. A widget of an unknown type can move and be deleted but not resized.",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "User authorized archiving with incomplete evidence: no implementation review, test log or manual-check report exists for this feature",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: review, verification, verification checks.",
+    "Working tree was dirty; uncommitted changes are not attributed to this feature automatically.",
+    "Completion date not recorded; completedAt remains null.",
+    "Deviations from plan were not recorded; absence of deviations is not claimed.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "701a4c358df74962bb375eea38752e3995ea5b4040fe3fed7bd8f7f87aed74d6",
+  "archivedAt": "2026-10-09T10:10:45Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "8c88128c5e4d0540101d940265d63d57d35abaf5c9424dba55698f5b65a5d529"
+  }
+}

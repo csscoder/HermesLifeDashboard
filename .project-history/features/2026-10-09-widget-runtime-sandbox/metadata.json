@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "widget-runtime-sandbox",
+    "name": "Widget runtime: installable widget packages in a sandbox",
+    "slug": "widget-runtime-sandbox"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": null,
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "alex/go-4-povisit-bezopasnost",
+    "commit": "f4ab72c41c5e8d1033e37f1daa3bc8bb0e6af8c3",
+    "headDescribe": "f4ab72c",
+    "workingTree": "dirty",
+    "statusSha256": "6bc995e7fc94893adf58230ff58cfb7dbf3a568d5538fc0f3cfc632cc28f0e0e",
+    "contentStateSha256": "a5bd7264929a4e6d90e18c5a069347c08ab95959b500aaceadaea69c819410b8",
+    "treeStateSha256": "1e4d68d0a16ee1b79ccee8b806f452210f417349fb1b7fe49cfc0fc948654ce5",
+    "indexStateSha256": "fbe7c6657f3a3511a99d98036b6b30b7ac39e6527da18f9c8fb48eaf55648e9b",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-08-widget-runtime-sandbox-design.md",
+      "archivePath": "spec.md",
+      "sha256": "a759edd11d0d024d4444fe453204bba90104ad0987c76ad187ffb46e852a2ab4",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-08-widget-runtime-sandbox.md",
+      "archivePath": "plan.md",
+      "sha256": "13fb8c7b6302c8dc4a47b7860484dda86430af2f7aa188aa8379d08bfe16c396",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "35998cbfc33b54a5e17a4d5487c77cc74860c84a813cbf68da7164d27e559931"
+    }
+  },
+  "areas": [
+    "contracts",
+    "api",
+    "ui",
+    "widget-sdk",
+    "examples"
+  ],
+  "tags": [
+    "widget-sandbox"
+  ],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "The user named the spec explicitly. The plan names it as its Spec, shares its title scope (packages in a sandbox, gateway with state and notifications, 13 implementation tasks plus Task 14 acceptance) and was committed in e92b1c2, after the implementation commits 82654f3..1132bbf. The spec was read in full. It was approved on 2026-10-08, corrected after Codex review (b3e616a), and received one added paragraph, 'Operation confirmation', in 82a5d47 on 2026-10-09; the working-tree spec includes that paragraph and is archived as the current accepted version, so it is slightly newer than the version the implementation commits were built from. Neither file has uncommitted changes or a draft/obsolete/superseded marker. The plan's goal, architecture, global constraints, review focus, file map, task headings and Tasks 13-14 (and Task 12 verification step) were read; the bodies of Tasks 1-12 (about 5000 lines of code and tests) were not read line by line. Both files were grep-scanned for secret patterns with no hits. No tracker key exists in the materials, so the ID is the spec slug. Implementation evidence: commits 82654f3..1132bbf on main-reachable history plus the current code at f4ab72c. No implementation-review report, test log or Task 14 acceptance report exists for this feature; verification and review are recorded as unverified. Areas come from the paths changed by the implementation commits.",
+    "evidence": [
+      "spec-doc",
+      "plan-doc",
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "spec-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-08-widget-runtime-sandbox-design.md",
+      "inspected": true,
+      "summary": "Design for sub-project 1 of the widget platform: hybrid runtime (built-ins in-process, installed packages in a sandboxed iframe served by Fastify), one-file *.ldwidget.json packages, useWidget() SDK, MessagePort bridge with a handshake checked by event.source, widget sessions bound to the dashboard session, a gateway pipeline with permission checks, rate limits and audit, state and notifications operations, nine acceptance criteria. Includes the later 'Operation confirmation' pointer paragraph.",
+      "sha256": "a759edd11d0d024d4444fe453204bba90104ad0987c76ad187ffb46e852a2ab4",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "plan-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/plans/2026-10-08-widget-runtime-sandbox.md",
+      "inspected": true,
+      "summary": "Fourteen-task plan (contracts, gateway contracts, migration 2, package routes, widget sessions and gateway, widget-sdk, sandbox bootstrap, sandbox serving, ld-widget CLI and examples, UI broker, packages dialog, in-process and sandbox hosts, base design and README, full verification and browser acceptance). All checkboxes are unticked; that is not evidence of the implementation state. It adds an UNAVAILABLE widget error code that the spec does not list.",
+      "sha256": "13fb8c7b6302c8dc4a47b7860484dda86430af2f7aa188aa8379d08bfe16c396",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "git-history",
+      "kind": "session",
+      "reference": "This session: git log for both source files, git log --reverse for the repository, git diff --stat 4876fd6..1132bbf, git show 82a5d47 --stat",
+      "inspected": true,
+      "summary": "Spec 4876fd6 and its Codex-review fix b3e616a (2026-10-08); implementation commits 82654f3, 11957c7, 8fc7f04, d2eb662, ed79294, 4b8f430, 5fb0e5f, 3705f03, c56f254, 27447d5, a173b8d, ec6361c and docs 1132bbf (2026-10-08), one or more per plan task 1-13; the plan was committed afterwards in e92b1c2; 4876fd6..1132bbf changes 75 files across contracts, api, ui, widget-sdk, examples, README and pnpm files. Spec paragraph on operation confirmation added in 82a5d47. The later fluid-board-grid commits (36fb095..22c23d6) changed widget-package.ts and builtin-widgets.ts sizing bounds.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "code-vs-spec",
+      "kind": "session",
+      "reference": "This session: greps of packages/contracts/src/widget-package.ts and widget-gateway.ts, apps/api/src/{sandbox,widget-gateway,widget-packages,errors,migrations}.ts, apps/ui/app/widgets/{broker.ts,SandboxWidget.vue}, packages/widget-sdk/src/sandbox.ts and directory listings of apps/*/test, packages/widget-sdk, examples/widgets at HEAD f4ab72c",
+      "inspected": true,
+      "summary": "Present and matching the spec at the grep level: PACKAGE_LIMITS 1 MiB/20 files/id 100/text 60; STATE_MAX_BYTES 65536; bridge maxMessageBytes 131072; SESSION_EXPIRED 401 and PACKAGE_IN_USE 409; MAX_SESSIONS 200 with 1-hour idle expiry; sandbox.ts with default-src 'none', connect-src 'none', a script-src with explicit URLs and the import-map sha256, and immutable caching; iframe sandbox=\"allow-scripts\"; broker hello check by event.source and sandbox 'ld:hello'/'ld:init' handshake; migrations with widget_packages and source_version; widget-sdk (cli, build, port-client, sandbox, widget, theme), examples/widgets/hello and hostile, README section on packages; test files for api, ui broker and catalog, widget-sdk and contracts. UNAVAILABLE exists in widget-gateway.ts. Test bodies and most implementation code were not read.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "go4-task11-report",
+      "kind": "file",
+      "reference": ".superpowers/sdd/2026-10-09-widget-op-confirmation/task-11-report.md",
+      "inspected": true,
+      "summary": "Browser acceptance for a later feature (GO-4 operation confirmation) in Orca's built-in browser, run on the code containing this runtime. Check 9 with a hostile package showed document.cookie, parent.document and localStorage blocked with SecurityError, fetch /api/v1/rooms blocked with TypeError, and an ungranted notifications.send answered PERMISSION_DENIED. Anomaly: hostile-1.0.0 never completed the handshake in that browser session (10 s hello timeout; cause not established, a cache-busted copy worked). It is not a run of this spec's acceptance list.",
+      "sha256": "5ea118c2fec4ff9c32502d227cfcd8ee80eebb78b05f5f969646449016191752",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "go4-postmerge-tests",
+      "kind": "session",
+      "reference": "This session: read of evidence entry tests-postmerge in the frozen GO-4 archive metadata (.project-history/features/2026-10-09-go-4-widget-operation-confirmation/metadata.json)",
+      "inspected": true,
+      "summary": "Attested by another session: on the tree merged with main (which contained this runtime) the per-package suites reported contracts 141, widget-sdk 19, api 160, ui 264 passed, 0 failed and pnpm typecheck exit 0; the test exit code was not printed. Indirect evidence about the whole tree, not a run of this feature.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "review": {
+    "status": "unverified",
+    "evidence": []
+  },
+  "verification": {
+    "status": "unverified",
+    "evidence": [
+      "go4-postmerge-tests",
+      "go4-task11-report"
+    ],
+    "checks": [
+      {
+        "command": "pnpm typecheck, pnpm test and pnpm build (plan Task 14 step 1), as covered by the GO-4 post-merge run of test and typecheck",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": [
+          "go4-postmerge-tests"
+        ]
+      },
+      {
+        "command": "Browser acceptance of the plan's Task 14 (install, state, conflict, theme, hostile package, frame attributes, delete rules, session renewal); only the hostile-package boundary was observed, indirectly, in the GO-4 Task 11 report",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": [
+          "go4-task11-report"
+        ]
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "Package format and validation in packages/contracts (widget-package.ts with PACKAGE_LIMITS, canonical hash), gateway operations, RPC message types and bridge limits (widget-gateway.ts), built-in manifests shared by API and UI, and the WidgetSource package variant.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "API: migration 2 (widget packages, versions, grants, widget_state, widget_audit, source_version), package inspect/install/list/delete routes with PACKAGE_IN_USE, in-memory widget sessions (200 max, 1-hour idle) and the gateway pipeline with state and notifications operations.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "Sandbox serving under /sandbox with a per-package document, import map and strict CSP, and the Nuxt dev proxy.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "packages/widget-sdk: useWidget, the transport-neutral widget, port client, sandbox bootstrap and the ld-widget build CLI; examples/widgets/hello and hostile.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "UI: broker with handshake by event.source and bridge limits, packages dialog and picker, in-process host for built-ins and a sandboxed iframe host for packages; README and base design updated.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "recorded",
+      "evidence": [
+        "plan-doc",
+        "code-vs-spec"
+      ],
+      "items": [
+        {
+          "change": "The plan adds an UNAVAILABLE widget error code (network or API down) that the spec does not list; the code defines it in widget-gateway.ts.",
+          "reason": "Stated in the plan: the spec has no code for that case.",
+          "effect": "Widget-side errors carry UNAVAILABLE in addition to the gateway codes, TIMEOUT and BRIDGE_CLOSED.",
+          "evidence": [
+            "plan-doc",
+            "code-vs-spec"
+          ]
+        }
+      ]
+    },
+    "excludedScope": [
+      {
+        "text": "Out of scope per the spec: admin UI, secrets, grant revocation and audit log view; data sources, http.get and Hermes operations; project template, hot reload and Hermes-generated packages; switching a placed widget to another version, instance config UI; package signing, install from URL or git, a catalog; Worker or QuickJS execution; Tauri notification plugin and IPC check (E7); MCP Apps; serving the built UI from Fastify.",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Tauri E7 must verify that guest frames cannot reach Tauri IPC on macOS and Windows and that capabilities are scoped to the main window.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "hostile-1.0.0 did not complete the handshake in one embedded-browser session while a cache-busted copy did; the cause was not established (candidate: a stale immutable-cache entry).",
+        "evidence": [
+          "go4-task11-report"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "text": "Residual risks stated in the spec: an infinite loop in a frame can freeze the dashboard when the WebView runs frames in-process; a frame can navigate itself once to an external URL and leak data it holds.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "No implementation-review report, test log or Task 14 browser acceptance report was found for this feature.",
+        "evidence": [
+          "git-history"
+        ]
+      },
+      {
+        "text": "Later work changed parts of this spec: the sizing bound (12x8 in the spec text) was widened by the fluid board grid, and operation confirmation with grant modes was added on top of the gateway pipeline (see the spec's Operation confirmation paragraph).",
+        "evidence": [
+          "git-history",
+          "spec-doc"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "Trust boundary: widgets compiled into the app run in-process; every installed package, including the owner's own, runs in an iframe with sandbox=\"allow-scripts\" served by Fastify per package version. Chosen over srcdoc and Worker + remote-dom because an opaque origin blocks the host DOM, cookies and storage, CSP is an HTTP header, and documents are cacheable. Infinite loops cannot be stopped without Worker/QuickJS, which break ordinary Vue; this is a documented residual risk.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Identity: the bridge handshake is checked by event.source and then moves to a transferred MessagePort; widget identity is a host-created session bound to the dashboard session, package version and grants, and the gateway never trusts an id sent by the widget. Rate limits key on (widgetId, op), so a new session does not reset them.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Package format: one *.ldwidget.json file (at most 1 MB, 20 flat files, only .js and .css) validated by hand-written code, stored in SQLite keyed by sha256; versions are immutable; grants are per package from manifest permissions, and a new version with new permissions shows the permissions screen again.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "The SDK is async in both hosts so a widget moves between in-process and sandbox unchanged; the sandbox uses the lockfile Vue runtime through an import map; the sandbox document has no instance data and the host pushes theme tokens, size and rootFontSize over the port.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Deviations from the base design: custom component widgets are isolated instead of running in-process as an accepted risk; packages are built by developers with ld-widget build rather than compiled by Fastify; gateway operations use w.call(op, input) with only state and notifications in this slice; widget-sdk is created now rather than at E6.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "New dependencies approved with the spec: vite and @vitejs/plugin-vue as devDependencies of widget-sdk, and vue as a dependency of apps/api to serve the runtime file.",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "User authorized archiving with incomplete evidence: no implementation review, test log or Task 14 acceptance report exists for this feature",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: review, verification, verification checks.",
+    "Working tree was dirty; uncommitted changes are not attributed to this feature automatically.",
+    "Completion date not recorded; completedAt remains null.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "710967d6aa79003ea5931cc90810e6458b07a4d3a1b86f45a8ab28faa5e44899",
+  "archivedAt": "2026-10-09T09:50:40Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "b0769cde9680c51ef8905f0357a959d520e8880bf8877cdfaf3e0ced17575286"
+  }
+}

@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "theme-engine",
+    "name": "Theme engine: themes as validated CSS over a token contract (MVP slice)",
+    "slug": "theme-engine"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": null,
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "alex/go-4-povisit-bezopasnost",
+    "commit": "f4ab72c41c5e8d1033e37f1daa3bc8bb0e6af8c3",
+    "headDescribe": "f4ab72c",
+    "workingTree": "dirty",
+    "statusSha256": "c30ab937d32cd151b139afae616e9bbd996a4fdf127cf964d7c4bb176f8abbb9",
+    "contentStateSha256": "83f46e25b2b690b99a97a92f62b57ca215cbb02ccf8167988c4b62f7e57131bf",
+    "treeStateSha256": "1e4d68d0a16ee1b79ccee8b806f452210f417349fb1b7fe49cfc0fc948654ce5",
+    "indexStateSha256": "fbe7c6657f3a3511a99d98036b6b30b7ac39e6527da18f9c8fb48eaf55648e9b",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-04-theme-engine-design.md",
+      "archivePath": "spec.md",
+      "sha256": "4fea3a66596f8daebb7ee724c072d6921da9b2af234d00cfb51f030f9264d765",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-04-theme-engine-mvp.md",
+      "archivePath": "plan.md",
+      "sha256": "58390756fd207e3d951a19e330e1aae5f903c0c0113f63ec5927efde412de9e0",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "647f302ed621d5d03f9b6a3ca24b34536bbd64a5b9c96611e3519a2d068a5474"
+    }
+  },
+  "areas": [
+    "ui",
+    "docs"
+  ],
+  "tags": [
+    "theme",
+    "design-system"
+  ],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "The user named the spec explicitly. The plan (theme-engine-mvp) names it as its Spec and implements exactly the spec's MVP section (six tasks: colour math, token contract/validator/built-in themes, theme resolution and stored appearance, cascade layers/frame/skins/root, UnoCSS vocabulary, theme selector). The spec is the full architecture and the plan covers only the MVP slice, so the ID is the spec slug. Spec history: d3939b3 and Codex-review fix 70edcde; plan history: 0c345e4 only; neither file has uncommitted changes or a draft/obsolete/superseded marker. The spec's status line reads 'design approved in conversation 2026-10-04; revised through 5 Codex review rounds; round-5 correction accepted by the owner (USER_OVERRIDE); awaiting owner review of the written spec'. That is not a draft marker, and the implementation commits 1488a07..7d93169 (2026-10-04, ancestors of main) followed it, but the written spec's explicit owner approval is not recorded in the materials. The spec was read in full. The plan's goal, architecture, global constraints, review focus and the end of Task 6 were read; the bodies of Tasks 1-6 (about 2300 lines) were not read line by line. Both files were grep-scanned for secret patterns with no hits. Implementation evidence: the nine commits (34 files, 2839 insertions) and the current code at f4ab72c read at grep level. No implementation-review report, test log or manual-check report exists for this feature, so review and verification are recorded as unverified. No completion date is recorded. Areas come from the paths changed (apps/ui, docs/theme-contract.md).",
+    "evidence": [
+      "spec-doc",
+      "plan-doc",
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "spec-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-04-theme-engine-design.md",
+      "inspected": true,
+      "summary": "Full architecture of the theme engine: a theme is one token-only CSS block over a fixed --ld-* contract validated by a postcss-based validator with range, opacity and a two-mode WCAG contrast matrix; effects live in built-in skins; cascade layers ld.reset..ld.comfort; themeId resolution Workspace/Room/Widget; BEM widget frame; UnoCSS semantic vocabulary with a blocklist and checkClasses; ComfortProfile; import/export; CSP and Tauri notes; an MVP section (Glass, Obsidian, Paper themes, header selector, localStorage appearance) and a staged later plan.",
+      "sha256": "4fea3a66596f8daebb7ee724c072d6921da9b2af234d00cfb51f030f9264d765",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "plan-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/plans/2026-10-04-theme-engine-mvp.md",
+      "inspected": true,
+      "summary": "Six-task TDD plan for the MVP slice with exact new dependencies (unocss and @unocss/nuxt 66.10.5, postcss 8.5.28 dev), global constraints, a review focus on layer order, bad stored appearance, shell colour literals, optional-token leaking and built-in theme imports, and manual browser checks of three themes in Task 6. All checkboxes are unticked; that is not evidence of the implementation state.",
+      "sha256": "58390756fd207e3d951a19e330e1aae5f903c0c0113f63ec5927efde412de9e0",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "git-history",
+      "kind": "session",
+      "reference": "This session: git log for both source files, git log 1488a07^..7d93169, git diff --stat 1488a07^..7d93169, git merge-base --is-ancestor 7d93169 main, git log -- apps/ui/app/theme",
+      "inspected": true,
+      "summary": "Implementation commits 1488a07 (oklch colour math and WCAG contrast), fa6e320 (parseColor fix), eba9b2f (token contract, validator, built-in themes), b2273e8 (theme id resolution and stored appearance), a0fe4e7 (cascade layers, BEM widget frame, themed root), 72d5ac3 (UnoCSS vocabulary), 8a0f214 (theme selector in the header), 4aabfda (font family characters fix), 7d93169 (pnpm build-script allowlist), all 2026-10-04, 34 files, 2839 insertions; 7d93169 is an ancestor of main.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "code-vs-spec",
+      "kind": "session",
+      "reference": "This session: listings and greps of apps/ui/app/theme, apps/ui/uno.config.ts, docs/theme-contract.md, apps/ui/package.json and app.vue at HEAD f4ab72c",
+      "inspected": true,
+      "summary": "Present at the grep level: app/theme/{appearance,builtin,color,contract,resolve,validate-theme,vocabulary}.ts; styles/{layers,frame,comfort}.css, skins glass/paper/solid and themes glass/obsidian/paper; layers.css declares '@layer ld.reset, ld.frame, ld.skin, ld.theme, ld.utilities, ld.widget, ld.comfort'; resolveThemeId and themeClass; loadAppearance/saveAppearance with key lifedashboard.appearance; app.vue wires the stored theme, resolveThemeId and a header selector; uno.config.ts and docs/theme-contract.md exist; apps/ui/package.json pins unocss and @unocss/nuxt 66.10.5 and postcss 8.5.28; test files color, theme-contract, theme-resolve and vocabulary exist. Test bodies and most code were not read.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "go4-postmerge-tests",
+      "kind": "session",
+      "reference": "This session: read of evidence entry tests-postmerge in the frozen GO-4 archive metadata (.project-history/features/2026-10-09-go-4-widget-operation-confirmation/metadata.json)",
+      "inspected": true,
+      "summary": "Attested by another session: on the tree merged with main (which contained this feature) the per-package suites reported contracts 141, widget-sdk 19, api 160, ui 264 passed, 0 failed and pnpm typecheck exit 0; the test exit code was not printed. Indirect evidence about the whole tree, not a run of this feature.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "review": {
+    "status": "unverified",
+    "evidence": []
+  },
+  "verification": {
+    "status": "unverified",
+    "evidence": [
+      "go4-postmerge-tests"
+    ],
+    "checks": [
+      {
+        "command": "pnpm --filter @lifedashboard/ui test, typecheck and build, and the layer-order and no-inline-style checks (plan Task 6 step 10), as covered by the GO-4 post-merge run of test and typecheck",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": [
+          "go4-postmerge-tests"
+        ]
+      },
+      {
+        "command": "Manual check in Orca's built-in browser of the three themes at 1280x700 (plan Task 6 steps 8-9: theme switch, builder affordances, focus indicators, persistence, bad stored values, narrow-window message)",
+        "result": "not-run",
+        "exitCode": null,
+        "evidence": []
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "Colour math (oklch to sRGB, WCAG contrast) in app/theme/color.ts, the token contract (contract.ts), theme CSS validator (validate-theme.ts) and docs/theme-contract.md.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "Three built-in themes (Glass, Obsidian, Paper) with three skins (glass, solid, paper) as static CSS in cascade layers (layers, frame, comfort), builtin.ts metadata, resolveThemeId/themeClass and localStorage-backed appearance (appearance.ts).",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "UnoCSS semantic vocabulary (uno.config.ts, vocabulary.ts with checkClasses) for widget content, the BEM widget frame and themed root, and a theme selector in the app header.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "not-recorded",
+      "evidence": [],
+      "items": []
+    },
+    "excludedScope": [
+      {
+        "text": "Deferred by the spec/plan to later stages: theme import/export and the user-theme endpoint, SQLite storage of themes and appearance (E1), Room themes (E2), per-widget theme choice and edit-mode header, declarative primitives (E3b), the Hermes SFC pipeline, useWidget().theme and user fonts (E6), ComfortProfile UI, bundled fonts, high-contrast preference, per-widget overrides and semantic slots.",
+        "evidence": [
+          "spec-doc",
+          "plan-doc"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Spec-stated unverified items: how UnoCSS replaces a preset theme and emits CSS layers (a spike in the plan), whether WebKit applies style-src to constructable stylesheets and whether style.cssText assignment is blocked in a packaged WKWebView (E7 check before freezing the CSP).",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "text": "No implementation-review report, test log or manual browser check report was found for this feature; the written spec's explicit owner approval is not recorded (status: awaiting owner review).",
+        "evidence": [
+          "spec-doc",
+          "git-history"
+        ]
+      },
+      {
+        "text": "Spec limitation: a photo backdrop cannot be contrast-checked, and gradient backdrops are checked only at their colour stops.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Later work changed related parts: the root font scale became 100vw / 80 and the grid 24 columns; the header and board layout changed with edit mode, widget runtime and confirmation features.",
+        "evidence": [
+          "git-history"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "A theme is a record {id, name, mode, skin, css} whose CSS is exactly one rule holding color-scheme and contract tokens (--ld-*, colours as oklch literals or var() references to colour tokens); structure and effects live only in trusted built-in skins. Token-only CSS cannot hide controls, bypass contrast or reach another theme's widgets. A recipe+compiler approach was approved first and dropped because without an editor the derivation has no consumer.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Contrast is enforced by the validator against a WCAG 2 matrix in two modes (translucent surface-1 over bg and backdrop stops, and solid with surface-1-solid); only surface-1 may be translucent; surface-1-solid must be an oklch literal. Own oklch math is used instead of a colour library.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "CSS is delivered only as files, never by runtime <style> injection, so Tauri's nonce-based style-src does not break it. Cascade layers order ld.reset, ld.frame, ld.skin, ld.theme, ld.utilities, ld.widget, ld.comfort, so user comfort preferences beat widget CSS; the order is pinned by a build check.",
+        "evidence": [
+          "spec-doc",
+          "plan-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Theme selection resolves through themeId chain (widget, room, workspace) with null inheriting and unknown ids treated as null with a warning; in the MVP only the workspace id exists, stored in localStorage key lifedashboard.appearance with never-throwing load/save, defaulting to builtin:glass.",
+        "evidence": [
+          "spec-doc",
+          "plan-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Widget content is styled by UnoCSS (presetWind4, no preflight) with a replaced semantic colour vocabulary and a blocklist (arbitrary values, dark:, palette classes, fixed/z-index); class checking is built on the generator. New dependencies approved with the spec: unocss and @unocss/nuxt (exact 66.10.5) and postcss 8.5.28 as a devDependency.",
+        "evidence": [
+          "spec-doc",
+          "plan-doc",
+          "code-vs-spec"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "User authorized archiving with incomplete evidence: no implementation review, test log or manual-check report exists for this feature",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: review, verification, verification checks.",
+    "Working tree was dirty; uncommitted changes are not attributed to this feature automatically.",
+    "Completion date not recorded; completedAt remains null.",
+    "Deviations from plan were not recorded; absence of deviations is not claimed.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "d5201fab122f2dc2fb6186fcc1c20ce7490a173bb343a4fe46b2aec22d78508d",
+  "archivedAt": "2026-10-09T10:17:00Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "fc5c021f0a9da3cee2e9705d0ad4c4d92c1e63032f4c4f61e9e348a743b466a5"
+  }
+}

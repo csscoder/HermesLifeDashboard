@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "GO-3-step-1",
+    "name": "Board storage in SQLite behind a paired API (GO-3 step 1)",
+    "slug": "go-3-step-1-db-storage-and-pairing"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": null,
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "alex/go-4-povisit-bezopasnost",
+    "commit": "f4ab72c41c5e8d1033e37f1daa3bc8bb0e6af8c3",
+    "headDescribe": "f4ab72c",
+    "workingTree": "dirty",
+    "statusSha256": "4483fdd5665d44b397254598044195b10383f33ddad5bd4ec105813fa720a742",
+    "contentStateSha256": "85701377194d2ebe945472e83eba1cc4b72e946a45be405e24e6d04c5fbb97be",
+    "treeStateSha256": "1e4d68d0a16ee1b79ccee8b806f452210f417349fb1b7fe49cfc0fc948654ce5",
+    "indexStateSha256": "fbe7c6657f3a3511a99d98036b6b30b7ac39e6527da18f9c8fb48eaf55648e9b",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-05-db-storage-and-pairing-design.md",
+      "archivePath": "spec.md",
+      "sha256": "d13c0a6ba493d128ebdf775d7c0e7b5ce41c4636fcf1b665409dc811e237b2ee",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-05-db-storage-and-pairing.md",
+      "archivePath": "plan.md",
+      "sha256": "4268ddee88801a93eb91be816eee741ef90042b0a11f87d16bea620a4cff4a65",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "f0be664c7339619251dda1a3acb576337eb6d13ed6861710b23cc64e9323b005"
+    }
+  },
+  "areas": [
+    "contracts",
+    "api",
+    "ui"
+  ],
+  "tags": [
+    "go-3",
+    "storage",
+    "pairing"
+  ],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "The user named the spec explicitly. The spec names Linear GO-3 'Организация хранения в БД', step 1 of 3 (steps 2 and 3 get their own specs), so the ID is GO-3-step-1 to keep later steps distinct. The plan names the spec as its Spec and shares its title and scope. Spec history: 498a39c, Codex-review fix 96cf8f5, boundary fix 61aca39; plan history: 190b9fe, Codex-review rounds ffafae7 and 3d0a806; neither file has uncommitted changes or a draft/obsolete/superseded marker, and both predate the implementation commits fd1b6ec..37af818 (2026-10-05), which are ancestors of main. The spec was read in full. The plan's goal, constraints, review focus, file map, task headings and Task 10 were read; the bodies of Tasks 1-9 were not read line by line. Both files were grep-scanned for secret patterns with no hits. Implementation evidence: the nine commits and the current code at f4ab72c, read at grep level against the spec. No implementation-review report, test log or Task 10 acceptance report exists for this feature, so review and verification are recorded as unverified. No completion date is recorded. Areas come from the paths changed by the implementation commits.",
+    "evidence": [
+      "spec-doc",
+      "plan-doc",
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "spec-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-05-db-storage-and-pairing-design.md",
+      "inspected": true,
+      "summary": "Approved design: board moves from localStorage to SQLite (node:sqlite, numbered migrations by PRAGMA user_version, backup before migrating) behind a Fastify API with one-time pairing code, HttpOnly SameSite=Strict session cookie with sliding 30-day expiry renewed at most daily, Host/Origin/content-type checks instead of a CSRF token, one PUT /rooms/:roomId/board guarded by a per-room revision, shared packages/contracts, UI states checking/pairing/ready/unavailable, ten acceptance criteria.",
+      "sha256": "d13c0a6ba493d128ebdf775d7c0e7b5ce41c4636fcf1b665409dc811e237b2ee",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "plan-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/plans/2026-10-05-db-storage-and-pairing.md",
+      "inspected": true,
+      "summary": "Ten-task plan (contracts package, API configuration, database and migrations, error envelope, request checks pairing and sessions, room routes, UI API client, room sync and pairing form, board on the API, full verification and browser acceptance). All checkboxes are unticked; that is not evidence of the implementation state. Global constraints repeat the spec's session, pairing and UI copy rules; no new dependencies.",
+      "sha256": "4268ddee88801a93eb91be816eee741ef90042b0a11f87d16bea620a4cff4a65",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "git-history",
+      "kind": "session",
+      "reference": "This session: git log for both source files, git log fd1b6ec^..37af818, git diff --stat fd1b6ec^..37af818, git merge-base --is-ancestor 37af818 main",
+      "inspected": true,
+      "summary": "Implementation commits fd1b6ec (contracts), d6111f3 (config), c140d41 (database and migrations), 510b208 (errors), 97283c6 (pairing and sessions), 894d0d3 (room routes), 4765687 (UI api client), 8a6861f (room sync and pairing form), 37af818 (board on the API), all 2026-10-05, 44 files changed; 37af818 is an ancestor of main.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "code-vs-spec",
+      "kind": "session",
+      "reference": "This session: greps of apps/api/src/{db,auth,rooms}.ts, apps/ui/app/api.ts, WidgetBoard.vue, README.md, .env.example and directory listings of apps/api/test, apps/ui/app, packages/contracts/src at HEAD f4ab72c",
+      "inspected": true,
+      "summary": "Present and matching the spec at the grep level: db.ts uses node:sqlite DatabaseSync and backup() to <file>.bak-v<version>, PRAGMA journal_mode WAL, synchronous FULL, foreign_keys ON, busy_timeout 5000; auth.ts has randomInt six-digit code with padStart, timingSafeEqual, 30-day TTL with a 29-day renewal threshold, cookie HttpOnly; SameSite=Strict; Path=/api; rooms.ts rejects a stale expectedRevision with REVISION_CONFLICT; api.ts uses AbortSignal.timeout with a 5000 ms timeout; WidgetBoard.vue listens to visibilitychange; README and .env.example document LIFEDASHBOARD_DATA_DIR and LIFEDASHBOARD_UI_ORIGINS; test files exist for db, auth, rooms, config, errors; PairingForm.vue and room-sync.ts exist. Test bodies and most code were not read.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "go4-postmerge-tests",
+      "kind": "session",
+      "reference": "This session: read of evidence entry tests-postmerge in the frozen GO-4 archive metadata (.project-history/features/2026-10-09-go-4-widget-operation-confirmation/metadata.json)",
+      "inspected": true,
+      "summary": "Attested by another session: on the tree merged with main (which contained this feature) the per-package suites reported contracts 141, widget-sdk 19, api 160, ui 264 passed, 0 failed and pnpm typecheck exit 0; the test exit code was not printed. Indirect evidence about the whole tree, not a run of this feature.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "git-history",
+      "code-vs-spec"
+    ]
+  },
+  "review": {
+    "status": "unverified",
+    "evidence": []
+  },
+  "verification": {
+    "status": "unverified",
+    "evidence": [
+      "go4-postmerge-tests"
+    ],
+    "checks": [
+      {
+        "command": "pnpm typecheck, pnpm test and pnpm build (plan Task 10 step 1), as covered by the GO-4 post-merge run of test and typecheck",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": [
+          "go4-postmerge-tests"
+        ]
+      },
+      {
+        "command": "Browser acceptance of plan Task 10 (pairing, persistence across API restart, 401/403 curl checks, two-tab 409, API stopped during load and save, pending-save input lock, newer-schema startup failure)",
+        "result": "not-run",
+        "exitCode": null,
+        "evidence": []
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "packages/contracts workspace package with the grid, board types and parseScreenBoard, and API envelope and error-code types shared by API and UI.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "API: configuration for data directory and UI origins; node:sqlite database with numbered migrations, WAL and backup before migrating; error envelope with request ids; Host/Origin/content-type checks, pairing code and sliding sessions; room list and board routes with revision checks.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      },
+      {
+        "text": "UI: fetch wrapper with typed failures and a 5000 ms timeout, room sync, pairing form and app states, and the board loaded and saved through the API with a visibilitychange reload; README and .env.example describe the variables and pairing.",
+        "evidence": [
+          "code-vs-spec",
+          "git-history"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "not-recorded",
+      "evidence": [],
+      "items": []
+    },
+    "excludedScope": [
+      {
+        "text": "Out of scope per the spec: rooms UI and room routes beyond the list (step 2); screens UI, pager and screen creation (step 3); logout, session list, Settings; serving the generated UI from Fastify; moving the theme to the database; Secure cookies, HTTPS, remote Core; domain events, idempotency receipts, SSE.",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Steps 2 (rooms UI) and 3 (screens in a room) of GO-3 are separate specs.",
+        "evidence": [
+          "spec-doc"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "text": "No implementation-review report, test log or Task 10 browser acceptance report was found for this feature.",
+        "evidence": [
+          "git-history"
+        ]
+      },
+      {
+        "text": "Spec-stated risk: the API runs TypeScript through Node type stripping and builds with tsc, so importing .ts sources from the workspace package must work in dev, build and start.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Later work changed parts of this storage: migrations 2, 3 and 4 add widget packages, per-screen rows and grant modes, and ScreenBoard gained rows; the spec's migration 1 text is otherwise historical.",
+        "evidence": [
+          "git-history"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "SQLite through built-in node:sqlite with hand-written SQL and numbered migrations (PRAGMA user_version), not better-sqlite3 + Drizzle from the base design: no native addon to package for Tauri and no new dependency; five tables need no ORM. The module is marked Release Candidate in Node 24 docs and provides backup(), transactions and PRAGMA.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "One revision per room covering all its screens, placement as x/y/w/h columns on the widget row, and one PUT /rooms/:roomId/board that replaces the room's widgets under expectedRevision (stale save gets 409 REVISION_CONFLICT). Grid bounds and overlap are validated in contracts, not by SQL CHECK, because the row count may change.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Pairing: six-digit code from crypto.randomInt valid 10 minutes and one use, burnt by the fifth wrong attempt, pair-code limited to once per 10 seconds; success sets an HttpOnly SameSite=Strict Path=/api session cookie with a hashed token stored in SQLite and no Secure flag on loopback HTTP.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "Sessions slide for 30 days and renew at most once a day (when 29 days or less remain), so the guaranteed idle gap is 29 days and no absolute limit exists; renewing on every request was rejected to avoid a write per request.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      },
+      {
+        "text": "No CSRF token (deviation from base design section 13.1): a cross-site request must defeat SameSite=Strict, an allowlisted Origin and a JSON content type that forces a preflight with no CORS allowed. Cookie parsing and rate limits are hand-written; the API sends no CORS headers.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "The localStorage board is not migrated or read; no offline mode (a failed load shows 'API: недоступен' and disables the modes, a failed save keeps the working copy); the UI never shows an unsaved change as saved; the board reloads on visibilitychange outside edit modes.",
+        "evidence": [
+          "spec-doc",
+          "code-vs-spec"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "User authorized archiving with incomplete evidence: no implementation review, test log or Task 10 acceptance report exists for this feature",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: review, verification, verification checks.",
+    "Working tree was dirty; uncommitted changes are not attributed to this feature automatically.",
+    "Completion date not recorded; completedAt remains null.",
+    "Deviations from plan were not recorded; absence of deviations is not claimed.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "772cb11e6a8b2c4355e245d5d1eba874a2279413fe38fdbf7f02265c2f88738e",
+  "archivedAt": "2026-10-09T10:04:31Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "7821923edbea085b4037c998a1e9abf395108e54edcc66b2567dff123b4c8b44"
+  }
+}

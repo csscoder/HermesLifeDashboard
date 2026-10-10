@@ -1,0 +1,378 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "GO-4",
+    "name": "Widget operation confirmation (GO-4 «Повысить безопасность»)",
+    "slug": "go-4-widget-operation-confirmation"
+  },
+  "status": "completed",
+  "completedAt": "2026-10-09",
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "alex/go-4-povisit-bezopasnost",
+    "commit": "f4ab72c41c5e8d1033e37f1daa3bc8bb0e6af8c3",
+    "headDescribe": "f4ab72c",
+    "workingTree": "clean",
+    "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "contentStateSha256": "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456",
+    "treeStateSha256": "1e4d68d0a16ee1b79ccee8b806f452210f417349fb1b7fe49cfc0fc948654ce5",
+    "indexStateSha256": "fbe7c6657f3a3511a99d98036b6b30b7ac39e6527da18f9c8fb48eaf55648e9b",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-09-widget-op-confirmation-design.md",
+      "archivePath": "spec.md",
+      "sha256": "119476ef5314db0bdbc4705c7320d71aa3b8d53ed91fae287f606a5a2c2f47f7",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-09-widget-op-confirmation.md",
+      "archivePath": "plan.md",
+      "sha256": "eec4c86fb6ad35f193b9a5ee6357a7251b38d8a23d0014907940bcef66c07f12",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "62dc3a2b4ccd266de7aaa091d021162fbdd4c1c617ff83667db7926c34746390"
+    }
+  },
+  "areas": [
+    "api",
+    "ui",
+    "contracts",
+    "docs"
+  ],
+  "tags": [],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "Spec header links Linear GO-4 and status 'approved design, 2026-10-09'; the plan (11 tasks) was executed against this spec, and the SDD ledger line 1 names this plan and line 5 this spec. Both files were read in full in this session; spec was revised after a Codex review before the plan (git: 983d06a, a26f4a5). The ledger, the browser acceptance report and the final fix report were read; the final merged tree was tested in this session. Completion date 2026-10-09 is the day the branch was merged into main in this session. Areas are the packages touched by the branch diff. No credentials appear in the spec, plan or evidence files (read in full; scanned for key/token assignments).",
+    "evidence": [
+      "spec-doc",
+      "ledger",
+      "task11-report",
+      "final-fix-report",
+      "git-merge",
+      "tests-premerge",
+      "tests-postmerge"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "spec-doc",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-09-widget-op-confirmation-design.md",
+      "inspected": true,
+      "summary": "Accepted design: confirm policy per gateway operation, per-grant allow/ask mode, single-use input-bound confirmation id issued by the API, host dialog, five acceptance criteria.",
+      "sha256": "119476ef5314db0bdbc4705c7320d71aa3b8d53ed91fae287f606a5a2c2f47f7",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "ledger",
+      "kind": "file",
+      "reference": ".superpowers/sdd/2026-10-09-widget-op-confirmation/progress.md",
+      "inspected": true,
+      "summary": "SDD controller ledger: pre-flight scan, rulings R1-R9, per-task implement/review/fix-round records for Tasks 1-11, final whole-branch review (Ready to merge: Yes, Critical 0, Important 0), final fix wave 7ab8960 and its clean re-review. The ledger is git-ignored scratch.",
+      "sha256": "d6937cc51e9da498c10d87a8be402933fcfaf2eb6c92e22c46ef6764f7aef1e6",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "task11-report",
+      "kind": "file",
+      "reference": ".superpowers/sdd/2026-10-09-widget-op-confirmation/task-11-report.md",
+      "inspected": true,
+      "summary": "Browser acceptance in Orca's built-in browser via orca-cli: checks 1-10 passed (audit: CONFIRMATION_REQUIRED 7, DECLINED 6, ok 3, PERMISSION_DENIED 1); check 9 needed a workaround (hostile-1.0.0 never completed the handshake, a copy with a changed hash worked); installed-list layout and focus defects found, then fixed in 3b66e1e and 73ab02e; long unbroken title, multi-line body and select contrast outside the Glass theme were not verified.",
+      "sha256": "5ea118c2fec4ff9c32502d227cfcd8ee80eebb78b05f5f969646449016191752",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "final-fix-report",
+      "kind": "file",
+      "reference": ".superpowers/sdd/2026-10-09-widget-op-confirmation/final-fix-report.md",
+      "inspected": true,
+      "summary": "Final fix wave 7ab8960: an approved confirmation id is spent when the mode flipped to allow mid-dialog; an empty-string confirmationId is treated as absent; both new tests RED then GREEN.",
+      "sha256": "08c83a0cc6031cdfc78431675715a55e7deb30c8b1fd7a408d3d36492f91e077",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "git-merge",
+      "kind": "session",
+      "reference": "This session: git log, merge-tree, merge and ff-only commands after the final review",
+      "inspected": true,
+      "summary": "Branch alex/go-4-povisit-bezopasnost (17 commits from 983d06a to 7ab8960 plus merge commit f4ab72c) merged main into the branch and main was fast-forwarded to f4ab72c. main had gained its own migration 3 (fluid 24-column grid), so the confirmation mode column became migration 4; migrations.ts and db.test.ts conflicts were resolved by hand.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "tests-premerge",
+      "kind": "session",
+      "reference": "This session: pnpm test and pnpm typecheck at 7ab8960 before the merge",
+      "inspected": true,
+      "summary": "pnpm test exit 0 (contracts 123, widget-sdk 19, ui 248, api 154 passed); pnpm typecheck exit 0; tree clean except the then-untracked plan file.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "tests-postmerge",
+      "kind": "session",
+      "reference": "This session: pnpm test and pnpm typecheck on the merged tree before commit f4ab72c",
+      "inspected": true,
+      "summary": "Per-package summaries: contracts 141, widget-sdk 19, api 160, ui 264 passed, 0 failed; pnpm typecheck exit 0. The shell did not print the test exit code.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "ledger",
+      "git-merge"
+    ]
+  },
+  "review": {
+    "status": "approved",
+    "evidence": [
+      "ledger",
+      "final-fix-report"
+    ]
+  },
+  "verification": {
+    "status": "passed",
+    "evidence": [
+      "tests-premerge",
+      "tests-postmerge",
+      "task11-report"
+    ],
+    "checks": [
+      {
+        "command": "pnpm test (repo root, at 7ab8960 before the merge)",
+        "result": "passed",
+        "exitCode": 0,
+        "evidence": [
+          "tests-premerge"
+        ]
+      },
+      {
+        "command": "pnpm typecheck (repo root, at 7ab8960 before the merge)",
+        "result": "passed",
+        "exitCode": 0,
+        "evidence": [
+          "tests-premerge"
+        ]
+      },
+      {
+        "command": "pnpm test (repo root, merged tree with main, before commit f4ab72c)",
+        "result": "passed",
+        "exitCode": null,
+        "evidence": [
+          "tests-postmerge"
+        ]
+      },
+      {
+        "command": "pnpm typecheck (repo root, merged tree with main)",
+        "result": "passed",
+        "exitCode": 0,
+        "evidence": [
+          "tests-postmerge"
+        ]
+      },
+      {
+        "command": "Manual browser acceptance checks 1-10 plus re-checks of installed-list layout and focus in Orca's browser via orca-cli, per the spec's browser acceptance list",
+        "result": "passed",
+        "exitCode": null,
+        "evidence": [
+          "task11-report",
+          "ledger"
+        ]
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "API: GATEWAY_OPS carries a confirm policy (never/optional/always); widget_grants.mode (allow/ask) with PUT /widget-packages/:id/grants/:permission; the gateway issues a single-use, session/op/input-bound confirmation id (428 CONFIRMATION_REQUIRED), checks it on repeat (409 CONFIRMATION_INVALID), and audits issue, use and decline, with a DELETE decline route.",
+        "evidence": [
+          "ledger",
+          "git-merge"
+        ]
+      },
+      {
+        "text": "Host UI: confirmation queue with a per-request 110 s deadline, a modal ConfirmDialog in the main document (focus on «Отклонить», Esc declines, «Разрешить один раз» armed after 500 ms), broker that repeats a confirmed call once with the id, and a grant mode switch on the install screen and in the installed list.",
+        "evidence": [
+          "ledger",
+          "task11-report"
+        ]
+      },
+      {
+        "text": "Existing grants migrate to mode allow; docs updated (base design row, sandbox spec section); 11 plan tasks implemented with per-task reviews.",
+        "evidence": [
+          "ledger",
+          "git-merge"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "recorded",
+      "evidence": [
+        "ledger",
+        "git-merge",
+        "task11-report",
+        "final-fix-report"
+      ],
+      "items": [
+        {
+          "change": "The mode-column migration is migration 4, not migration 3 as the spec and plan say; db.test.ts pins earlier steps with MIGRATIONS.slice and has a 3-to-4 upgrade test.",
+          "reason": "main added its own migration 3 (fluid 24-column grid) before the merge.",
+          "effect": "Same SQL, shifted by one version; hand-resolved merge conflicts in migrations.ts and db.test.ts.",
+          "evidence": [
+            "git-merge"
+          ]
+        },
+        {
+          "change": "Broker guards a closed client: no dialog after close and no new widget session once closed; a session created after close is ended.",
+          "reason": "Task 7 review found a closed client could open a dialog or create an orphan session, blocking the queue up to 110 s.",
+          "effect": "Two small guards plus tests in broker.ts; not in the original plan code.",
+          "evidence": [
+            "ledger"
+          ]
+        },
+        {
+          "change": "The hello example catches DECLINED and the approve button is disabled for the first 500 ms.",
+          "reason": "Declared plan additions (rulings R3); the spec is silent on the example and the arm delay guards against double clicks.",
+          "effect": "An example change and a delayed button the spec did not request.",
+          "evidence": [
+            "ledger"
+          ]
+        },
+        {
+          "change": "Installed-list rows are two lines tall: grants sit on their own full-width row under the name.",
+          "reason": "Browser acceptance found a clipped «Удалить» and then a select overlapping it; the full-width row is the only layout verified to prevent the overlap.",
+          "effect": "Visible layout change; commits 3b66e1e and 73ab02e; focus returns to the select after a mode change.",
+          "evidence": [
+            "task11-report",
+            "ledger"
+          ]
+        },
+        {
+          "change": "A confirmation id is spent when the mode flipped to allow mid-dialog, and an empty confirmationId in a 428 is treated as absent.",
+          "reason": "Final whole-branch review minors: R9 parked ruling and a fail-closed tightening.",
+          "effect": "Commit 7ab8960 with two tests; the allow-branch repeat still charges the rate limit.",
+          "evidence": [
+            "ledger",
+            "final-fix-report"
+          ]
+        }
+      ]
+    },
+    "excludedScope": [
+      {
+        "text": "A CSP for the main document and a compromised-UI scenario are out of scope per the spec; no unit test for ConfirmDialog.vue (plan forbids a DOM harness), and no gateway test for the built-in widget path (no built-in holds notifications and no always operation exists).",
+        "evidence": [
+          "spec-doc",
+          "ledger"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Parked follow-ups from the final review: hello double click can hit the pending 429 and show «Ошибка виджета»; two misleading messages on fail-closed paths; test gaps (bak-v2 on upgrade, PUT without body); PackagesDialog cosmetics (aria-label without title, tab order versus visual order, stale list after two failures); ConfirmDialog polish (title overflow-wrap, aria-describedby).",
+        "evidence": [
+          "ledger"
+        ]
+      },
+      {
+        "text": "Unrelated observation: hostile-1.0.0 never completed the sandbox handshake in the embedded browser while a copy with a changed hash did. Suspected cause, unproven: sandbox.ts bakes request-host absolute URLs into an immutable-cached document. Suggested a separate ticket.",
+        "evidence": [
+          "task11-report",
+          "ledger"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "text": "Not verified in a browser: a long unbroken package title in the dialog, a multi-line notification body, select contrast outside the Glass theme, list layout at widths other than 1440, and the merged result with the new 24-column board.",
+        "evidence": [
+          "task11-report",
+          "ledger"
+        ]
+      },
+      {
+        "text": "The shell did not print the exit code of pnpm test on the merged tree; the result rests on per-package summaries with 0 failures.",
+        "evidence": [
+          "tests-postmerge"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "Enforcement is split: the API decides which calls need confirmation and issues and checks single-use, input-bound ids; the host obtains the user's consent. Rationale: policy and mode live in one place, a client that ignores 428 fails closed, and every issue, decline and use is audited. The server cannot tell a click from a client echoing the id, so consent rests on the trusted host.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "A room id attached by the host was rejected as a guard: the host attaches it to every call, including a malicious one, and room ids are not secret. The widget session token, held only by the host broker, is the identity.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Grant mode is per package grant, only for permissions with an optional operation, default «Спрашивать» at install; the migration sets existing grants to allow so behaviour does not change silently. The dialog offers only «Разрешить один раз» and «Отклонить»; 'always allow' lives in the installed list, not in a prompt a widget can trigger repeatedly.",
+        "evidence": [
+          "spec-doc"
+        ]
+      },
+      {
+        "text": "Timing: confirmation TTL 120 s, dialog deadline 110 s from the request, bridge timeout 250 s for confirmable operations; the worst case with one session renewal is 245 s, so a dialog deadline, not the transport timeout, ends an unanswered call.",
+        "evidence": [
+          "spec-doc",
+          "ledger"
+        ]
+      },
+      {
+        "text": "Rulings made during execution: no component unit test for ConfirmDialog (R1), built-in path covered only by the needsConfirmation matrix (R2), plan-chosen UI copy kept (R4), no attribution trailers in commits (R5), DECLINED stays out of the API code list (R7), R9 closed by the final fix, two-line list rows accepted.",
+        "evidence": [
+          "ledger"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": null,
+  "warnings": [
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "b2db2bacad8290803946c01731438cd37152eed9d0fa90529681a4afbfdea0bf",
+  "archivedAt": "2026-10-09T09:46:00Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "193953590b0d476ee438fdb562c28d5ce42b4605b89ab44f577e10e99c7e5634"
+  }
+}
