@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   canonicalJson,
+  classifyPath,
   compareVersions,
   isPackageId,
+  parseWidgetFolder,
+  parseWidgetManifest,
   parseWidgetPackage,
+  SERVED_TYPES,
   type WidgetPackage,
 } from '../src/widget-package.ts'
 
@@ -119,5 +123,135 @@ describe('compareVersions', () => {
     expect(compareVersions('1.10.0', '1.9.0')).toBeGreaterThan(0)
     expect(compareVersions('1.2.3', '1.2.3')).toBe(0)
     expect(compareVersions('0.9.9', '1.0.0')).toBeLessThan(0)
+  })
+})
+
+const manifestV2 = { format: 2, ...valid.manifest }
+const folderFiles = [
+  { path: 'widget.json', size: 300 },
+  { path: 'index.js', size: 1000 },
+  { path: 'style.css', size: 50 },
+]
+
+function folder(change?: (files: { path: string; size: number }[], manifest: any) => void) {
+  const files = structuredClone(folderFiles)
+  const manifest = structuredClone(manifestV2)
+  change?.(files, manifest)
+  return parseWidgetFolder(manifest, files)
+}
+
+describe('parseWidgetManifest', () => {
+  it('accepts a v2 manifest and returns it without format', () => {
+    expect(parseWidgetManifest(structuredClone(manifestV2))).toEqual({ ok: true, value: valid.manifest })
+  })
+
+  it.each([
+    ['no format', valid.manifest, /format must be 2/],
+    ['format 1', { ...manifestV2, format: 1 }, /format must be 2/],
+    ['an unknown field', { ...manifestV2, files: {} }, /manifest: unknown field "files"/],
+    ['a bad id', { ...manifestV2, id: 'x' }, /manifest\.id/],
+  ])('rejects %s', (_name, raw, message) => {
+    const result = parseWidgetManifest(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(message)
+  })
+})
+
+describe('classifyPath', () => {
+  it.each([
+    ['widget.json', 'manifest'],
+    ['index.js', 'code'],
+    ['chunk-a1b2.mjs', 'code'],
+    ['style.css', 'code'],
+    ['rive.wasm', 'code'],
+    ['assets/bg.mp4', 'asset'],
+    ['assets/Clip.MP4', 'asset'],
+    ['assets/models/ship.glb', 'asset'],
+    ['assets/data.json', 'asset'],
+    ['source/src/index.vue', 'source'],
+    ['source/.npmrc', 'source'],
+    ['source/My_File.TS', 'source'],
+  ])('%s is %s', (path, fileClass) => {
+    expect(classifyPath(path)).toBe(fileClass)
+  })
+
+  it.each([
+    'README.md',
+    'Widget.json',
+    'lib/index.js',
+    'assets/run.js',
+    'assets/.hidden.png',
+    '.env',
+    'assets/../index.js',
+    'assets/./a.png',
+    'source',
+    'source/a b.ts',
+    'source/../x',
+    'assets//a.png',
+    '/index.js',
+    '',
+  ])('rejects %s', (path) => {
+    expect(classifyPath(path)).toBeNull()
+  })
+
+  it('applies the length limit unless serving passes Infinity', () => {
+    const long = `${'a'.repeat(198)}.js`
+    expect(classifyPath(long)).toBeNull()
+    expect(classifyPath(long, Infinity)).toBe('code')
+  })
+})
+
+describe('SERVED_TYPES', () => {
+  it('maps code and asset extensions', () => {
+    expect(SERVED_TYPES.js).toBe('text/javascript; charset=utf-8')
+    expect(SERVED_TYPES.wasm).toBe('application/wasm')
+    expect(SERVED_TYPES.mp4).toBe('video/mp4')
+    expect(SERVED_TYPES.woff2).toBe('font/woff2')
+  })
+})
+
+describe('parseWidgetFolder', () => {
+  it('accepts a folder and sums sizes per class', () => {
+    const result = folder((files) => {
+      files.push({ path: 'assets/bg.mp4', size: 50_000_000 }, { path: 'source/src/index.vue', size: 700 })
+    })
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        manifest: valid.manifest,
+        files: [...folderFiles, { path: 'assets/bg.mp4', size: 50_000_000 }, { path: 'source/src/index.vue', size: 700 }],
+        sizes: { code: 1050, assets: 50_000_000, source: 700 },
+      },
+    })
+  })
+
+  it('accepts exactly 10 MB of code and a zero-byte file', () => {
+    expect(folder((files) => {
+      files[1]!.size = 10_485_760 - 50
+      files.push({ path: 'source/.gitkeep', size: 0 })
+    }).ok).toBe(true)
+  })
+
+  it.each([
+    ['a missing widget.json', (f: any[]) => { f.splice(0, 1) }, /widget\.json is required/],
+    ['code over 10 MB', (f: any[]) => { f[1].size = 10_485_760 }, /code .* larger than 10 MB/],
+    ['a widget.json over 64 KB', (f: any[]) => { f[0].size = 65_537 }, /widget\.json must be at most 64 KB/],
+    ['2001 files', (f: any[]) => { for (let i = 0; i < 1998; i++) f.push({ path: `source/f${i}`, size: 1 }) }, /at most 2000 files/],
+    ['a forbidden path', (f: any[]) => { f.push({ path: 'assets/x.exe', size: 1 }) }, /"assets\/x\.exe" is not an allowed path/],
+    ['a negative size', (f: any[]) => { f[1].size = -1 }, /"index\.js" has an invalid size/],
+    ['a fractional size', (f: any[]) => { f[1].size = 1.5 }, /"index\.js" has an invalid size/],
+    ['an extra item field', (f: any[]) => { f[1].hash = 'x' }, /each item is \{ path, size \}/],
+    ['a duplicate path', (f: any[]) => { f.push({ path: 'index.js', size: 1 }) }, /"index\.js" collides/],
+    ['paths differing in case', (f: any[]) => { f.push({ path: 'assets/a.png', size: 1 }, { path: 'assets/A.PNG', size: 1 }) }, /"assets\/A\.PNG" collides/],
+    ['a file and a directory', (f: any[]) => { f.push({ path: 'assets/a.mp4', size: 1 }, { path: 'assets/A.MP4/x.png', size: 1 }) }, /"assets\/A\.MP4\/x\.png" collides/],
+    ['a directory then a file', (f: any[]) => { f.push({ path: 'assets/a/x.png', size: 1 }, { path: 'assets/A', size: 1 }) }, /"assets\/A" is not an allowed path|collides/],
+    ['a missing entry', (f: any[], m: any) => { m.entry = 'main.js' }, /manifest\.entry/],
+    ['a CSS entry', (f: any[], m: any) => { m.entry = 'style.css' }, /manifest\.entry/],
+    ['a missing style', (f: any[], m: any) => { m.styles = ['theme.css'] }, /manifest\.styles/],
+    ['files that are not a list', null, /files must be a list/],
+  ])('rejects %s', (_name, change, message) => {
+    const result = change === null ? parseWidgetFolder(structuredClone(manifestV2), {}) : folder(change as any)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(message)
   })
 })
