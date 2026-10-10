@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -110,6 +110,35 @@ describe('buildWidget', () => {
       expect(await readFile(join(second, file), 'utf8')).toBe(await readFile(join(first, file), 'utf8'))
     }
   }, 60_000)
+
+  it('builds the same files and file names from different absolute directories', async () => {
+    const outputs: Record<string, string>[] = []
+    for (const depth of ['a', 'b/deeper']) {
+      const base = await mkdtemp(join(tmpdir(), 'ld-widget-det-'))
+      dirs.push(base)
+      const dir = join(base, depth, 'lazy')
+      await mkdir(dir, { recursive: true })
+      await cp(join(fixtures, 'lazy'), dir, { recursive: true })
+      const target = await buildWidget(dir, { source: false })
+      outputs.push(Object.fromEntries(await Promise.all((await filesOf(target)).map(async (file) => [file, await readFile(join(target, file), 'utf8')] as const))))
+    }
+    expect(outputs[1]).toEqual(outputs[0])
+    expect(Object.keys(outputs[0]!).filter((file) => file.startsWith('chunk-'))).toHaveLength(1)
+  }, 60_000)
+
+  it.each(['src/link', 'assets/link'])('fails on a symlink at %s', async (path) => {
+    const dir = await copyOf('counter')
+    await mkdir(join(dir, 'assets'), { recursive: true })
+    await symlink(tmpdir(), join(dir, path))
+    await expect(buildWidget(dir)).rejects.toThrow(new RegExp(`symlinks are not allowed: ${path}`))
+  }, 30_000)
+
+  it('ignores a symlinked node_modules', async () => {
+    const dir = await copyOf('counter')
+    await symlink(tmpdir(), join(dir, 'node_modules'))
+    const source = (await filesOf(await buildWidget(dir))).filter((file) => file.startsWith('source/'))
+    expect(source).toEqual(['source/src/index.vue', 'source/widget.json'])
+  }, 30_000)
 })
 
 describe('keepInSource', () => {

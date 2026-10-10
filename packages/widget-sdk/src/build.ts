@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import vue from '@vitejs/plugin-vue'
@@ -35,15 +35,22 @@ function mediaImportGuard(): Plugin {
   }
 }
 
-// Rolldown's `//#region <path>` markers embed the build directory, which would make the same sources build to different code.
+// Rolldown's `//#region <path>` markers embed the build directory, which would make the same sources build to different
+// code. Stripped in renderChunk, before chunk hashes are computed, so file names and imports stay path-independent too.
 function stripRegionMarkers(): Plugin {
   return {
     name: 'ld-widget-strip-region-markers',
-    generateBundle(_options, bundle) {
-      for (const chunk of Object.values(bundle)) {
-        if (chunk.type === 'chunk') chunk.code = chunk.code.replace(/^\/\/#(?:end)?region\b.*\n/gm, '')
-      }
-    },
+    renderChunk: (code) => ({ code: code.replace(/^\/\/#(?:end)?region\b.*\n/gm, ''), map: null }),
+  }
+}
+
+// The upload API accepts regular files only, and `cp` would rewrite relative link targets to absolute ones.
+function copyFilter(root: string, keep: (path: string) => boolean = () => true): (from: string) => Promise<boolean> {
+  return async (from) => {
+    const path = relative(root, from)
+    if (!keep(path)) return false
+    if ((await lstat(from)).isSymbolicLink()) throw new Error(`Invalid widget project: symlinks are not allowed: ${path.split(sep).join('/')}`)
+    return true
   }
 }
 
@@ -89,9 +96,9 @@ export async function buildWidget(dir: string, { source = true }: { source?: boo
         rolldownOptions: { external: ['vue', '@lifedashboard/widget-sdk'], output: { chunkFileNames: 'chunk-[hash].js' } },
       },
     })
-    if (existsSync(join(root, 'assets'))) await cp(join(root, 'assets'), join(stage, 'assets'), { recursive: true })
+    if (existsSync(join(root, 'assets'))) await cp(join(root, 'assets'), join(stage, 'assets'), { recursive: true, filter: copyFilter(root) })
     // Copied from outside the project: fs.cp refuses a destination inside its source.
-    if (source) await cp(root, join(stage, 'source'), { recursive: true, filter: (from) => keepInSource(relative(root, from)) })
+    if (source) await cp(root, join(stage, 'source'), { recursive: true, filter: copyFilter(root, keepInSource) })
     await writeFile(join(stage, 'widget.json'), `${JSON.stringify(manifest, null, 2)}\n`)
     const result = parseWidgetFolder(manifest, await listFolder(stage))
     if (!result.ok) throw new Error(`Invalid widget package: ${result.error}`)
