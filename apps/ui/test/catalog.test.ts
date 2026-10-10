@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Grant, InstalledPackage, WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import {
   describeSource,
+  describeInstallFailure,
   describeUploadFailure,
   filesFromEntry,
   filesFromInput,
@@ -134,12 +135,24 @@ describe('readFolder', () => {
   })
 
   it('returns the manifest and the file list', async () => {
-    const result = await readFolder([picked('widget.json', JSON.stringify(MANIFEST)), picked('index.js', 'abc')])
+    const input = [picked('widget.json', JSON.stringify(MANIFEST)), picked('index.js', 'abc')]
+    const result = await readFolder(input)
     expect(result).toEqual({
       ok: true,
       manifest: MANIFEST,
+      picked: input,
       files: [{ path: 'widget.json', size: JSON.stringify(MANIFEST).length }, { path: 'index.js', size: 3 }],
     })
+  })
+
+  it('drops OS metadata files at any depth from the checked list and the files to upload', async () => {
+    const kept = [picked('widget.json', JSON.stringify(MANIFEST)), picked('index.js', 'abc'), picked('source/src/a.vue', 'x')]
+    const noise = ['.DS_Store', 'Thumbs.db', 'desktop.ini', 'source/.DS_Store', 'source/src/Thumbs.db'].map((path) => picked(path, 'junk'))
+    const result = await readFolder([...noise, ...kept])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.files.map((item) => item.path)).toEqual(kept.map((item) => item.path))
+    expect(result.picked).toEqual(kept)
   })
 })
 
@@ -192,9 +205,23 @@ describe('describeUploadFailure', () => {
 
   it.each([
     { kind: 'unavailable' as const },
-    { kind: 'invalid' as const, code: 'TOO_LARGE', message: 'Too large' },
+    { kind: 'invalid' as const, code: 'VALIDATION_ERROR', message: 'Rejected' },
   ])('offers a retry for $kind', (failure) => {
     expect(describeUploadFailure({ ok: false, path: 'index.js', failure })).toEqual({ restart: false, message: 'Не удалось загрузить index.js' })
+  })
+})
+
+describe('describeInstallFailure', () => {
+  it('asks to start over when the upload session is gone', () => {
+    expect(describeInstallFailure({ kind: 'invalid', code: 'NOT_FOUND', message: 'Upload not found or expired' })).toBe('Загрузка прервана, начните заново')
+  })
+
+  it.each([
+    { kind: 'conflict' as const },
+    { kind: 'unavailable' as const },
+    { kind: 'invalid' as const, code: 'VALIDATION_ERROR', message: 'Rejected' },
+  ])('leaves $kind to the generic text', (failure) => {
+    expect(describeInstallFailure(failure)).toBeNull()
   })
 })
 

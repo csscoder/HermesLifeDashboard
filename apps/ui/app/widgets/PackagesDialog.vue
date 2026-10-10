@@ -4,6 +4,7 @@ import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lif
 import { api, type ApiFailure } from '../api'
 import {
   CONFIRMABLE_PERMISSIONS,
+  describeInstallFailure,
   describeUploadFailure,
   filesFromEntry,
   filesFromInput,
@@ -30,6 +31,7 @@ const MODES: Record<GrantMode, string> = {
   allow: 'Разрешить',
 }
 const VERSION_CONFLICT = 'Эта версия уже установлена с другим содержимым'
+const TOO_MANY_UPLOADS = 'Слишком много незавершённых установок, повторите позже'
 
 // Template ref keys differ from setup bindings (see WidgetBoard.vue).
 const dialog = useTemplateRef<HTMLDialogElement>('dialogBox')
@@ -101,11 +103,11 @@ async function start(files: PickedFile[]) {
   }
   busy.value = false
   if (!result.ok) {
-    message.value = failureText(result, VERSION_CONFLICT)
+    message.value = failureText(result, TOO_MANY_UPLOADS)
     return
   }
-  pending.value = { uploadId: result.data.uploadId, inspection: result.data.inspection, files }
-  remaining.value = files
+  pending.value = { uploadId: result.data.uploadId, inspection: result.data.inspection, files: read.picked }
+  remaining.value = read.picked
   progress.value = null
   failedPath.value = null
   modes.value = initialModes(result.data.inspection.newPermissions)
@@ -157,7 +159,7 @@ async function install() {
   if (!result.ok) {
     busy.value = false
     pending.value = null
-    message.value = failureText(result, VERSION_CONFLICT)
+    message.value = describeInstallFailure(result) ?? failureText(result, VERSION_CONFLICT)
     return
   }
   // New confirmable grants come out as «ask»; a failed PUT leaves that safer mode.
@@ -267,7 +269,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
       <p v-if="pending.inspection.installed">Эта версия уже установлена</p>
       <progress v-if="progress" class="packages__progress" :value="progress.sent" :max="progress.total" />
       <div class="packages__actions">
-        <button type="button" class="packages__button" :disabled="busy" @click="install">
+        <button type="button" class="packages__button" :disabled="busy || pending.inspection.installed" @click="install">
           {{ failedPath ? 'Повторить' : 'Установить' }}
         </button>
         <button type="button" class="packages__button" @click="cancel">Отмена</button>

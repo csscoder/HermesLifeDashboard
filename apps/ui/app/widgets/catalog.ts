@@ -35,7 +35,8 @@ export interface PickedFile {
   file: Blob
 }
 
-export type FolderRead = { ok: true; manifest: unknown; files: FolderFile[] } | { ok: false; message: string }
+// `picked` is `files` with the same filtering, for the upload.
+export type FolderRead = { ok: true; manifest: unknown; files: FolderFile[]; picked: PickedFile[] } | { ok: false; message: string }
 
 export type UploadOutcome = { ok: true } | { ok: false; path: string; failure: ApiFailure }
 
@@ -100,8 +101,12 @@ export async function filesFromEntry(entry: FileSystemDirectoryEntry, prefix = '
   return nested.flat()
 }
 
+// Written by the file manager into folders the user opened; the API rejects them, so they never leave the browser.
+const OS_METADATA = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])
+
 /** Reads widget.json and checks the folder with the API's rules before any request. */
-export async function readFolder(files: readonly PickedFile[]): Promise<FolderRead> {
+export async function readFolder(all: readonly PickedFile[]): Promise<FolderRead> {
+  const files = all.filter((item) => !OS_METADATA.has(item.path.split('/').pop()!.toLowerCase()))
   const manifestFile = files.find((item) => item.path === 'widget.json')
   if (!manifestFile) return { ok: false, message: 'В папке нет widget.json' }
   let manifest: unknown
@@ -112,7 +117,7 @@ export async function readFolder(files: readonly PickedFile[]): Promise<FolderRe
   }
   const list = files.map((item) => ({ path: item.path, size: item.file.size }))
   const parsed = parseWidgetFolder(manifest, list)
-  return parsed.ok ? { ok: true, manifest, files: list } : { ok: false, message: `Папка отклонена: ${parsed.error}` }
+  return parsed.ok ? { ok: true, manifest, files: list, picked: files } : { ok: false, message: `Папка отклонена: ${parsed.error}` }
 }
 
 /** Sends files three at a time; stops at the first failure and names its file. */
@@ -147,6 +152,11 @@ export function describeUploadFailure(outcome: Extract<UploadOutcome, { ok: fals
   return failure.kind === 'invalid' && failure.code === 'NOT_FOUND'
     ? { restart: true, message: `Загрузка прервана на ${path}, начните заново` }
     : { restart: false, message: `Не удалось загрузить ${path}` }
+}
+
+/** The install call failed: an ended session needs a fresh start; null leaves the text to the caller. */
+export function describeInstallFailure(failure: ApiFailure): string | null {
+  return failure.kind === 'invalid' && failure.code === 'NOT_FOUND' ? 'Загрузка прервана, начните заново' : null
 }
 
 export function formatBytes(bytes: number): string {

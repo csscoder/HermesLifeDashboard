@@ -79,9 +79,9 @@ my-widget/
     └── index.vue     # Vue single-file component
 ```
 
-`ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, the project itself without `node_modules/`, `dist/`, `assets/`, `.git/` and `.env*` files. `--no-source` leaves `source/` out.
+`ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, the project itself without `node_modules/`, `dist/`, `assets/`, `.git/`, `.env*` and `.DS_Store` files. `--no-source` leaves `source/` out.
 
-Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Workers start from a `blob:` URL. A widget still has no network access beyond its own folder.
+Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Template `src` attributes are never bundled (`transformAssetUrls: false`), so an image used as `<img src="./x.png">` must live in `assets/` and be referenced by URL. Workers start from a `blob:` URL. A widget still has no network access beyond its own folder.
 
 To rebuild an installed widget, copy its `source/` and `assets/` (paths are shown in «Виджеты») into `examples/widgets/<name>/` of a LifeDashboard checkout and run `pnpm -C examples/widgets/<name> build`.
 
