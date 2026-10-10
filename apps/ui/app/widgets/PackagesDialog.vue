@@ -83,13 +83,16 @@ async function start(files: PickedFile[]) {
   if (busy.value) return
   if (pending.value) cancel()
   const mine = ++run
+  // Set before the first await so an overlapping start is rejected; a stale run never touches `busy` (cancel reset it).
+  busy.value = true
   message.value = null
   const read = await readFolder(files)
+  if (mine !== run) return
   if (!read.ok) {
+    busy.value = false
     message.value = read.message
     return
   }
-  busy.value = true
   const result = await api.createUpload(read.manifest, read.files)
   if (mine !== run) {
     // The dialog closed or another folder replaced this run: release the session nobody owns.
