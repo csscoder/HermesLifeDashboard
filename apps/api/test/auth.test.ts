@@ -205,3 +205,38 @@ describe('sessions', () => {
     expect((await call(t.app, { url: PROBE, cookie, origin: ORIGIN })).statusCode).toBe(404)
   })
 })
+
+describe('startup code', () => {
+  it('is not issued when an unexpired session exists', async () => {
+    await pair(t)
+    const restarted = await testApp(t)
+    try {
+      expect(restarted.codes).toEqual([])
+    } finally {
+      await restarted.close()
+    }
+  })
+
+  it('is issued when every session has expired', async () => {
+    t.db
+      .prepare('INSERT INTO sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)')
+      .run('expired', new Date(T0 - 31 * DAY).toISOString(), new Date(T0 - DAY).toISOString())
+    const restarted = await testApp(t)
+    try {
+      expect(restarted.codes).toHaveLength(1)
+    } finally {
+      await restarted.close()
+    }
+  })
+
+  it('is still issued on request while a session exists', async () => {
+    await pair(t)
+    const restarted = await testApp(t)
+    try {
+      expect((await call(restarted.app, { method: 'POST', url: PAIR_CODE, payload: {} })).statusCode).toBe(200)
+      expect(restarted.codes).toHaveLength(1)
+    } finally {
+      await restarted.close()
+    }
+  })
+})

@@ -27,7 +27,7 @@ async function submit() {
 async function requestCode() {
   const result = await api.pairCode()
   message.value = result.ok
-    ? 'Новый код выведен в терминал API'
+    ? 'Новый код выведен в терминал API или в окно приложения'
     : result.kind === 'rate-limited'
       ? 'Подождите несколько секунд'
       : 'API: недоступен'
@@ -38,7 +38,7 @@ async function requestCode() {
   <form class="pairing" @submit.prevent="submit">
     <h2 class="pairing__title">Подключение к API</h2>
     <label class="pairing__label">
-      Код из терминала API
+      Код сопряжения
       <input
         v-model="code"
         class="pairing__input"

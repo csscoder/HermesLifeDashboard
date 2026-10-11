@@ -142,7 +142,9 @@ export function registerAuth(app: FastifyInstance, { db, config, now, onPairingC
     return ok(request, null)
   })
 
-  issueCode()
+  // Spec 2026-10-11 «Pairing at start»: a paired install starts without a code; «Новый код» still issues one.
+  const paired = db.prepare('SELECT 1 FROM sessions WHERE expires_at > ? LIMIT 1').get(now().toISOString())
+  if (paired === undefined) issueCode()
 }
 
 function sessionCookie(token: string): string {
