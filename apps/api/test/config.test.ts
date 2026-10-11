@@ -55,4 +55,29 @@ describe('loadConfig', () => {
       )
     },
   )
+
+  it('reads absolute LIFEDASHBOARD_UI_DIR and LIFEDASHBOARD_RUNTIME_DIR', () => {
+    const config = loadConfig(
+      { LIFEDASHBOARD_UI_DIR: '/app/ui', LIFEDASHBOARD_RUNTIME_DIR: '/app/api/runtime' },
+      'darwin',
+      HOME,
+    )
+    expect(config.uiDir).toBe('/app/ui')
+    expect(config.runtimeDir).toBe('/app/api/runtime')
+  })
+
+  it('leaves uiDir and runtimeDir out when unset', () => {
+    const config = loadConfig({}, 'darwin', HOME)
+    expect('uiDir' in config).toBe(false)
+    expect('runtimeDir' in config).toBe(false)
+  })
+
+  it.each([
+    ['LIFEDASHBOARD_UI_DIR', 'ui'],
+    ['LIFEDASHBOARD_UI_DIR', ''],
+    ['LIFEDASHBOARD_RUNTIME_DIR', 'runtime'],
+    ['LIFEDASHBOARD_RUNTIME_DIR', ''],
+  ])('rejects a relative %s %j', (name, value) => {
+    expect(() => loadConfig({ [name]: value }, 'darwin', HOME)).toThrow(`Invalid ${name}: "${value}"`)
+  })
 })

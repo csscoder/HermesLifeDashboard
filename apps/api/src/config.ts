@@ -6,6 +6,9 @@ export interface ApiConfig {
   port: number
   dataDir: string
   uiOrigins: string[]
+  // Desktop app only (spec 2026-10-11 «Configuration»): the generated UI and the sandbox runtime files.
+  uiDir?: string
+  runtimeDir?: string
 }
 
 const DEFAULT_PORT = 3001
@@ -16,12 +19,17 @@ export function loadConfig(
   platform: NodeJS.Platform = process.platform,
   home: string = homedir(),
 ): ApiConfig {
-  return {
+  const config: ApiConfig = {
     host: '127.0.0.1',
     port: parsePort(env.LIFEDASHBOARD_API_PORT),
     dataDir: parseDataDir(env, platform, home),
     uiOrigins: parseOrigins(env.LIFEDASHBOARD_UI_ORIGINS),
   }
+  const uiDir = parseOptionalDir('LIFEDASHBOARD_UI_DIR', env.LIFEDASHBOARD_UI_DIR)
+  if (uiDir !== undefined) config.uiDir = uiDir
+  const runtimeDir = parseOptionalDir('LIFEDASHBOARD_RUNTIME_DIR', env.LIFEDASHBOARD_RUNTIME_DIR)
+  if (runtimeDir !== undefined) config.runtimeDir = runtimeDir
+  return config
 }
 
 function parsePort(raw: string | undefined): number {
@@ -42,6 +50,12 @@ function parseDataDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: s
   if (platform === 'win32') return join(env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'LifeDashboard')
   const xdg = env.XDG_DATA_HOME
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'share'), 'lifedashboard')
+}
+
+function parseOptionalDir(name: string, raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined
+  if (!isAbsolute(raw)) throw new Error(`Invalid ${name}: "${raw}"`)
+  return raw
 }
 
 function parseOrigins(raw: string | undefined): string[] {
