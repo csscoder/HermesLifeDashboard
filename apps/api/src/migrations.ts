@@ -157,4 +157,13 @@ ALTER TABLE widgets ADD COLUMN appearance TEXT;
 `,
   // Spec 2026-10-10-widget-package-v2 «Migration v1 → v2».
   movePackageFilesToDisk,
+  `
+-- Spec 2026-10-11-hermes-tasks-widget: network origins the user approved, per package.
+CREATE TABLE widget_network_origins (
+  package_id TEXT NOT NULL REFERENCES widget_packages(id) ON DELETE CASCADE,
+  origin TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  PRIMARY KEY (package_id, origin)
+);
+`,
 ]

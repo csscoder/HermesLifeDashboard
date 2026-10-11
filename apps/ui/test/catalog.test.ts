@@ -43,6 +43,7 @@ const clock: InstalledPackage = {
     { version: '1.0.0', hash: 'h1', manifest: manifest('1.0.0', 'Часы'), paths: { source: null, assets: null } },
   ],
   grants: [],
+  origins: [],
 }
 
 describe('catalog', () => {

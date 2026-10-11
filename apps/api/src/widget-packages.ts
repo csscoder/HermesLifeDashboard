@@ -53,6 +53,16 @@ export function newPermissionsOf(db: DatabaseSync, manifest: WidgetPackageManife
   return manifest.permissions.filter((permission) => !granted.has(permission))
 }
 
+export function originsOf(db: DatabaseSync, packageId: string): string[] {
+  const rows = db.prepare('SELECT origin FROM widget_network_origins WHERE package_id = ? ORDER BY origin').all(packageId) as unknown as { origin: string }[]
+  return rows.map((row) => row.origin)
+}
+
+export function newOriginsOf(db: DatabaseSync, manifest: WidgetPackageManifest): string[] {
+  const held = new Set(originsOf(db, manifest.id))
+  return (manifest.network ?? []).filter((origin) => !held.has(origin))
+}
+
 /** Package, version and grants rows; the caller holds the transaction. */
 export function insertVersion(db: DatabaseSync, manifest: WidgetPackageManifest, hash: string, at: string): void {
   db.prepare(
@@ -65,6 +75,9 @@ export function insertVersion(db: DatabaseSync, manifest: WidgetPackageManifest,
   const confirmable = new Set<WidgetPermission>(confirmablePermissions())
   const grant = db.prepare('INSERT OR IGNORE INTO widget_grants (package_id, permission, granted_at, mode) VALUES (?, ?, ?, ?)')
   for (const permission of manifest.permissions) grant.run(manifest.id, permission, at, confirmable.has(permission) ? 'ask' : 'allow')
+  // Like grants, approved origins belong to the package and only grow.
+  const origin = db.prepare('INSERT OR IGNORE INTO widget_network_origins (package_id, origin, granted_at) VALUES (?, ?, ?)')
+  for (const value of manifest.network ?? []) origin.run(manifest.id, value, at)
 }
 
 function listPackages(db: DatabaseSync, root: string): InstalledPackage[] {
@@ -92,6 +105,7 @@ function listPackages(db: DatabaseSync, root: string): InstalledPackage[] {
       })
       .sort((a, b) => compareVersions(b.version, a.version)),
     grants: grantsOf(db, pkg.id),
+    origins: originsOf(db, pkg.id),
   }))
 }
 
@@ -100,7 +114,7 @@ function deletePackage(db: DatabaseSync, root: string, id: string): void {
   if (db.prepare("SELECT 1 FROM widgets WHERE source_kind = 'package' AND source_type = ? LIMIT 1").get(id)) {
     throw new ApiError('PACKAGE_IN_USE', 'Widgets of this package are placed on a board')
   }
-  // Versions and grants go with it (ON DELETE CASCADE).
+  // Versions, grants and origins go with it (ON DELETE CASCADE).
   db.prepare('DELETE FROM widget_packages WHERE id = ?').run(id)
   rmSync(join(root, id), { recursive: true, force: true })
 }

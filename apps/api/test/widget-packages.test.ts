@@ -52,6 +52,7 @@ describe('installed versions', () => {
         author: 'test',
         versions: [{ version: '1.0.0', hash: inspection.hash, manifest, paths: { source: null, assets: null } }],
         grants: [{ permission: 'state', mode: 'allow' }],
+        origins: [],
       },
     ])
     const dir = join(t.dataDir, 'userwidgets', 'dev.test.hello', '1.0.0')

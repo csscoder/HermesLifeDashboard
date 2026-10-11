@@ -38,6 +38,7 @@ describe('openDatabase', () => {
       'sessions',
       'widget_audit',
       'widget_grants',
+      'widget_network_origins',
       'widget_package_versions',
       'widget_packages',
       'widget_state',
@@ -218,7 +219,7 @@ describe('migration 6: package files to disk', () => {
   it('writes files and a v2 widget.json, keeps the hash and drops files', async () => {
     await v5WithPackage()
     const db = await openDatabase(file, ctx())
-    expect(userVersion(db)).toBe(6)
+    expect(userVersion(db)).toBe(MIGRATIONS.length)
     expect(readFileSync(versionPath('index.js'), 'utf8')).toBe('export default {}')
     expect(readFileSync(versionPath('style.css'), 'utf8')).toBe('.a{}')
     expect(JSON.parse(readFileSync(versionPath('widget.json'), 'utf8'))).toEqual({ format: 2, ...MANIFEST })

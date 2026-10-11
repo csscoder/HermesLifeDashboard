@@ -116,6 +116,8 @@ export interface PackageInspection {
   installed: boolean
   // Manifest permissions the package does not hold yet.
   newPermissions: WidgetPermission[]
+  // Manifest network origins the package does not hold yet (spec 2026-10-11).
+  newOrigins: string[]
   sizes: FolderSizes
 }
 
@@ -139,6 +141,8 @@ export interface InstalledPackage {
   // Newest first.
   versions: InstalledPackageVersion[]
   grants: Grant[]
+  // Network origins the user approved for the package.
+  origins: string[]
 }
 
 export function isPackageId(value: unknown): value is string {

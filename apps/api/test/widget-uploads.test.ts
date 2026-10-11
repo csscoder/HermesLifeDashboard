@@ -76,7 +76,7 @@ describe('POST /widget-uploads', () => {
     const { uploadId, inspection } = response.json().data
     expect(uploadId).toMatch(/^[0-9a-f]{32}$/)
     const { format: _format, ...manifest } = pkg.manifest
-    expect(inspection).toEqual({ manifest, hash: null, installed: false, newPermissions: ['state'], sizes: { code: 25, assets: 0, source: 0 } })
+    expect(inspection).toEqual({ manifest, hash: null, installed: false, newPermissions: ['state'], newOrigins: [], sizes: { code: 25, assets: 0, source: 0 } })
     expect(existsSync(join(staging(), uploadId))).toBe(true)
   })
 
@@ -286,5 +286,37 @@ describe('DELETE /widget-uploads/:id', () => {
     expect((await call(t.app, { method: 'DELETE', url: `${UPLOADS}/${uploadId}`, cookie, payload: {} })).statusCode).toBe(200)
     expect(existsSync(join(staging(), uploadId))).toBe(false)
     expect(errorCode(await install(uploadId))).toBe('NOT_FOUND')
+  })
+})
+
+describe('network origins', () => {
+  const ORIGIN_A = 'http://127.0.0.1:8787'
+  const ORIGIN_B = 'http://127.0.0.1:9999'
+
+  function netPackage(version: string, network: string[]) {
+    return widgetPackage((pkg) => {
+      pkg.manifest.version = version
+      pkg.manifest.permissions = ['state', 'network']
+      pkg.manifest.network = network
+    })
+  }
+
+  it('lists new origins before install, stores them, and lists only unheld ones for a new version', async () => {
+    const first = await uploadPackage(t, cookie, netPackage('1.0.0', [ORIGIN_A]))
+    expect(first.inspection.newOrigins).toEqual([ORIGIN_A])
+    await installPackage(t, cookie, netPackage('1.0.0', [ORIGIN_A]))
+    const rows = t.db.prepare('SELECT package_id, origin FROM widget_network_origins').all()
+    expect(rows).toEqual([{ package_id: 'dev.test.hello', origin: ORIGIN_A }])
+
+    const second = await uploadPackage(t, cookie, netPackage('1.1.0', [ORIGIN_A, ORIGIN_B]))
+    expect(second.inspection.newOrigins).toEqual([ORIGIN_B])
+  })
+
+  it('shows held origins in the packages list and drops them with the package', async () => {
+    await installPackage(t, cookie, netPackage('1.0.0', [ORIGIN_A]))
+    const listed = await call(t.app, { url: '/api/v1/widget-packages', cookie })
+    expect(listed.json().data[0].origins).toEqual([ORIGIN_A])
+    expect((await call(t.app, { method: 'DELETE', url: '/api/v1/widget-packages/dev.test.hello', cookie, payload: {} })).statusCode).toBe(200)
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_network_origins').get()).toEqual({ n: 0 })
   })
 })
