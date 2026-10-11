@@ -248,7 +248,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
       <h3 class="packages__subtitle">Разрешения</h3>
       <ul class="packages__permissions">
         <li v-for="permission in manifest.permissions" :key="permission" class="packages__grant">
-          {{ PERMISSIONS[permission] }}
+          {{ PERMISSIONS[permission] }}<template v-if="permission === 'network'">: {{ (manifest.network ?? []).join(', ') }}</template>
           <select
             v-if="modes[permission]"
             v-model="modes[permission]"
@@ -266,6 +266,9 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
       </ul>
       <p v-if="isUpdate && pending.inspection.newPermissions.length > 0" class="packages__warning">
         Новые разрешения: {{ permissionList(pending.inspection.newPermissions) }}
+      </p>
+      <p v-if="isUpdate && pending.inspection.newOrigins.length > 0" class="packages__warning">
+        Новые адреса: {{ pending.inspection.newOrigins.join(', ') }}
       </p>
       <p v-if="pending.inspection.installed">Эта версия уже установлена</p>
       <progress v-if="progress" class="packages__progress" :value="progress.sent" :max="progress.total" />
@@ -287,7 +290,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
           <span class="packages__grants">
             <template v-if="pkg.grants.length === 0">Без разрешений</template>
             <span v-for="grant in pkg.grants" :key="grant.permission" class="packages__grant">
-              {{ PERMISSIONS[grant.permission] }}
+              {{ PERMISSIONS[grant.permission] }}<template v-if="grant.permission === 'network'">: {{ pkg.origins.join(', ') }}</template>
               <select
                 v-if="CONFIRMABLE_PERMISSIONS.has(grant.permission)"
                 class="packages__select"

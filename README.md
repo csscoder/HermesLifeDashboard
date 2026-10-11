@@ -68,7 +68,7 @@ The initial SDK lives at [`packages/widget-sdk`](packages/widget-sdk). It curren
 | `widget.call(op, input)` | Call a supported, permission-checked gateway operation. |
 | `ld-widget build [dir] [--no-source]` | Build a widget project into an installable folder `dist/<id>-<version>/`. |
 
-**Current gateway operations are limited to `state.get`, `state.set`, and `notifications.send`.** Widget access to external HTTP services, LifeDashboard data sources, local device actions, and Hermes is planned; it is not available through the SDK today.
+**Gateway operations:** `state.get`, `state.set`, `notifications.send`, `http.get` and `http.send`. HTTP goes through the LifeDashboard API to the exact origins a widget lists in `widget.json` `network` (together with the `network` permission) and the user approves at install; a new version with a new origin asks again. Redirects are not followed, no cookies or secrets are sent, the request body is at most 64 KB, the response at most 100 KB, and the upstream timeout is 4 s. LifeDashboard data sources, local device actions and Hermes are planned; they are not available through the SDK today.
 
 A widget project contains at least:
 
@@ -82,13 +82,14 @@ my-widget/
 
 `ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, the project itself without `node_modules/`, `dist/`, `assets/`, `.git/`, `.env*` and `.DS_Store` files. `--no-source` leaves `source/` out.
 
-Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Template `src` attributes are never bundled (`transformAssetUrls: false`), so an image used as `<img src="./x.png">` must live in `assets/` and be referenced by URL. Workers start from a `blob:` URL. A widget still has no network access beyond its own folder.
+Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Template `src` attributes are never bundled (`transformAssetUrls: false`), so an image used as `<img src="./x.png">` must live in `assets/` and be referenced by URL. Workers start from a `blob:` URL. A widget loads files only from its own folder; network requests go through `http.get` and `http.send`.
 
 To rebuild an installed widget, copy its `source/` and `assets/` (paths are shown in «Виджеты») into `examples/widgets/<name>/` of a LifeDashboard checkout and run `pnpm -C examples/widgets/<name> build`.
 
 **Existing examples:**
 
 - [`examples/widgets/hello`](examples/widgets/hello) demonstrates persisted state, revision conflicts, notifications, and a background video from `assets/`.
+- [`examples/widgets/hermes-tasks`](examples/widgets/hermes-tasks) shows and edits tasks of a local Hermes Tasks container on `127.0.0.1:8787` through `http.get`/`http.send`.
 - [`examples/widgets/hostile`](examples/widgets/hostile) is a security test fixture, **not** a production widget template.
 - [`apps/ui/app/widgets/builtin/clocks/analog_1`](apps/ui/app/widgets/builtin/clocks/analog_1) shows an animated built-in clock implemented with Vue, SVG, and GSAP.
 

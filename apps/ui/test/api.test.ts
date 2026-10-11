@@ -58,6 +58,13 @@ describe('apiRequest', () => {
     expect(await api.rooms()).toEqual({ ok: false, kind })
   })
 
+  it('keeps the message of a 502 UPSTREAM_ERROR; another 502 stays unavailable', async () => {
+    vi.stubGlobal('fetch', respond(502, { error: { code: 'UPSTREAM_ERROR', message: 'The service is unreachable', requestId: 'x', retryable: false } }))
+    expect(await api.gateway('http.get', 't', { url: 'http://127.0.0.1:8787/' })).toEqual({ ok: false, kind: 'upstream', message: 'The service is unreachable' })
+    vi.stubGlobal('fetch', respond(502, { error: { code: 'X', message: 'm', requestId: 'x', retryable: false } }))
+    expect(await api.rooms()).toEqual({ ok: false, kind: 'unavailable' })
+  })
+
   it('maps another 4xx to invalid with the server message', async () => {
     vi.stubGlobal('fetch', respond(400, { error: { code: 'VALIDATION_ERROR', message: 'bad rect', requestId: 'x', retryable: false } }))
     expect(await api.rooms()).toEqual({ ok: false, kind: 'invalid', code: 'VALIDATION_ERROR', message: 'bad rect' })

@@ -14,6 +14,8 @@ export type ApiFailure =
   // The gateway asks the user first (spec 2026-10-09); the id goes back on one repeat of the call.
   | { kind: 'confirmation-required'; confirmationId: string }
   | { kind: 'invalid'; code: string; message: string }
+  // Network gateway: the service behind http.get/http.send failed; the message names the cause.
+  | { kind: 'upstream'; message: string }
   | { kind: 'unavailable' }
 
 export type ApiResult<T> = { ok: true; data: T } | ({ ok: false } & ApiFailure)
@@ -64,6 +66,9 @@ export async function apiRequest<T>(
       code: errorField(payload, 'code') ?? 'UNKNOWN',
       message: errorField(payload, 'message') ?? 'Request rejected',
     }
+  }
+  if (response.status === 502 && errorField(payload, 'code') === 'UPSTREAM_ERROR') {
+    return { ok: false, kind: 'upstream', message: errorField(payload, 'message') ?? 'The service failed' }
   }
   return { ok: false, kind: 'unavailable' }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import type { GatewayOp, NotificationInput } from '@lifedashboard/contracts/widget-gateway'
+import type { GatewayOp, HttpSendInput, NotificationInput } from '@lifedashboard/contracts/widget-gateway'
 import { confirmations } from './confirmations'
 
 // «Виджет «…» хочет …»; a Record so a new op cannot reach the dialog without its text.
@@ -19,6 +19,7 @@ const dialog = useTemplateRef<HTMLDialogElement>('dialogBox')
 const declineButton = useTemplateRef<HTMLButtonElement>('declineBox')
 const current = computed(() => confirmations.value[0] ?? null)
 const notification = computed(() => (current.value?.op === 'notifications.send' ? (current.value.input as NotificationInput) : null))
+const request = computed(() => (current.value?.op === 'http.send' ? (current.value.input as HttpSendInput) : null))
 const armed = ref(false)
 let armTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -57,6 +58,9 @@ onUnmounted(() => clearTimeout(armTimer))
       <div v-if="notification" class="confirm__preview">
         <p class="confirm__preview-title">{{ notification.title }}</p>
         <p v-if="notification.body">{{ notification.body }}</p>
+      </div>
+      <div v-if="request" class="confirm__preview">
+        <p class="confirm__preview-title">{{ request.method }} {{ request.url }}</p>
       </div>
       <div class="confirm__actions">
         <button type="button" class="confirm__button" :disabled="!armed" @click="current.answer('approved')">Разрешить один раз</button>

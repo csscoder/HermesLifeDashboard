@@ -102,6 +102,14 @@ describe('createGatewayClient', () => {
     expect(error).toMatchObject({ code })
   })
 
+  it('reports an upstream failure as UNAVAILABLE with its message', async () => {
+    const { client } = setup(answers({ ok: false, kind: 'upstream', message: 'The service did not answer in time' }))
+    await expect(client.call('http.get', { url: 'http://127.0.0.1:8787/' })).rejects.toMatchObject({
+      code: 'UNAVAILABLE',
+      message: 'The service did not answer in time',
+    })
+  })
+
   it('shows a notification only after the gateway accepted it', async () => {
     const { client, onNotify } = setup(answers({ ok: false, kind: 'rate-limited' }, { ok: true, data: { ok: true } }))
     await expect(client.call('notifications.send', { title: 'Hi', body: '' })).rejects.toMatchObject({ code: 'RATE_LIMITED' })

@@ -33,6 +33,8 @@ function toWidgetError(failure: ApiFailure): WidgetError {
     case 'invalid':
       if (failure.code === 'CONFIRMATION_INVALID') return new WidgetError('DECLINED', 'The confirmation expired')
       return new WidgetError(GATEWAY_CODES.has(failure.code) ? (failure.code as WidgetErrorCode) : 'INVALID_INPUT', failure.message)
+    case 'upstream':
+      return new WidgetError('UNAVAILABLE', failure.message)
     // Only a repeat that carried an id gets here: it is never asked again.
     case 'confirmation-required':
       return new WidgetError('DECLINED', 'The confirmation expired')
