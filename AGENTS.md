@@ -12,12 +12,14 @@ TypeScript (strict) is the primary language for all packages.
 | --- | --- |
 | `apps/ui` | Nuxt 4 / Vue 3 SPA: board editor, widgets, appearance, package UI, sandbox host. |
 | `apps/api` | Fastify API: authentication, SQLite persistence, package management, widget gateway. |
+| `apps/desktop` | Tauri 2 macOS wrapper: Node sidecar running the bundled API, one window on the API origin. |
 | `packages/contracts` | Shared TypeScript contracts, validation, grid and package formats. |
 | `packages/widget-sdk` | Public widget API, sandbox runtime, `ld-widget` build CLI. |
 | `examples/widgets` | Example and security-test widget projects. |
 | `docs/theme-contract.md` | Theme token contract and validation rules. |
 
 Commands (repository root): `pnpm dev`, `pnpm build`, `pnpm typecheck`, `pnpm test` (Vitest).
+Desktop build (macOS arm64): `pnpm -C apps/desktop run package`; the package has no `build`/`dev` script on purpose.
 Narrow a run to one package with `pnpm -C <path> <script>`.
 
 ## Specs and plans

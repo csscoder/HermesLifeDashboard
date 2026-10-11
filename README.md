@@ -6,7 +6,7 @@ LifeDashboard is an open-source, customizable, widget-based personal workspace. 
 
 The long-term goal is a beautiful, local-first desktop environment that can also serve as a visual interface for a personal AI agent. **Hermes Agent** is the planned AI integration, not a requirement for using the dashboard or ordinary widgets.
 
-> **Status: early development.** The project currently runs as a local web application. The Widget SDK and installable widget packages have an initial implementation; the Tauri desktop app, Hermes integration, and many planned widgets are not available yet. Interfaces and package contracts may evolve before a stable release.
+> **Status: early development.** The project currently runs as a local web application. The Widget SDK and installable widget packages have an initial implementation; a local macOS desktop build exists (unsigned, arm64 only); Hermes integration and many planned widgets are not available yet. Interfaces and package contracts may evolve before a stable release.
 
 ## The idea
 
@@ -38,7 +38,8 @@ The following describes the implementation in the repository as of **October 202
 | Local access | Pairing code, authenticated browser sessions, and local API origin checks. |
 | Rooms and screens | Data contracts exist, but the UI currently displays the initial room and its first screen; management/navigation is planned. |
 | Hermes Agent | Planned; no Hermes adapter or chat UI is implemented in the current application. |
-| Desktop app / animated backgrounds | Planned; there is no Tauri desktop distribution or animated-background system yet. |
+| Desktop app | Local macOS (Apple Silicon) build with Tauri: the app runs the same API and UI; ad-hoc signed, not notarized or distributed. |
+| Animated backgrounds | Planned; there is no animated-background system yet. |
 
 The newest appearance features have not yet completed the full documented browser-acceptance checks. Treat the current code as a development build.
 
@@ -180,19 +181,20 @@ LifeDashboard Core (Fastify)
   ├── Widget package registry and gateway
   └── SQLite storage
 
-Planned: Tauri desktop host; optional Hermes Agent adapter
+Tauri desktop host (local macOS build); planned: optional Hermes Agent adapter
 ```
 
 | Path | Responsibility |
 | --- | --- |
 | [`apps/ui`](apps/ui) | Nuxt SPA, board editor, widgets, appearance, package UI, and sandbox host. |
 | [`apps/api`](apps/api) | Fastify API, authentication, persistence, package management, and widget gateway. |
+| [`apps/desktop`](apps/desktop) | Tauri 2 macOS wrapper: Node sidecar with the bundled API, one window on the API origin. |
 | [`packages/contracts`](packages/contracts) | Shared TypeScript contracts, validation, grid and package formats. |
 | [`packages/widget-sdk`](packages/widget-sdk) | Public widget-facing API, sandbox runtime, and build CLI. |
 | [`examples/widgets`](examples/widgets) | Example and security-test widget projects. |
 | [`docs/theme-contract.md`](docs/theme-contract.md) | Theme token contract and validation rules. |
 
-The current UI runs in a browser with a local API. **Tauri packaging is a future delivery target**, not the current runtime. The desktop version is intended to reuse the same UI and backend rather than maintain a second implementation of the application.
+The UI runs in a browser with a local API during development. The desktop app reuses the same UI and backend: Tauri starts the bundled API and opens the UI it serves.
 
 ## Run locally
 
@@ -228,8 +230,9 @@ The API writes a **six-digit pairing code** to the terminal. Open the UI, enter 
 | `pnpm typecheck` | Run TypeScript checks across the workspace. |
 | `pnpm test` | Run the available Vitest test suites. |
 | `pnpm -C examples/widgets/hello build` | Build the example installable widget. |
+| `pnpm -C apps/desktop run package` | Build the macOS desktop app and `.dmg` (Apple Silicon). |
 
-`pnpm build` produces the compiled API in `apps/api/dist` and static UI output in `apps/ui/.output/public`. **This is not yet a packaged desktop installer.**
+`pnpm build` produces the compiled API in `apps/api/dist` and static UI output in `apps/ui/.output/public`. The desktop installer is built separately, see «Desktop app».
 
 ### Configuration
 
@@ -242,6 +245,20 @@ Environment variables can be set in a root `.env` file or passed through the pro
 | `LIFEDASHBOARD_UI_ORIGINS` | `http://127.0.0.1:3000` | Comma-separated origins permitted to call the API. |
 
 On macOS, the default data directory is `~/Library/Application Support/LifeDashboard`. Environment variables override the values in `.env`. See [`.env.example`](.env.example).
+
+### Desktop app (macOS, local build)
+
+Requirements: Apple Silicon, Node.js 24, Rust (`rustup`), Xcode Command Line Tools.
+
+```bash
+pnpm install
+pnpm -C apps/desktop run package
+open apps/desktop/src-tauri/target/release/bundle/dmg/
+```
+
+Drag **LifeDashboard** from the `.dmg` to `/Applications` and start it. The app shows the pairing code in a dialog on first start. It uses port `3101` and its own data directory, `~/Library/Application Support/LifeDashboard Desktop` (separate from `pnpm dev`), and writes the API log to `logs/api.log` there. Install widgets again in the app through **«Виджеты» → «Выбрать папку»**.
+
+The build is ad-hoc signed and not notarized; it is meant for the machine that built it.
 
 ## Roadmap
 
