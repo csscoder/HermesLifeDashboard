@@ -5,8 +5,11 @@ import {
   CONFIRMATION_TTL_MS,
   confirmablePermissions,
   GATEWAY_OPS,
+  HTTP_LIMITS,
   isGatewayOp,
   parseGatewayInput,
+  parseHttpGet,
+  parseHttpSend,
   parseSandboxMessage,
   sizeClass,
 } from '../src/widget-gateway.ts'
@@ -113,5 +116,57 @@ describe('confirmation policy', () => {
     expect(CONFIRMATION_DIALOG_MS).toBeLessThan(CONFIRMATION_TTL_MS)
     // Spec «Contracts»: two dialogs and five API calls of 5 s (the UI's API_TIMEOUT_MS) fit inside the bridge timeout.
     expect(2 * CONFIRMATION_DIALOG_MS + 5 * 5_000).toBeLessThan(BRIDGE_LIMITS.confirmTimeoutMs)
+  })
+})
+
+describe('http inputs', () => {
+  const base = 'http://127.0.0.1:8787/api/v1/tasks?due=today'
+
+  it('parses http.get with an accept header', () => {
+    expect(parseHttpGet({ url: base, headers: { accept: 'application/json' } })).toEqual({
+      ok: true,
+      value: { url: base, headers: { accept: 'application/json' } },
+    })
+    expect(parseHttpGet({ url: base })).toEqual({ ok: true, value: { url: base } })
+  })
+
+  it('normalizes the URL', () => {
+    expect(parseHttpGet({ url: 'HTTP://127.0.0.1:8787/x' })).toEqual({ ok: true, value: { url: 'http://127.0.0.1:8787/x' } })
+  })
+
+  it('parses http.send with a method, content type and body', () => {
+    const input = { url: base, method: 'PATCH', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: '{"a":1}' }
+    expect(parseHttpSend(input)).toEqual({ ok: true, value: input })
+    expect(parseHttpSend({ url: base, method: 'DELETE' })).toEqual({ ok: true, value: { url: base, method: 'DELETE' } })
+  })
+
+  it('accepts a body of exactly 64 KB and rejects one byte more', () => {
+    expect(parseHttpSend({ url: base, method: 'POST', body: 'x'.repeat(HTTP_LIMITS.bodyBytes) }).ok).toBe(true)
+    expect(parseHttpSend({ url: base, method: 'POST', body: 'é'.repeat(HTTP_LIMITS.bodyBytes / 2 + 1) }).ok).toBe(false)
+  })
+
+  it.each([
+    ['get', { url: 'ftp://x.example/' }, /url must be/],
+    ['get', { url: 'http://127.0.0.1:8787@evil.example/' }, /url must be/],
+    ['get', { url: '/relative' }, /url must be/],
+    ['get', { url: `http://x.example/${'a'.repeat(2048)}` }, /url must be/],
+    ['get', { url: 42 }, /url must be/],
+    ['get', { url: base, method: 'GET' }, /takes url and headers only/],
+    ['get', { url: base, body: '' }, /takes url and headers only/],
+    ['get', { url: base, headers: { cookie: 'a' } }, /headers may name only accept/],
+    ['get', { url: base, headers: { Accept: 'a' } }, /headers may name only accept/],
+    ['get', { url: base, headers: { 'content-type': 'a' } }, /headers may name only accept/],
+    ['get', { url: base, headers: { accept: 'a\nb' } }, /headers\.accept must be/],
+    ['get', { url: base, headers: { accept: 'a'.repeat(201) } }, /headers\.accept must be/],
+    ['get', { url: base, headers: 'accept' }, /headers must be an object/],
+    ['send', { url: base, method: 'GET' }, /method must be/],
+    ['send', { url: base, method: 'post' }, /method must be/],
+    ['send', { url: base, method: 'POST', body: 1 }, /body must be/],
+    ['send', { url: base, method: 'POST', extra: 1 }, /takes url, method, headers and body only/],
+    ['send', { url: base, method: 'POST', headers: { authorization: 'x' } }, /headers may name only accept and content-type/],
+  ])('rejects http.%s %j', (op, input, message) => {
+    const result = op === 'get' ? parseHttpGet(input) : parseHttpSend(input)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(message)
   })
 })

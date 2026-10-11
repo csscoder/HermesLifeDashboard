@@ -16,6 +16,8 @@ export type ErrorCode =
   // Widget operation confirmation (spec 2026-10-09).
   | 'CONFIRMATION_REQUIRED'
   | 'CONFIRMATION_INVALID'
+  // Network gateway (spec 2026-10-11): the upstream service failed, timed out or answered too much.
+  | 'UPSTREAM_ERROR'
 
 export interface SuccessEnvelope<T> {
   data: T

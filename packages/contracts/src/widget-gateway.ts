@@ -46,6 +46,102 @@ export interface NotificationInput {
   body: string
 }
 
+// Spec 2026-10-11 «Operations»: HTTP through the API to origins the user approved.
+export const HTTP_LIMITS = {
+  urlLength: 2048,
+  headerValueLength: 200,
+  bodyBytes: 65_536,
+  responseBytes: 102_400,
+  // JSON of the whole answer: escaping can grow a 100 KB body past BRIDGE_LIMITS.maxMessageBytes.
+  answerBytes: 122_880,
+  // Under the UI's API_TIMEOUT_MS (5 s), which is under BRIDGE_LIMITS.requestTimeoutMs.
+  timeoutMs: 4_000,
+} as const
+
+export const HTTP_SEND_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const
+export type HttpSendMethod = (typeof HTTP_SEND_METHODS)[number]
+
+export interface HttpGetInput {
+  url: string
+  headers?: { accept?: string }
+}
+
+export interface HttpSendInput {
+  url: string
+  method: HttpSendMethod
+  headers?: { accept?: string; 'content-type'?: string }
+  body?: string
+}
+
+export interface HttpOutput {
+  status: number
+  contentType: string | null
+  body: string
+}
+
+const CONTROL = /[\u0000-\u001f\u007f]/
+
+function parseHttpUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > HTTP_LIMITS.urlLength) return null
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  if (url.username !== '' || url.password !== '') return null
+  return url.href
+}
+
+function parseHttpHeaders(raw: unknown, allowed: readonly string[]): ParseResult<Record<string, string> | undefined> {
+  if (raw === undefined) return { ok: true, value: undefined }
+  if (!isRecord(raw)) return fail('headers must be an object')
+  const headers: Record<string, string> = {}
+  for (const [name, value] of Object.entries(raw)) {
+    if (!allowed.includes(name)) return fail(`headers may name only ${allowed.join(' and ')}`)
+    if (typeof value !== 'string' || value.length > HTTP_LIMITS.headerValueLength || CONTROL.test(value)) {
+      return fail(`headers.${name} must be at most ${HTTP_LIMITS.headerValueLength} characters without control characters`)
+    }
+    headers[name] = value
+  }
+  return { ok: true, value: headers }
+}
+
+const URL_RULE = `url must be an absolute http(s) URL of at most ${HTTP_LIMITS.urlLength} characters without credentials`
+
+export function parseHttpGet(raw: Record<string, unknown>): ParseResult<HttpGetInput> {
+  if (unknownKey(raw, ['url', 'headers']) !== undefined) return fail('http.get takes url and headers only')
+  const url = parseHttpUrl(raw.url)
+  if (url === null) return fail(URL_RULE)
+  const headers = parseHttpHeaders(raw.headers, ['accept'])
+  if (!headers.ok) return headers
+  return { ok: true, value: headers.value === undefined ? { url } : { url, headers: headers.value } }
+}
+
+export function parseHttpSend(raw: Record<string, unknown>): ParseResult<HttpSendInput> {
+  if (unknownKey(raw, ['url', 'method', 'headers', 'body']) !== undefined) return fail('http.send takes url, method, headers and body only')
+  const url = parseHttpUrl(raw.url)
+  if (url === null) return fail(URL_RULE)
+  const method = raw.method
+  if (!(HTTP_SEND_METHODS as readonly unknown[]).includes(method)) return fail(`method must be one of ${HTTP_SEND_METHODS.join(', ')}`)
+  const headers = parseHttpHeaders(raw.headers, ['accept', 'content-type'])
+  if (!headers.ok) return headers
+  const body = raw.body
+  if (body !== undefined && (typeof body !== 'string' || byteLength(body) > HTTP_LIMITS.bodyBytes)) {
+    return fail('body must be a string of at most 64 KB')
+  }
+  return {
+    ok: true,
+    value: {
+      url,
+      method: method as HttpSendMethod,
+      ...(headers.value === undefined ? {} : { headers: headers.value }),
+      ...(body === undefined ? {} : { body }),
+    },
+  }
+}
+
 export interface GatewayInputs {
   'state.get': Record<string, never>
   'state.set': StateSetInput

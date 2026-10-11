@@ -18,6 +18,7 @@ const STATUS: Record<ErrorCode, number> = {
   PACKAGE_IN_USE: 409,
   CONFIRMATION_REQUIRED: 428,
   CONFIRMATION_INVALID: 409,
+  UPSTREAM_ERROR: 502,
 }
 
 export class ApiError extends Error {
