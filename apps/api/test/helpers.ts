@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { expect } from 'vitest'
 import type { PackageInspection, UploadCreated } from '@lifedashboard/contracts/widget-package'
 import { buildApp } from '../src/app.ts'
+import type { ApiConfig } from '../src/config.ts'
 import { openDatabase } from '../src/db.ts'
 
 export const HOST = '127.0.0.1:3001'
@@ -24,14 +25,14 @@ export interface TestApp {
 }
 
 /** A test app on an in-memory database and a temporary data dir, or on `base` (then the caller closes both). */
-export async function testApp(base?: Pick<TestApp, 'db' | 'dataDir'>): Promise<TestApp> {
+export async function testApp(base?: Pick<TestApp, 'db' | 'dataDir'>, extra: Pick<ApiConfig, 'uiDir' | 'runtimeDir'> = {}): Promise<TestApp> {
   const dataDir = base?.dataDir ?? mkdtempSync(join(tmpdir(), 'ld-api-'))
   const database = base?.db ?? (await openDatabase(':memory:', { dataDir }))
   const codes: string[] = []
   const clock = { now: T0 }
   const app = buildApp({
     db: database,
-    config: { port: 3001, uiOrigins: [ORIGIN], dataDir },
+    config: { port: 3001, uiOrigins: [ORIGIN], dataDir, ...extra },
     now: () => new Date(clock.now),
     onPairingCode: (code) => codes.push(code),
   })

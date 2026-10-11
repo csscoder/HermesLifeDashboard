@@ -24,7 +24,7 @@ const RUNTIME_FILES = new Map<string, () => string>([
 
 export interface SandboxDeps {
   db: DatabaseSync
-  config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir'>
+  config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir' | 'runtimeDir'>
 }
 
 /**
@@ -118,9 +118,11 @@ export function registerSandbox(app: FastifyInstance, { db, config }: SandboxDep
   app.get<{ Params: { file: string } }>('/sandbox/runtime/:file', async (request, reply) => {
     const locate = RUNTIME_FILES.get(request.params.file)
     if (!locate) throw new ApiError('NOT_FOUND', 'Runtime file not found')
+    // The desktop app ships both files next to the API bundle (spec 2026-10-11 «Sandbox runtime»).
+    const file = config.runtimeDir === undefined ? locate() : join(config.runtimeDir, request.params.file)
     let body: string
     try {
-      body = await readFile(locate(), 'utf8')
+      body = await readFile(file, 'utf8')
     } catch {
       throw new ApiError('NOT_FOUND', 'Runtime file is missing; run pnpm -C packages/widget-sdk build')
     }

@@ -11,7 +11,7 @@ import { registerWidgetUploads } from './widget-uploads.ts'
 
 export interface AppDeps {
   db: DatabaseSync
-  config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir'>
+  config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir' | 'uiDir' | 'runtimeDir'>
   onPairingCode: (code: string, expiresAt: Date) => void
   now?: () => Date
   logger?: boolean

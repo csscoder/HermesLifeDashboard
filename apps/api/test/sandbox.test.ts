@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { sandboxDocument } from '../src/sandbox.ts'
@@ -210,5 +211,29 @@ describe('GET /sandbox/runtime/:file', () => {
   it('answers 404 for an unknown runtime file', async () => {
     expect((await call(t.app, { url: '/sandbox/runtime/evil.js' })).statusCode).toBe(404)
     expect((await call(t.app, { url: '/sandbox/runtime/constructor' })).statusCode).toBe(404)
+  })
+})
+
+describe('GET /sandbox/runtime/:file with runtimeDir', () => {
+  it('serves vue.js and sdk.js from runtimeDir and still refuses other names', async () => {
+    const runtimeDir = mkdtempSync(join(tmpdir(), 'ld-runtime-'))
+    writeFileSync(join(runtimeDir, 'vue.js'), 'export const fromRuntimeDir = "vue"')
+    writeFileSync(join(runtimeDir, 'sdk.js'), 'export const fromRuntimeDir = "sdk"')
+    writeFileSync(join(runtimeDir, 'evil.js'), 'export const evil = 1')
+    const desktop = await testApp(undefined, { runtimeDir })
+    try {
+      const vue = await call(desktop.app, { url: '/sandbox/runtime/vue.js', origin: 'null' })
+      expect([vue.statusCode, vue.body]).toEqual([200, 'export const fromRuntimeDir = "vue"'])
+      const sdk = await call(desktop.app, { url: '/sandbox/runtime/sdk.js', origin: 'null' })
+      expect([sdk.statusCode, sdk.headers['content-type'], sdk.body]).toEqual([
+        200,
+        'text/javascript; charset=utf-8',
+        'export const fromRuntimeDir = "sdk"',
+      ])
+      expect((await call(desktop.app, { url: '/sandbox/runtime/evil.js' })).statusCode).toBe(404)
+    } finally {
+      await desktop.close()
+      rmSync(runtimeDir, { recursive: true, force: true })
+    }
   })
 })
