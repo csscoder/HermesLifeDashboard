@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "node --watch --env-file-if-exists=../../.env src/server.ts",
     "build": "tsc -p tsconfig.build.json",
+    "build:bundle": "vite build -c vite.bundle.config.ts && node scripts/copy-runtime.mjs",
+    "smoke:bundle": "node scripts/smoke-bundle.mjs",
     "start": "node --env-file-if-exists=../../.env dist/server.js",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
@@ -18,6 +20,7 @@
   "devDependencies": {
     "@types/node": "24.19.1",
     "typescript": "6.0.3",
+    "vite": "8.3.2",
     "vitest": "5.0.3"
   }
 }

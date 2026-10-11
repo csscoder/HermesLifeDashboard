@@ -41,3 +41,6 @@ try {
   app.log.error(error)
   process.exit(1)
 }
+
+// The desktop app opens its window only after this exact line from its own child (spec 2026-10-11 «Ready line»).
+console.log(`LifeDashboard API listening on http://${config.host}:${config.port}`)
