@@ -16,6 +16,7 @@
 - Commits: conventional `type(scope): subject`, one or two lines, **no attribution trailers** (the user's CLAUDE.md overrides the harness reminder).
 - New dependencies, exactly these (approved with the spec): `vite` `8.3.2` (devDependency of `apps/api`), `@tauri-apps/cli` `2.12.2` (devDependency of `apps/desktop`), crates `tauri` `2.12.3`, `tauri-build` `2.7.2`, `tauri-plugin-dialog` `2.8.2`. Nothing else: no `@fastify/static`, `tauri-plugin-shell`, `reqwest`, `libc`, `nix`, `regex`.
 - Target: macOS arm64 only, ad-hoc signing (`signingIdentity: "-"`), no notarization.
+- Plan decision (spec «Risks: Sidecar signing»): `bundle.macOS.hardenedRuntime: false`. Tauri defaults it to `true`; re-signing the Node sidecar ad-hoc with hardened runtime and without Node's JIT entitlements can kill V8. Hardened runtime matters only for notarization, which is out of scope.
 - Port `3101`. Origin `http://127.0.0.1:3101`. Data directory `~/Library/Application Support/LifeDashboard Desktop`, log `<dataDir>/logs/api.log` (truncated per launch).
 - Ready line, verbatim: `LifeDashboard API listening on http://127.0.0.1:<port>`.
 - Pairing line printed by `server.ts`, unchanged: `LifeDashboard pairing code: <6 digits> (valid until <time>)`.
@@ -547,9 +548,14 @@ At the end of `registerAuth` in `apps/api/src/auth.ts`, replace the final `issue
 Run: `pnpm -C apps/api exec vitest run test/auth.test.ts`
 Expected: PASS, including `prints a 6-digit code on start`.
 
-- [ ] **Step 5: Update the UI copy**
+- [ ] **Step 5: Update the UI copy (RED → GREEN by grep)**
 
-In `apps/ui/app/PairingForm.vue` change the label text `Код из терминала API` to `Код сопряжения`, and `'Новый код выведен в терминал API'` to `'Новый код выведен в терминал API или в окно приложения'`. No test covers this component (the UI suite has no component tests); verify with:
+The UI suite has no component tests, so the check is a grep.
+
+Run before editing: `grep -c "Код сопряжения\|или в окно приложения" apps/ui/app/PairingForm.vue`
+Expected (RED): `0`.
+
+In `apps/ui/app/PairingForm.vue` change the label text `Код из терминала API` to `Код сопряжения`, and `'Новый код выведен в терминал API'` to `'Новый код выведен в терминал API или в окно приложения'`. Then (GREEN):
 
 Run: `grep -n "Код сопряжения\|или в окно приложения" apps/ui/app/PairingForm.vue && pnpm -C apps/ui typecheck`
 Expected: two matching lines; typecheck passes.
@@ -868,7 +874,7 @@ Create `apps/desktop/src-tauri/tauri.conf.json`:
       "../../api/dist-bundle/": "api/",
       "../../ui/.output/public/": "ui/"
     },
-    "macOS": { "signingIdentity": "-" }
+    "macOS": { "signingIdentity": "-", "hardenedRuntime": false }
   }
 }
 ```
@@ -896,8 +902,14 @@ Create `apps/desktop/src-tauri/src/lines.rs` with only a module comment for now:
 
 - [ ] **Step 5: Verify the crate compiles**
 
+Prerequisite (all outputs are git-ignored; `tauri-build` copies `bundle.resources` and checks `externalBin` at compile time, so `cargo build`/`cargo test` fail with `ResourcePathNotFound` without them — never remove the resources map to get around it):
+
+```bash
+pnpm -C packages/widget-sdk build && pnpm -C apps/ui build && pnpm -C apps/api build:bundle && node apps/desktop/scripts/prepare-node.mjs
+```
+
 Run: `cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml`
-Expected: builds; `Cargo.lock` is created. `tauri-build` checks that `binaries/node-aarch64-apple-darwin` exists, which Step 2 provides.
+Expected: builds; `Cargo.lock` is created.
 
 - [ ] **Step 6: Commit**
 
@@ -915,6 +927,12 @@ git commit -m "build(desktop): scaffold the Tauri package with a Node sidecar"
 
 **Interfaces:**
 - Produces: `pub fn pairing_code(line: &str) -> Option<(&str, &str)>` returning `(code, until)`; `pub fn is_ready(line: &str, port: u16) -> bool`.
+
+Prerequisite (all outputs are git-ignored; `tauri-build` copies `bundle.resources` and checks `externalBin` at compile time, so `cargo build`/`cargo test` fail with `ResourcePathNotFound` without them — never remove the resources map to get around it):
+
+```bash
+pnpm -C packages/widget-sdk build && pnpm -C apps/ui build && pnpm -C apps/api build:bundle && node apps/desktop/scripts/prepare-node.mjs
+```
 
 - [ ] **Step 1: Write the failing tests with stub functions**
 
@@ -1031,6 +1049,8 @@ git commit -m "feat(desktop): parse pairing and ready lines from the API output"
 **Interfaces:**
 - Consumes: `lines::pairing_code`, `lines::is_ready` (Task 7); resources `api/server.mjs`, `api/runtime/`, `ui/` and the `node` sidecar next to the executable (Task 6).
 - Produces: `LifeDashboard.app` and `LifeDashboard_0.1.0_aarch64.dmg` under `apps/desktop/src-tauri/target/release/bundle/`.
+
+The prerequisite of Task 7 applies before Steps 2–3 (Step 4 rebuilds everything itself).
 
 The lifecycle runs only inside a bundled app, so it has no unit test; its checks are Step 3 (build), Step 4 (package) and Task 10 (acceptance). The parsing logic it depends on is covered in Task 7.
 
@@ -1279,11 +1299,12 @@ Run:
 ```bash
 APP=apps/desktop/src-tauri/target/release/bundle/macos/LifeDashboard.app
 ls "$APP/Contents/MacOS" "$APP/Contents/Resources/api" "$APP/Contents/Resources/api/runtime" && ls "$APP/Contents/Resources/ui" | head
-"$APP/Contents/MacOS/node" --version
+"$APP/Contents/MacOS/node" -e "console.log(1 + 1)"
+codesign -d --entitlements - "$APP/Contents/MacOS/node"
 codesign --verify --deep --strict --verbose=2 "$APP"
 ```
 
-Expected: `MacOS/` holds the app binary and `node`; `Resources/api/` holds `server.mjs` and `runtime/{vue.js,sdk.js}`; `Resources/ui/` holds `index.html` and `_nuxt/`; `node` prints v24; `codesign` reports the bundle valid (ad-hoc). If a path differs from the layout `main.rs` expects, fix `main.rs` or `tauri.conf.json` and repeat Steps 3–5.
+Expected: `MacOS/` holds the app binary and `node`; `Resources/api/` holds `server.mjs` and `runtime/{vue.js,sdk.js}`; `Resources/ui/` holds `index.html` and `_nuxt/`; `node -e` prints `2` (V8 runs JS, not just `--version`); the entitlements dump shows no hardened-runtime flag issue; `codesign --verify` reports the bundle valid (ad-hoc). If a path differs from the layout `main.rs` expects, fix `main.rs` or `tauri.conf.json` and repeat Steps 3–5.
 
 - [ ] **Step 6: Launch once from the build folder**
 
@@ -1398,6 +1419,8 @@ Append to this plan:
 | --- | --- | --- |
 | 1 | pass/fail/not run | … |
 ```
+
+Expected, not a failure: the pairing line is printed before `listen`, so the pairing dialog appears before the window (item 2), and item 10 shows a pairing dialog before the error dialog. Record whether the dialog blocks typing in the window.
 
 List every failed or skipped item with its reason. When the feature is archived, these results go into its `outcome.md` (spec «Acceptance criteria»). A failure in items 5–8 is a defect to debug (superpowers:systematic-debugging), not a reason to change the spec silently.
 
