@@ -36,9 +36,17 @@ async function add(): Promise<void> {
         <p v-if="tasks.list.truncated" class="list__note">Показаны первые 1000</p>
       </template>
     </div>
-    <form class="list__add" @submit.prevent="add">
-      <input v-model="text" class="list__input" placeholder="Новая задача… #тег завтра" aria-label="Новая задача" enterkeyhint="done" />
-    </form>
+    <!-- No form: the sandbox omits allow-forms, so submit never fires; Enter is handled on the input. -->
+    <div class="list__add">
+      <input
+        v-model="text"
+        class="list__input"
+        placeholder="Новая задача… #тег завтра"
+        aria-label="Новая задача"
+        enterkeyhint="done"
+        @keydown.enter.prevent="add"
+      />
+    </div>
   </section>
 </template>
 

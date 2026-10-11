@@ -156,8 +156,8 @@ export function useTasks(widget: Widget) {
     if (pendingId !== undefined) pending.value = [...pending.value, pendingId]
     try {
       const result = await api.send<T>(attempt)
-      retryAction = null
-      unavailable.value = false
+      // A lost write keeps its retry (and key) even when an unrelated action succeeds; only retry() clears it.
+      if (retryAction === null) unavailable.value = false
       onDone?.(result)
       return result
     } catch (error) {
@@ -179,6 +179,11 @@ export function useTasks(widget: Widget) {
   function hide(occurrenceId: string): void {
     const keep = (item: ListItem) => item.occurrenceId !== occurrenceId
     list.value = { ...list.value, overdue: list.value.overdue.filter(keep), items: list.value.items.filter(keep) }
+  }
+
+  // Spec «Controls»: Esc closes the open task from anywhere in the frame; focus may sit on a list row or body.
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') closeTask()
   }
 
   async function close(occurrenceId: string, version: number, action: 'complete' | 'skip'): Promise<boolean> {
@@ -270,6 +275,14 @@ export function useTasks(widget: Widget) {
         },
         { immediate: true },
       ),
+      watch(
+        openTaskId,
+        (open) => {
+          if (open === null) document.removeEventListener('keydown', onKeydown)
+          else document.addEventListener('keydown', onKeydown)
+        },
+        { immediate: true },
+      ),
     )
   }
 
@@ -278,6 +291,7 @@ export function useTasks(widget: Widget) {
     disposed = true
     for (const stop of stops) stop()
     clearInterval(timer)
+    document.removeEventListener('keydown', onKeydown)
   })
 
   return reactive({

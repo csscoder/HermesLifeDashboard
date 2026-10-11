@@ -28,6 +28,7 @@ const autosave = createAutosave(state, {
     // A lost answer keeps its attempt for «Повторить»; anything else re-reads the task first.
     if (failure.retryable) return
     if (failure.code === 'VERSION_CONFLICT') props.tasks.toast('Задача изменилась в Hermes. «Повторить» сохранит ваши правки')
+    else if (failure.code === 'WORKSPACE_EPOCH_MISMATCH') props.tasks.toast('Данные Hermes Tasks могли быть восстановлены из резервной копии')
     else if (failure.code !== 'DECLINED') props.tasks.toast(failure.message)
     try {
       await props.tasks.loadDetail()
@@ -65,7 +66,8 @@ watch(
   task,
   (value) => {
     // Idle: follow versions bumped by Hermes, so the next PATCH is not a conflict with an old read.
-    if (value && !state.saving && state.failed === null) state.version = value.version
+    // Monotonic: a poll issued before a PATCH may answer with an older version (versions start at 1).
+    if (value && !state.saving && state.failed === null && value.version > state.version) state.version = value.version
   },
   { immediate: true },
 )
@@ -112,7 +114,7 @@ async function complete(): Promise<void> {
 </script>
 
 <template>
-  <aside class="panel" :class="`panel--${layout}`" aria-label="Задача" @keydown.esc="tasks.closeTask()">
+  <aside class="panel" :class="`panel--${layout}`" aria-label="Задача">
     <header class="panel__head">
       <button type="button" class="panel__link" @click="tasks.closeTask()">← Назад</button>
       <span class="panel__status" role="status">
