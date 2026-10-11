@@ -68,7 +68,7 @@ The initial SDK lives at [`packages/widget-sdk`](packages/widget-sdk). It curren
 | `widget.call(op, input)` | Call a supported, permission-checked gateway operation. |
 | `ld-widget build [dir] [--no-source]` | Build a widget project into an installable folder `dist/<id>-<version>/`. |
 
-**Gateway operations:** `state.get`, `state.set`, `notifications.send`, `http.get` and `http.send`. HTTP goes through the LifeDashboard API to the exact origins a widget lists in `widget.json` `network` (together with the `network` permission) and the user approves at install; a new version with a new origin asks again. Redirects are not followed, no cookies or secrets are sent, the request body is at most 64 KB, the response at most 100 KB, and the upstream timeout is 4 s. LifeDashboard data sources, local device actions and Hermes are planned; they are not available through the SDK today.
+**Gateway operations:** `state.get`, `state.set`, `notifications.send`, `http.get` and `http.send`. HTTP goes through the LifeDashboard API to the exact origins a widget lists in `widget.json` `network` (together with the `network` permission) and the user approves at install; a new version with a new origin lists it for review at install, like a new permission. Redirects are not followed, no cookies or secrets are sent, the request body is at most 64 KB, the response at most 100 KB, and the upstream timeout is 4 s. LifeDashboard data sources, local device actions and Hermes are planned; they are not available through the SDK today.
 
 A widget project contains at least:
 
