@@ -3838,3 +3838,42 @@ Append to this plan:
 git add docs/superpowers/plans/2026-10-11-hermes-tasks-widget.md
 git commit -m "docs: record Hermes Tasks widget acceptance results"
 ```
+
+## Acceptance results (2026-10-11)
+
+- `pnpm typecheck && pnpm test`: exit 0 — contracts 254 tests / 5 files, widget-sdk 42 / 4,
+  examples/widgets/hermes-tasks 28 / 3, ui 329 / 18, api 248 / 13 (901 tests, 43 files).
+- Browser checks 1–12 (live install in Orca's browser; review showed
+  «Доступ к сети: http://127.0.0.1:8787» with «Спрашивать каждый раз» default, installed with «Разрешить»):
+  1. PASS — «Сегодня» count 3: «ПРОСРОЧЕНО · 1» («Акцептанс просрочка», «вчера») + «СЕГОДНЯ · 2»; no task twice
+     (live data had nothing overdue; verified with a temporary overdue fixture, since removed).
+  2. PASS — «Скоро» (0), «Входящие» (8), «Все» (12) load; chip «книги 4» filters to «Входящие · #книги» (4 rows);
+     «все» clears the filter.
+  3. PASS — the row disappeared and the toast «Выполнено · Вернуть» appeared; the completion showed in the Hermes
+     web UI («Выполненные»); the «Вернуть» click raced the 5 s toast expiry, so the restore was done in the Hermes
+     web UI (un-complete) — the row returned.
+  4. PASS — skipping the recurring fixture moved it out of «Сегодня» to its next occurrence (due tomorrow,
+     visible in «Скоро»).
+  5. PARTIAL — «→» moved a row to «завтра»; panel «Сегодня»/«Завтра»/«След. неделя» reschedule (12.10);
+     the date input accepted a typed date visually (13.10.2026) but synthetic input fires no `change`, so the
+     date/time input commits could not be exercised through automation (no `http.send` observed).
+  6. PARTIAL — priority («Высокий») and project («Время кино») committed and are reflected in the list; the tag
+     datalist offers existing tags (близкие, кино, книги); title/tag/note edits could not be committed — synthetic
+     text insertion never fires `change` in the sandboxed frame (drafts update, no `http.send`); «Сохранение…»
+     exists in the panel (DetailPanel.vue status) but the send completes faster than a snapshot can capture it.
+  7. FAIL — quick add cannot submit: the sandbox host renders the frame with `sandbox="allow-scripts"` and the
+     platform contract (docs/widget-sdk/README.md) forbids `allow-forms`, so the `<form @submit.prevent="add">`
+     in examples/widgets/hermes-tasks/src/ui/components/TaskList.vue never fires. Typing works (v-model updates),
+     Enter issues no `http.send` and creates nothing. The form should submit via a keydown handler, not form
+     submission. Nothing to delete afterwards (no task was created).
+  8. PASS — an external title change («Акцептанс извне») appeared in the widget within ~2 s (change made through
+     the Hermes HTTP API because the web UI task dialog stopped opening under automation).
+  9. PASS — with the grant at «Спрашивать каждый раз», completing a task opened the host dialog showing
+     `POST http://127.0.0.1:8787/api/v1/occurrences/…/complete`; «Отклонить» left the row in place, no toast,
+     server state stayed open; the grant was switched back to «Разрешить».
+  10. PASS — at 6 columns tabs and chips replaced the rail and the panel slid over ~82 % of the width (the list
+      remains as a narrow left strip); at the 3×4 minimum nothing overflows the frame (the chips row scrolls
+      inside it).
+  11. PASS — Стекло, Обсидиан and Бумага all keep text, chips and the panel readable (screenshot-verified).
+  12. PASS — `orca console --limit 50` shows only Nuxt/Vite boot messages; no errors from the host or the widget.
+- Not checked live: the «Hermes Tasks недоступен» banner (container left running).
