@@ -24,7 +24,7 @@ const DAY = 24 * HOUR
 const SESSION_IDLE_MS = HOUR
 const MAX_SESSIONS = 200
 const AUDIT_TTL_MS = 30 * DAY
-const RATE_LIMITS: Record<GatewayOp, { max: number; windowMs: number }> = {
+export const RATE_LIMITS: Record<GatewayOp, { max: number; windowMs: number }> = {
   'state.get': { max: 120, windowMs: MINUTE },
   'state.set': { max: 60, windowMs: MINUTE },
   'notifications.send': { max: 10, windowMs: HOUR },

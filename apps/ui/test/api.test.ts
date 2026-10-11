@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, apiRequest } from '../app/api'
+import { BRIDGE_LIMITS, HTTP_LIMITS } from '@lifedashboard/contracts/widget-gateway'
+import { api, apiRequest, API_TIMEOUT_MS } from '../app/api'
 
 type FetchArgs = [input: RequestInfo | URL, init?: RequestInit]
 
@@ -199,5 +200,13 @@ describe('upload calls', () => {
     expect(url).toBe('/api/v1/widget-uploads/u1/install')
     expect(init?.body).toBe('{}')
     expect(init?.signal).toBe(controller.signal)
+  })
+})
+
+describe('gateway timeout chain', () => {
+  // The upstream proxy must time out before the UI's API call, which must time out before the bridge reply window.
+  it('keeps HTTP_LIMITS.timeoutMs < API_TIMEOUT_MS < BRIDGE_LIMITS.requestTimeoutMs', () => {
+    expect(HTTP_LIMITS.timeoutMs).toBeLessThan(API_TIMEOUT_MS)
+    expect(API_TIMEOUT_MS).toBeLessThan(BRIDGE_LIMITS.requestTimeoutMs)
   })
 })

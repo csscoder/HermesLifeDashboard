@@ -249,6 +249,8 @@ describe('manifest network', () => {
   it.each([
     ['a path', ['http://127.0.0.1:8787/api']],
     ['a trailing slash', ['http://127.0.0.1:8787/']],
+    ['a query', ['http://127.0.0.1:8787?a=1']],
+    ['a fragment', ['http://127.0.0.1:8787#f']],
     ['an upper-case scheme', ['HTTP://127.0.0.1:8787']],
     ['a default port', ['https://example.com:443']],
     ['credentials', ['http://u:p@127.0.0.1:8787']],

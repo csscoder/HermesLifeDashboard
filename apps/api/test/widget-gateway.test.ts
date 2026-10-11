@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { AddressInfo } from 'node:net'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
-import { needsConfirmation } from '../src/widget-gateway.ts'
+import { needsConfirmation, RATE_LIMITS } from '../src/widget-gateway.ts'
 import { call, DAY, errorCode, HOUR, installPackage, pair, T0, testApp, widgetPackage, type TestApp } from './helpers.ts'
 
 const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
@@ -268,6 +268,11 @@ describe('notifications', () => {
 })
 
 describe('needsConfirmation', () => {
+  // Hermes Tasks writes through http.send; 60/min is its write budget under the 10 s refresh.
+  it('keeps http.send at 60 per minute', () => {
+    expect(RATE_LIMITS['http.send']).toEqual({ max: 60, windowMs: 60_000 })
+  })
+
   it.each([
     ['never', 'ask', false],
     ['never', 'allow', false],
