@@ -1430,3 +1430,28 @@ List every failed or skipped item with its reason. When the feature is archived,
 git add docs/superpowers/plans/2026-10-11-tauri-desktop.md
 git commit -m "docs: record desktop acceptance results"
 ```
+
+## Acceptance results (2026-10-11)
+
+Run by the controller (orca computer-use driving the native window) with the human partner at the Mac for gestures synthetic input could not deliver (resize drag, folder drag-and-drop, dialog dismissal) and for confirming the pairing dialog.
+
+| # | Result | Evidence |
+| --- | --- | --- |
+| 1 | pass | Task 8 build: `LifeDashboard.app` (127 MiB) + `LifeDashboard_0.1.0_aarch64.dmg` under `src-tauri/target/release/bundle/`; dmg mounted and installed to `/Applications` via ditto. |
+| 2 | pass | Native pairing dialog appeared at first start (partner confirmed reading the code from it); code entered in «Подключение к API» → `POST /api/v1/auth/pair` 200 at 11:20:12 (api.log), session row created, board rendered. Controller's window-scoped screenshots missed the dialog (it appears before the window); partner testimony + log are the evidence. |
+| 3 | pass | Restart: fresh api.log has 0 pairing lines (paired install), AX tree shows the board, not the pairing form. |
+| 4 | pass | Clock added via picker (keyboard prefix nav); moved by drag (AX label col1/row1 → col2/row3), resized 4×4 → 8×8 (partner gesture; DB `clock-analog-1\|6\|3\|8\|8`); after quit+relaunch DB rows identical → layout kept. |
+| 5 | pass | «Виджеты» → «Выбрать папку» opened a native NSOpenPanel (webkitdirectory works in WKWebView); navigated via Cmd+Shift+G to `hello/dist/dev.lifedashboard.hello-1.0.0`; install screen showed «Привет» 1.0.0; «Установить» → `widget_package_versions` row + files extracted to userwidgets. |
+| 6 | pass | Removed via two-step «Удалить» (DB count 0, «Пакеты не установлены»); partner dragged the folder from Finder onto the dialog → install screen appeared → installed again (DB row restored). |
+| 7 | pass | Video: frame-diff of the card region shows motion (2155 px/2.5 s; static control region 0). State: «+1»×2 → `widget_state {"count":2}` rev 2; notification «Напоминание» delivered (partner screenshot); after restart count still 2, hello iframe renders «2». |
+| 8 | pass | Hostile placed; its own probe panel reports all 9 attacks blocked: document.cookie/parent.document/localStorage/Worker → SecurityError, fetch /api/v1/rooms and https://example.com → TypeError, notifications.send → PERMISSION_DENIED, source/ and widget.json → 404. «Уйти» did not navigate (1 window); board kept working (clock, hello, «API: работает»). |
+| 9 | pass | Quit (AppleEvent quit, same terminate path as Cmd+Q — synthetic Cmd+Q keystroke is intercepted by macOS) leaves no `LifeDashboard` and no `server.mjs` process (only the machine's unrelated ChatGPT server.mjs pair, distinguished by path). |
+| 10 | pass | With `node` squatting 3101 and answering `/health`: our child logged `listen EADDRINUSE` (level 50) and died; 0 windows opened on the foreign server; native error dialog «LifeDashboard не работает / API завершился при запуске» with the last 20 log lines and the log path; after OK (partner) the app exited itself; no sidecar remained. Note: unlike the plan's expectation, no pairing dialog preceded the error — the install was already paired, and the startup code is issued only for unpaired installs (Task 4 behavior working as designed). |
+
+Failed or skipped items: none.
+
+Notes:
+
+- The pairing dialog appears before the window and could not be captured by window-scoped screenshots; the dialog blocks nothing visible in the window (there is no window yet at that point).
+- Mid-run incident (not a product defect): the controller moved the desktop data directory aside while the first `/Applications` launch was running; the app kept serving from open file handles (POSIX behavior), so that instance was quit and a clean relaunch performed for the recorded items. The moved copy is test residue at `/var/folders/.../tmp.*/LifeDashboard-Desktop-backup` (safe to delete).
+- The board now holds test widgets (2 placeholders from picker-miss attempts, clock 8×8, hello, hostile) — local state on this Mac, kept for the user's own trials.
