@@ -106,6 +106,13 @@ sandbox serving stays the same.
 their behavior. Consequence in dev: a new browser without a cookie, while another session is valid,
 needs «Новый код».
 
+### Ready line (`server.ts`)
+
+After `app.listen` resolves, `server.ts` prints `LifeDashboard API listening on
+http://127.0.0.1:<port>` on its own stdout line. The desktop wrapper treats this line from its own
+child as the readiness signal; a `/health` answer could come from another process that holds the
+port.
+
 ### Bundle (`build:bundle` script)
 
 - `vite build -c vite.bundle.config.ts`. The config file has its own name so Vitest does not pick
@@ -118,8 +125,11 @@ needs «Новый код».
 
 ## UI change (`apps/ui`)
 
-`PairingForm.vue`: «Новый код выведен в терминал API» becomes «Новый код выведен в терминал API или
-в окно приложения».
+`PairingForm.vue`:
+
+- the field label «Код из терминала API» becomes «Код сопряжения»;
+- «Новый код выведен в терминал API» becomes «Новый код выведен в терминал API или в окно
+  приложения».
 
 ## Desktop package (`apps/desktop`)
 
@@ -172,20 +182,20 @@ Git-ignored: `src-tauri/target/`, `src-tauri/binaries/`, `src-tauri/gen/`.
    the last 20 lines in memory. A stdout line matching
    `LifeDashboard pairing code: <6 digits> (valid until <time>)` opens a dialog
    «Код сопряжения LifeDashboard: 123456 — действует до <time>».
-4. Poll `GET /health` on `127.0.0.1:3101` every 200 ms over a plain `TcpStream` (no HTTP crate),
-   up to 15 s. On `200` create the window: URL `http://127.0.0.1:3101/`, title `LifeDashboard`,
+4. Wait up to 15 s for the ready line (see [Ready line](#ready-line-serverts)) on the child's
+   stdout. Then create the window: URL `http://127.0.0.1:3101/`, title `LifeDashboard`,
    size 1440×900, min width 1280, `drag_drop_enabled(false)` so HTML5 folder drops reach
    `PackagesDialog.vue`.
 5. Closing the window or Cmd+Q exits the app. On exit: mark shutdown, `/bin/kill -TERM <pid>`, wait
    up to 5 s, then `Child::kill`.
 
-The pairing-line parser is a pure function with a unit test.
+The pairing-line and ready-line parsers are pure functions with unit tests.
 
 ### Errors
 
 | Situation | Behavior |
 | --- | --- |
-| API exits or `/health` not `200` within 15 s (port busy, newer DB schema, bundle failure) | Error dialog with the last log lines and the log path; app exits |
+| API exits or no ready line within 15 s (port busy, newer DB schema, bundle failure) | Error dialog with the last log lines and the log path; app exits |
 | API exits while running and shutdown was not requested | Same dialog; app exits. No automatic restart |
 | Second launch | macOS activates the running app; no single-instance plugin |
 
@@ -212,11 +222,12 @@ Vitest (`apps/api/test`):
 - Pairing at start: no sessions → `onPairingCode` called once; an unexpired session → not called;
   only expired sessions → called; `pair-code` still issues a code.
 
-Rust: `cargo test` for the pairing-line parser (valid line, wrong digit count, other log lines).
+Rust: `cargo test` for the pairing-line parser (valid line, wrong digit count, other log lines) and
+the ready-line parser (exact line with port 3101, another port, other log lines).
 
 Bundle smoke check (script, run during verification): start `node dist-bundle/server.mjs` with a
-temporary data dir, `LIFEDASHBOARD_UI_DIR` and `LIFEDASHBOARD_RUNTIME_DIR`; expect `200` from
-`/health`, `/` and `/sandbox/runtime/sdk.js`; stop it.
+temporary data dir, `LIFEDASHBOARD_UI_DIR` and `LIFEDASHBOARD_RUNTIME_DIR`; expect the ready line on
+stdout and `200` from `/health`, `/` and `/sandbox/runtime/sdk.js`; stop it.
 
 Existing `pnpm typecheck` and `pnpm test` stay green.
 
@@ -235,7 +246,8 @@ Manual, in the Tauri window (WebKit; Orca's browser does not replace this check)
    survives a restart.
 8. `hostile` stays contained in its iframe.
 9. Cmd+Q leaves no `node` process (`pgrep -f server.mjs`).
-10. With port 3101 taken, the app shows the error dialog and exits.
+10. With port 3101 held by another HTTP server that answers `200` on `/health`, the app shows the
+    error dialog, exits and never opens a window on that server.
 
 ## Risks
 
