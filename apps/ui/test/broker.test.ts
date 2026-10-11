@@ -46,7 +46,7 @@ const askUser: Confirm = (op, input) => requestConfirmation({ widgetId: 'w1', ti
 describe('createGatewayClient', () => {
   it('rejects an unknown op and invalid input before any API call', async () => {
     const { api, client } = setup(answers())
-    await expect(client.call('http.get', {})).rejects.toMatchObject({ code: 'UNKNOWN_OP' })
+    await expect(client.call('http.post', {})).rejects.toMatchObject({ code: 'UNKNOWN_OP' })
     await expect(client.call('state.set', { data: 1 })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
     expect(api.createWidgetSession).not.toHaveBeenCalled()
     expect(api.gateway).not.toHaveBeenCalled()
@@ -317,7 +317,7 @@ describe('createBridge', () => {
   it('answers UNKNOWN_OP from the gateway client without an API call', async () => {
     const { api, client } = setup(answers())
     const frame = connect(client.call)
-    frame.send({ t: 'req', id: 4, op: 'http.get', input: {} })
+    frame.send({ t: 'req', id: 4, op: 'http.post', input: {} })
     expect(await frame.next()).toMatchObject({ t: 'res', id: 4, ok: false, error: { code: 'UNKNOWN_OP' } })
     expect(api.gateway).not.toHaveBeenCalled()
   })

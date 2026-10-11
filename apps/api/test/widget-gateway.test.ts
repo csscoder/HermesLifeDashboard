@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import type { AddressInfo } from 'node:net'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { needsConfirmation } from '../src/widget-gateway.ts'
 import { call, DAY, errorCode, HOUR, installPackage, pair, T0, testApp, widgetPackage, type TestApp } from './helpers.ts'
@@ -154,7 +156,7 @@ describe('gateway pipeline', () => {
   it('answers 404 UNKNOWN_OP, 403 PERMISSION_DENIED and 400 INVALID_INPUT and audits each', async () => {
     const token = await openSession(PKG_WIDGET)
     const builtin = await openSession(BUILTIN_WIDGET)
-    const unknown = await gateway('http.get', token)
+    const unknown = await gateway('http.post', token)
     expect([unknown.statusCode, errorCode(unknown)]).toEqual([404, 'UNKNOWN_OP'])
     const denied = await gateway('notifications.send', token, { title: 'x', body: '' })
     expect([denied.statusCode, errorCode(denied)]).toEqual([403, 'PERMISSION_DENIED'])
@@ -164,7 +166,7 @@ describe('gateway pipeline', () => {
     expect([invalid.statusCode, errorCode(invalid)]).toEqual([400, 'INVALID_INPUT'])
     expect((await gateway('state.get', token)).statusCode).toBe(200)
     expect(auditRows()).toEqual([
-      { widget_id: PKG_WIDGET, package_id: 'dev.test.hello', op: 'http.get', outcome: 'UNKNOWN_OP' },
+      { widget_id: PKG_WIDGET, package_id: 'dev.test.hello', op: 'http.post', outcome: 'UNKNOWN_OP' },
       { widget_id: PKG_WIDGET, package_id: 'dev.test.hello', op: 'notifications.send', outcome: 'PERMISSION_DENIED' },
       { widget_id: BUILTIN_WIDGET, package_id: null, op: 'state.get', outcome: 'PERMISSION_DENIED' },
       { widget_id: PKG_WIDGET, package_id: 'dev.test.hello', op: 'state.set', outcome: 'INVALID_INPUT' },
@@ -407,5 +409,117 @@ describe('confirmation', () => {
       expect((await send(token, await issue(token))).statusCode).toBe(200)
     }
     expect(errorCode(await send(token))).toBe('RATE_LIMITED')
+  })
+})
+
+describe('http', () => {
+  let server: Server
+  let origin = ''
+  let handle: (request: IncomingMessage, response: ServerResponse) => void
+  const seen: { method: string; url: string; body: string }[] = []
+  const send = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"title":"x"}' }
+
+  beforeAll(async () => {
+    server = createServer((request, response) => {
+      let body = ''
+      request.on('data', (chunk: Buffer) => (body += chunk.toString('utf8')))
+      request.on('end', () => {
+        seen.push({ method: request.method!, url: request.url!, body })
+        handle(request, response)
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+
+  afterAll(async () => {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  beforeEach(async () => {
+    seen.length = 0
+    handle = (_request, response) => response.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}')
+    // Version 1.1.0 asks for network; the placed widget moves to it, 1.0.0 stays installed.
+    await installPackage(t, cookie, widgetPackage((p) => {
+      p.manifest.version = '1.1.0'
+      p.manifest.permissions = ['state', 'network']
+      p.manifest.network = [origin]
+    }))
+    t.db.prepare("UPDATE widgets SET source_version = '1.1.0' WHERE id = ?").run(PKG_WIDGET)
+  })
+
+  function confirmed(token: string, id: string, payload: unknown) {
+    return call(t.app, {
+      method: 'POST',
+      url: '/api/v1/widget-gateway/http.send',
+      cookie,
+      payload,
+      headers: { 'x-widget-session': token, 'x-widget-confirmation': id },
+    })
+  }
+
+  it('proxies a GET to an approved origin and audits status, method and origin only', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const response = await gateway('http.get', token, { url: `${origin}/api/v1/tasks?due=today`, headers: { accept: 'application/json' } })
+    expect(response.json().data).toEqual({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
+    expect(seen[0]).toMatchObject({ method: 'GET', url: '/api/v1/tasks?due=today' })
+    expect(auditRows().at(-1)).toEqual({ widget_id: PKG_WIDGET, package_id: 'dev.test.hello', op: 'http.get', outcome: `200 GET ${origin}` })
+  })
+
+  it('denies an unlisted origin and rejects credentials in the URL before any request', async () => {
+    const token = await openSession(PKG_WIDGET)
+    expect(errorCode(await gateway('http.get', token, { url: 'http://evil.example/' }))).toBe('PERMISSION_DENIED')
+    expect(errorCode(await gateway('http.get', token, { url: `${origin}@evil.example/` }))).toBe('INVALID_INPUT')
+    expect(seen).toHaveLength(0)
+  })
+
+  it('denies an origin the user has not approved', async () => {
+    t.db.prepare('DELETE FROM widget_network_origins').run()
+    const token = await openSession(PKG_WIDGET)
+    expect(errorCode(await gateway('http.get', token, { url: `${origin}/` }))).toBe('PERMISSION_DENIED')
+  })
+
+  it('gives an older version without network no origins, although the package holds the grant', async () => {
+    t.db.prepare("UPDATE widgets SET source_version = '1.0.0' WHERE id = ?").run(PKG_WIDGET)
+    const token = await openSession(PKG_WIDGET)
+    expect(errorCode(await gateway('http.get', token, { url: `${origin}/` }))).toBe('PERMISSION_DENIED')
+  })
+
+  it('asks before http.send in ask mode and sends once after the confirmation', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const input = { url: `${origin}/api/v1/tasks`, ...send }
+    const asked = await gateway('http.send', token, input)
+    expect([asked.statusCode, errorCode(asked)]).toEqual([428, 'CONFIRMATION_REQUIRED'])
+    expect(seen).toHaveLength(0)
+    const sent = await confirmed(token, asked.json().error.confirmationId, input)
+    expect(sent.json().data.status).toBe(200)
+    expect(seen).toEqual([{ method: 'POST', url: '/api/v1/tasks', body: '{"title":"x"}' }])
+  })
+
+  it('sends without asking in allow mode', async () => {
+    t.db.prepare("UPDATE widget_grants SET mode = 'allow' WHERE permission = 'network'").run()
+    const token = await openSession(PKG_WIDGET)
+    expect((await gateway('http.send', token, { url: `${origin}/api/v1/tasks`, ...send })).json().data.status).toBe(200)
+  })
+
+  it('answers 502 UPSTREAM_ERROR for a dropped connection and audits it', async () => {
+    handle = (request) => request.socket.destroy()
+    const token = await openSession(PKG_WIDGET)
+    const response = await gateway('http.get', token, { url: `${origin}/` })
+    expect([response.statusCode, errorCode(response), response.json().error.message]).toEqual([502, 'UPSTREAM_ERROR', 'The service is unreachable'])
+    expect(auditRows().at(-1)).toMatchObject({ op: 'http.get', outcome: `UPSTREAM_ERROR GET ${origin}` })
+  })
+
+  it('keeps the http.get count across a new session', async () => {
+    const token = await openSession(PKG_WIDGET)
+    for (let index = 0; index < 120; index++) expect((await gateway('http.get', token, { url: `${origin}/` })).statusCode).toBe(200)
+    const fresh = await openSession(PKG_WIDGET)
+    expect(errorCode(await gateway('http.get', fresh, { url: `${origin}/` }))).toBe('RATE_LIMITED')
+  })
+
+  it('denies http to a built-in widget', async () => {
+    const token = await openSession(BUILTIN_WIDGET)
+    expect(errorCode(await gateway('http.get', token, { url: `${origin}/` }))).toBe('PERMISSION_DENIED')
   })
 })

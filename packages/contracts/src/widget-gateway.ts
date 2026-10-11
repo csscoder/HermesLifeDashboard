@@ -9,6 +9,9 @@ export const GATEWAY_OPS = {
   'state.get': { permission: 'state', confirm: 'never' },
   'state.set': { permission: 'state', confirm: 'never' },
   'notifications.send': { permission: 'notifications', confirm: 'optional' },
+  // Spec 2026-10-11: polling must never open a dialog; writes follow the grant mode.
+  'http.get': { permission: 'network', confirm: 'never' },
+  'http.send': { permission: 'network', confirm: 'optional' },
 } as const satisfies Record<string, { permission: WidgetPermission; confirm: ConfirmPolicy }>
 
 export type GatewayOp = keyof typeof GATEWAY_OPS
@@ -146,6 +149,8 @@ export interface GatewayInputs {
   'state.get': Record<string, never>
   'state.set': StateSetInput
   'notifications.send': NotificationInput
+  'http.get': HttpGetInput
+  'http.send': HttpSendInput
 }
 
 /** `POST /widget-sessions` answers with this. */
@@ -194,8 +199,12 @@ export function parseGatewayInput<Op extends GatewayOp>(op: Op, raw: unknown): P
     result = Object.keys(raw).length === 0 ? { ok: true, value: {} } : fail('state.get takes no input')
   } else if (op === 'state.set') {
     result = parseStateSet(raw)
-  } else {
+  } else if (op === 'notifications.send') {
     result = parseNotification(raw)
+  } else if (op === 'http.get') {
+    result = parseHttpGet(raw)
+  } else {
+    result = parseHttpSend(raw)
   }
   return result as ParseResult<GatewayInputs[Op]>
 }

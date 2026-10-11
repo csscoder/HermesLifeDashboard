@@ -18,9 +18,9 @@ import {
 const exactly64k = 'x'.repeat(65_534)
 
 describe('isGatewayOp', () => {
-  it('knows the three operations and nothing from the prototype', () => {
-    expect(['state.get', 'state.set', 'notifications.send'].every(isGatewayOp)).toBe(true)
-    expect(isGatewayOp('http.get')).toBe(false)
+  it('knows the five operations and nothing from the prototype', () => {
+    expect(['state.get', 'state.set', 'notifications.send', 'http.get', 'http.send'].every(isGatewayOp)).toBe(true)
+    expect(isGatewayOp('http.post')).toBe(false)
     expect(isGatewayOp('toString')).toBe(false)
     expect(isGatewayOp('constructor')).toBe(false)
     expect(isGatewayOp(1)).toBe(false)
@@ -42,6 +42,15 @@ describe('parseGatewayInput', () => {
   it('normalizes state data to JSON', () => {
     const result = parseGatewayInput('state.set', { data: { at: new Date(0), skip: undefined }, expectedRevision: 0 })
     expect(result).toEqual({ ok: true, value: { data: { at: '1970-01-01T00:00:00.000Z' }, expectedRevision: 0 } })
+  })
+
+  it('routes http inputs to their parsers', () => {
+    expect(parseGatewayInput('http.get', { url: 'http://127.0.0.1:8787/x' })).toEqual({ ok: true, value: { url: 'http://127.0.0.1:8787/x' } })
+    expect(parseGatewayInput('http.send', { url: 'http://127.0.0.1:8787/x', method: 'POST' })).toEqual({
+      ok: true,
+      value: { url: 'http://127.0.0.1:8787/x', method: 'POST' },
+    })
+    expect(parseGatewayInput('http.get', null).ok).toBe(false)
   })
 
   it.each([
@@ -103,13 +112,15 @@ describe('sizeClass', () => {
 })
 
 describe('confirmation policy', () => {
-  it('asks only for notifications.send, so only notifications offers a mode', () => {
+  it('asks for notifications.send and http.send, so notifications and network offer a mode', () => {
     expect(Object.fromEntries(Object.entries(GATEWAY_OPS).map(([op, spec]) => [op, spec.confirm]))).toEqual({
       'state.get': 'never',
       'state.set': 'never',
       'notifications.send': 'optional',
+      'http.get': 'never',
+      'http.send': 'optional',
     })
-    expect(confirmablePermissions()).toEqual(['notifications'])
+    expect(confirmablePermissions()).toEqual(['notifications', 'network'])
   })
 
   it('lets the dialog deadline, not the transport, end an unanswered call', () => {

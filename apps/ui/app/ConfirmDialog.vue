@@ -8,6 +8,8 @@ const ACTIONS: Record<GatewayOp, string> = {
   'state.get': 'прочитать свои данные',
   'state.set': 'сохранить свои данные',
   'notifications.send': 'показать уведомление',
+  'http.get': 'прочитать данные из сети',
+  'http.send': 'отправить запрос в сеть',
 }
 // A double click on the previous entry must not approve the next one.
 const ARM_MS = 500

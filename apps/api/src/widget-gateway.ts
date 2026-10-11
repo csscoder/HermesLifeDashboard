@@ -10,11 +10,13 @@ import {
   type ConfirmPolicy,
   type GatewayInputs,
   type GatewayOp,
+  type HttpOutput,
   type WidgetSessionResponse,
 } from '@lifedashboard/contracts/widget-gateway'
-import { canonicalJson, type GrantMode, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
+import { canonicalJson, type GrantMode, type WidgetPackageManifest, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import { ApiError, ok } from './errors.ts'
-import { grantsOf } from './widget-packages.ts'
+import { proxyHttp } from './http-proxy.ts'
+import { grantsOf, originsOf } from './widget-packages.ts'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -26,6 +28,8 @@ const RATE_LIMITS: Record<GatewayOp, { max: number; windowMs: number }> = {
   'state.get': { max: 120, windowMs: MINUTE },
   'state.set': { max: 60, windowMs: MINUTE },
   'notifications.send': { max: 10, windowMs: HOUR },
+  'http.get': { max: 120, windowMs: MINUTE },
+  'http.send': { max: 60, windowMs: MINUTE },
 }
 
 /** What an operation handler may use; sub-project 2 adds a secret resolver here without changing the pipeline. */
@@ -33,6 +37,8 @@ export interface GatewayContext {
   widgetId: string
   packageId: string | null
   grants: ReadonlySet<WidgetPermission>
+  // Manifest origins of the instance's version that the user approved for the package.
+  origins: ReadonlySet<string>
 }
 
 interface PendingConfirmation {
@@ -55,6 +61,13 @@ type Handlers = { [Op in GatewayOp]: (context: GatewayContext, input: GatewayInp
 /** Spec 2026-10-09 «Gateway pipeline» step 1. `mode` is null for a built-in widget, which counts as `allow`. */
 export function needsConfirmation(policy: ConfirmPolicy, mode: GrantMode | null): boolean {
   return policy === 'always' || (policy === 'optional' && mode === 'ask')
+}
+
+// Spec 2026-10-11 audit: method and origin of an HTTP call; never its path, query or body.
+function httpTarget(op: GatewayOp, input: unknown): string {
+  if (op !== 'http.get' && op !== 'http.send') return ''
+  const { url, method } = input as { url: string; method?: string }
+  return ` ${method ?? 'GET'} ${new URL(url).origin}`
 }
 
 export interface WidgetGatewayDeps {
@@ -139,13 +152,14 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   app.post<{ Body: { widgetId?: unknown } | undefined }>('/api/v1/widget-sessions', async (request) => {
     const widgetId = request.body?.widgetId
     if (typeof widgetId !== 'string') throw new ApiError('VALIDATION_ERROR', 'widgetId must be a string')
-    const { packageId, grants } = resolveWidget(db, widgetId)
+    const { packageId, grants, origins } = resolveWidget(db, widgetId)
     const token = randomBytes(32).toString('base64url')
     sessions.set(token, {
       dashboard: request.sessionHash,
       widgetId,
       packageId,
       grants: new Set(grants),
+      origins: new Set(origins),
       lastUsedAt: now().getTime(),
       confirmation: null,
     })
@@ -165,12 +179,14 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     const session = useSession(request)
     const { op } = request.params
     let outcome = 'ok'
+    let target = ''
     try {
       if (!isGatewayOp(op)) throw new ApiError('UNKNOWN_OP', `Unknown operation "${op.slice(0, 100)}"`)
       const { permission, confirm } = GATEWAY_OPS[op]
       if (!session.grants.has(permission)) throw new ApiError('PERMISSION_DENIED', `The widget has no "${permission}" permission`)
       const input = parseGatewayInput(op, request.body)
       if (!input.ok) throw new ApiError('INVALID_INPUT', input.error)
+      target = httpTarget(op, input.value)
       if (needsConfirmation(confirm, grantMode(session, permission))) {
         confirmCall(session, op, input.value, request.headers['x-widget-confirmation'])
       } else {
@@ -179,12 +195,18 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
         rateLimit(session.widgetId, op)
       }
       const handler = handlers[op] as (context: GatewayContext, input: unknown) => unknown
-      return ok(request, handler({ widgetId: session.widgetId, packageId: session.packageId, grants: session.grants }, input.value))
+      // Awaited inside try: an HTTP handler is asynchronous, and catch and audit must see its end.
+      const output = await handler(
+        { widgetId: session.widgetId, packageId: session.packageId, grants: session.grants, origins: session.origins },
+        input.value,
+      )
+      if (target !== '') outcome = String((output as HttpOutput).status)
+      return ok(request, output)
     } catch (error) {
       outcome = error instanceof ApiError ? error.code : 'INTERNAL_ERROR'
       throw error
     } finally {
-      audit(session, op, outcome)
+      audit(session, op, outcome + target)
     }
   })
 
@@ -200,19 +222,28 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   })
 }
 
-function resolveWidget(db: DatabaseSync, widgetId: string): { packageId: string | null; grants: WidgetPermission[] } {
+function resolveWidget(db: DatabaseSync, widgetId: string): { packageId: string | null; grants: WidgetPermission[]; origins: string[] } {
   const row = db.prepare('SELECT source_kind, source_type, source_version FROM widgets WHERE id = ?').get(widgetId) as
     | { source_kind: string; source_type: string; source_version: string | null }
     | undefined
   if (!row) throw new ApiError('NOT_FOUND', 'Widget not found')
   if (row.source_kind === 'package') {
-    const installed = db.prepare('SELECT 1 FROM widget_package_versions WHERE package_id = ? AND version = ?').get(row.source_type, row.source_version)
+    const installed = db.prepare('SELECT manifest FROM widget_package_versions WHERE package_id = ? AND version = ?').get(row.source_type, row.source_version) as
+      | { manifest: string }
+      | undefined
     if (!installed) throw new ApiError('NOT_FOUND', 'Widget package version is not installed')
-    return { packageId: row.source_type, grants: grantsOf(db, row.source_type).map((grant) => grant.permission) }
+    // Stored manifests are not re-validated; an older one has no network field and so no origins.
+    const manifest = JSON.parse(installed.manifest) as WidgetPackageManifest
+    const approved = new Set(originsOf(db, row.source_type))
+    return {
+      packageId: row.source_type,
+      grants: grantsOf(db, row.source_type).map((grant) => grant.permission),
+      origins: (manifest.network ?? []).filter((origin) => approved.has(origin)),
+    }
   }
   const manifest = findBuiltinWidget(row.source_type)
   if (!manifest) throw new ApiError('NOT_FOUND', 'Unknown built-in widget')
-  return { packageId: null, grants: [...manifest.permissions] }
+  return { packageId: null, grants: [...manifest.permissions], origins: [] }
 }
 
 function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
@@ -234,5 +265,8 @@ function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
     },
     // The host displays the notification after this answer (toast now, Tauri plugin at E7).
     'notifications.send': () => ({ ok: true }),
+    'http.get': ({ origins }, { url, headers }) => proxyHttp({ url, method: 'GET', headers: { ...headers } as Record<string, string> }, origins),
+    'http.send': ({ origins }, { url, method, headers, body }) =>
+      proxyHttp({ url, method, headers: { ...headers } as Record<string, string>, body }, origins),
   }
 }
