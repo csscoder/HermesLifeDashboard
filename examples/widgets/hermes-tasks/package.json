@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "ld-widget build",
-    "test": "vitest run"
+    "test": "vitest run --exclude \"dist/**\""
   },
   "devDependencies": {
     "@lifedashboard/widget-sdk": "workspace:*",
