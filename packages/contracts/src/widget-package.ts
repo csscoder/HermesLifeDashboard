@@ -1,7 +1,7 @@
 import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
 import { fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
 
-export const WIDGET_PERMISSIONS = ['state', 'notifications'] as const
+export const WIDGET_PERMISSIONS = ['state', 'notifications', 'network'] as const
 export type WidgetPermission = (typeof WIDGET_PERMISSIONS)[number]
 
 // Spec 2026-10-09: `ask` confirms each call of an `optional` operation in a host dialog.
@@ -20,6 +20,8 @@ export const PACKAGE_LIMITS = {
   maxIdLength: 100,
   maxTextLength: 60,
 } as const
+
+export const NETWORK_ORIGINS_MAX = 16
 
 export const CODE_TYPES: Readonly<Record<string, string>> = {
   js: 'text/javascript; charset=utf-8',
@@ -88,7 +90,7 @@ const ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
 
-const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions']
+const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions', 'network']
 const SIZING_KEYS = ['default', 'min', 'max']
 const SIZE_KEYS = ['w', 'h']
 
@@ -102,6 +104,9 @@ export interface WidgetPackageManifest {
   styles: string[]
   sizing: WidgetSizing
   permissions: WidgetPermission[]
+  // Spec 2026-10-11: exact origins for http.get/http.send. Optional: stored manifests of older
+  // versions are read back without re-validation and lack it; absent means no origins.
+  network?: string[]
 }
 
 /** `POST /widget-uploads` (hash null) and `POST /widget-uploads/:id/install` answer with this. */
@@ -142,6 +147,24 @@ export function isPackageId(value: unknown): value is string {
 
 export function isPackageVersion(value: unknown): value is string {
   return typeof value === 'string' && VERSION_PATTERN.test(value)
+}
+
+/** `scheme://host[:port]` exactly as `URL#origin` prints it: no path, credentials, default port or wildcard. */
+export function isNetworkOrigin(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  return (url.protocol === 'http:' || url.protocol === 'https:') && !url.hostname.includes('*') && url.origin === value
+}
+
+function parseNetwork(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > NETWORK_ORIGINS_MAX) return null
+  if (!raw.every(isNetworkOrigin) || new Set(raw).size !== raw.length) return null
+  return [...raw]
 }
 
 function isPlainText(value: unknown): value is string {
@@ -199,7 +222,20 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
     return fail(`manifest.sizing must have integer sizes with min ≤ default ≤ max inside the ${GRID_COLS}x${ROWS.max} grid`)
   }
   const permissions = parsePermissions(raw.permissions)
-  if (!permissions) return fail('manifest.permissions must be distinct items of: state, notifications')
+  if (!permissions) return fail(`manifest.permissions must be distinct items of: ${WIDGET_PERMISSIONS.join(', ')}`)
+  let network: string[] | undefined
+  if (raw.network !== undefined) {
+    const parsed = parseNetwork(raw.network)
+    if (!parsed) {
+      return fail(
+        `manifest.network must be 1–${NETWORK_ORIGINS_MAX} distinct origins such as http://127.0.0.1:8787 (scheme, host and port only)`,
+      )
+    }
+    network = parsed
+  }
+  if (permissions.includes('network') !== (network !== undefined)) {
+    return fail('manifest.network and the network permission must be declared together')
+  }
   return {
     ok: true,
     value: {
@@ -212,6 +248,8 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
       styles: [...(raw.styles as string[])],
       sizing,
       permissions,
+      // Left out when absent, so a manifest without network keeps its canonical JSON and package hash.
+      ...(network === undefined ? {} : { network }),
     },
   }
 }

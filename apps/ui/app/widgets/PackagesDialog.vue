@@ -25,6 +25,7 @@ const open = defineModel<boolean>('open', { required: true })
 const PERMISSIONS: Record<WidgetPermission, string> = {
   state: 'Хранить собственные данные виджета',
   notifications: 'Показывать уведомления',
+  network: 'Доступ к сети',
 }
 const MODES: Record<GrantMode, string> = {
   ask: 'Спрашивать каждый раз',

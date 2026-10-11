@@ -3,6 +3,7 @@ import {
   canonicalJson,
   classifyPath,
   compareVersions,
+  isNetworkOrigin,
   isPackageId,
   parseWidgetFolder,
   parseWidgetManifest,
@@ -224,5 +225,59 @@ describe('parseWidgetFolder', () => {
     const result = change === null ? parseWidgetFolder(structuredClone(manifestV2), {}) : folder(change as any)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toMatch(message)
+  })
+})
+
+describe('manifest network', () => {
+  function withNetwork(network: unknown, permissions: string[] = ['state', 'network']): unknown {
+    return mutatedManifest((manifest) => {
+      manifest.permissions = permissions
+      manifest.network = network
+    })
+  }
+
+  it('keeps approved-format origins with the network permission', () => {
+    const result = parseWidgetManifest(withNetwork(['http://127.0.0.1:8787', 'https://api.example.com']))
+    expect(result.ok && result.value.network).toEqual(['http://127.0.0.1:8787', 'https://api.example.com'])
+  })
+
+  it('leaves network out of a manifest that has none', () => {
+    const result = parseWidgetManifest(mutatedManifest(() => {}))
+    expect(result.ok && 'network' in result.value).toBe(false)
+  })
+
+  it.each([
+    ['a path', ['http://127.0.0.1:8787/api']],
+    ['a trailing slash', ['http://127.0.0.1:8787/']],
+    ['an upper-case scheme', ['HTTP://127.0.0.1:8787']],
+    ['a default port', ['https://example.com:443']],
+    ['credentials', ['http://u:p@127.0.0.1:8787']],
+    ['a wildcard', ['http://*.example.com']],
+    ['another scheme', ['ftp://example.com']],
+    ['duplicates', ['http://a.example', 'http://a.example']],
+    ['an empty list', []],
+    ['17 origins', Array.from({ length: 17 }, (_, index) => `http://h${index}.example`)],
+    ['a number', [8787]],
+    ['a string instead of a list', 'http://127.0.0.1:8787'],
+  ])('rejects %s', (_name, network) => {
+    const result = parseWidgetManifest(withNetwork(network))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/manifest\.network must be/)
+  })
+
+  it('requires network and the network permission together', () => {
+    for (const raw of [withNetwork(['http://127.0.0.1:8787'], ['state']), withNetwork(undefined, ['network'])]) {
+      const result = parseWidgetManifest(raw)
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.error).toMatch(/network permission/)
+    }
+  })
+
+  it('isNetworkOrigin accepts only normalized origins', () => {
+    expect(isNetworkOrigin('http://127.0.0.1:8787')).toBe(true)
+    expect(isNetworkOrigin('http://localhost')).toBe(true)
+    expect(isNetworkOrigin('http://localhost:80')).toBe(false)
+    expect(isNetworkOrigin('http://127.0.0.1:8787@evil.example')).toBe(false)
+    expect(isNetworkOrigin(null)).toBe(false)
   })
 })
