@@ -20,6 +20,6 @@
       "../../api/dist-bundle/": "api/",
       "../../ui/.output/public/": "ui/"
     },
-    "macOS": { "signingIdentity": "-", "hardenedRuntime": false }
+    "macOS": { "minimumSystemVersion": "15.7", "signingIdentity": "-", "hardenedRuntime": false }
   }
 }

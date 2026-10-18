@@ -61,14 +61,15 @@ The initial SDK lives at [`packages/widget-sdk`](packages/widget-sdk). It curren
 | API | Purpose |
 | --- | --- |
 | `useWidget()` | Access the host-provided widget API from a Vue component. |
-| `widget.context` | Reactive size, `sizeClass`, theme, `rootFontSize`, config, locale, and visibility. |
+| `widget.context` | Reactive size, `sizeClass`, `frame` (framed or frameless), theme, `rootFontSize`, config, locale, and visibility. |
 | `widget.state.get<T>()` | Read instance-specific persisted state and its revision. |
 | `widget.state.set(data, expectedRevision)` | Save state with optimistic concurrency control. |
 | `widget.notify({ title, body })` | Request a notification displayed by LifeDashboard. |
-| `widget.call(op, input)` | Call a supported, permission-checked gateway operation. |
+| `widget.http.get(url, { accept })` / `widget.http.send(request)` | Typed HTTP through the gateway; requires the `network` permission. Available since sdk 2. |
+| `widget.call(op, input)` | Typed low-level gateway call, kept for sdk 1 widgets. |
 | `ld-widget build [dir] [--no-source]` | Build a widget project into an installable folder `dist/<id>-<version>/`. |
 
-**Gateway operations:** `state.get`, `state.set`, `notifications.send`, `http.get` and `http.send`. HTTP goes through the LifeDashboard API to the exact origins a widget lists in `widget.json` `network` (together with the `network` permission) and the user approves at install; a new version with a new origin lists it for review at install, like a new permission. Redirects are not followed, no cookies or secrets are sent, the request body is at most 64 KB, the response at most 100 KB, and the upstream timeout is 4 s. LifeDashboard data sources, local device actions and Hermes are planned; they are not available through the SDK today.
+**Gateway operations:** `state.get`, `state.set`, `notifications.send`, `http.get` and `http.send`. HTTP goes through the LifeDashboard API to the exact origins a widget lists in `widget.json` `network` (together with the `network` permission) and the user approves at install; a new version with a new origin lists it for review at install, like a new permission. Redirects are not followed, no cookies are sent, the request body is at most 64 KB, the response at most 100 KB, and the upstream timeout is 4 s. The API injects a widget's secret settings only into requests to their bound origin; exact and URL-encoded copies are redacted from responses. LifeDashboard data sources, local device actions and Hermes are planned; they are not available through the SDK today.
 
 A widget project contains at least:
 
@@ -98,7 +99,7 @@ Build the existing example from the repository root:
 ```bash
 pnpm install
 pnpm -C examples/widgets/hello build
-# examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.0/
+# examples/widgets/hello/dist/dev.lifedashboard.hello-1.0.3/
 ```
 
 Then start LifeDashboard and select **«Виджеты» → «Выбрать папку»**, pick that folder (or drop it on the dialog), review the permissions and sizes, install the widget, and place it using **«Добавить виджет…»**.
@@ -278,9 +279,11 @@ The order may change based on actual usage and implementation constraints. **A s
 
 LifeDashboard is designed to be **local-first**, with the API bound to the loopback interface and project data stored locally in SQLite. The initial implementation includes pairing-based authentication, request origin checks, and permission-aware widget operations.
 
-Installable widgets run inside sandboxed iframes and communicate with the host through a constrained message bridge. Packages cannot directly use arbitrary host APIs through the Widget SDK. Currently supported permissions are `state` and `notifications`; notification calls may require confirmation depending on the saved grant mode.
+Installable widgets run inside sandboxed iframes and communicate with the host through a constrained message bridge. Packages cannot directly use arbitrary host APIs through the Widget SDK. Currently supported permissions are `state`, `notifications`, and `network`; notification calls may require confirmation depending on the saved grant mode.
 
-Sandboxing **reduces risk but is not a guarantee against all malicious or resource-intensive code**. Only install widget packages from sources you trust. Future native, network, or AI capabilities will require separate security review and explicit authorization.
+Widgets can declare secret settings bound to an approved network origin and a header or query parameter. The API injects the secret into requests; the widget never receives the secret value, only whether it is set.
+
+Sandboxing **reduces risk but is not a guarantee against all malicious or resource-intensive code**. Only install widget packages from sources you trust. Future native or AI capabilities will require separate security review and explicit authorization.
 
 There is no mandatory cloud account or hosted backend in the current architecture. A mobile app, cloud sync, and multi-user service are not initial goals.
 
