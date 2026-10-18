@@ -5,6 +5,7 @@ import { findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
 import {
   CONFIRMATION_TTL_MS,
   GATEWAY_OPS,
+  RATE_LIMITS,
   isGatewayOp,
   parseGatewayInput,
   type ConfirmPolicy,
@@ -18,19 +19,14 @@ import { ApiError, ok } from './errors.ts'
 import { proxyHttp } from './http-proxy.ts'
 import { grantsOf, originsOf } from './widget-packages.ts'
 
+export { RATE_LIMITS } from '@lifedashboard/contracts/widget-gateway'
+
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const SESSION_IDLE_MS = HOUR
 const MAX_SESSIONS = 200
 const AUDIT_TTL_MS = 30 * DAY
-export const RATE_LIMITS: Record<GatewayOp, { max: number; windowMs: number }> = {
-  'state.get': { max: 120, windowMs: MINUTE },
-  'state.set': { max: 60, windowMs: MINUTE },
-  'notifications.send': { max: 10, windowMs: HOUR },
-  'http.get': { max: 120, windowMs: MINUTE },
-  'http.send': { max: 60, windowMs: MINUTE },
-}
 
 /** What an operation handler may use; sub-project 2 adds a secret resolver here without changing the pipeline. */
 export interface GatewayContext {

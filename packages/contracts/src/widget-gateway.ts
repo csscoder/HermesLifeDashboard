@@ -16,6 +16,16 @@ export const GATEWAY_OPS = {
 
 export type GatewayOp = keyof typeof GATEWAY_OPS
 
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+export const RATE_LIMITS: Record<GatewayOp, { max: number; windowMs: number }> = {
+  'state.get': { max: 120, windowMs: MINUTE },
+  'state.set': { max: 60, windowMs: MINUTE },
+  'notifications.send': { max: 10, windowMs: HOUR },
+  'http.get': { max: 120, windowMs: MINUTE },
+  'http.send': { max: 60, windowMs: MINUTE },
+}
+
 /** Permissions with at least one `optional` operation: only these offer a mode. */
 export function confirmablePermissions(): WidgetPermission[] {
   const permissions = Object.values(GATEWAY_OPS).flatMap((spec): WidgetPermission[] => (spec.confirm === 'optional' ? [spec.permission] : []))
