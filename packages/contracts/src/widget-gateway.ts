@@ -234,6 +234,7 @@ export function sizeClass(size: Size): SizeClass {
 export interface WidgetContext {
   size: Size
   sizeClass: SizeClass
+  frame: 'framed' | 'frameless'
   // Tokens are full custom property names (`--ld-bg`) with resolved values.
   theme: { id: string; scheme: 'light' | 'dark'; tokens: Record<string, string> }
   // px of the dashboard's html font-size, so `rem` in a frame matches the board (§7.4).

@@ -8,6 +8,7 @@ import { createWidget, provideInProcessWidget, useWidget, WidgetError, type Widg
 const CONTEXT: WidgetContext = {
   size: { w: 3, h: 3 },
   sizeClass: 'm',
+  frame: 'framed',
   theme: { id: 'builtin:glass', scheme: 'dark', tokens: { '--ld-bg': '#000' } },
   rootFontSize: 16,
   config: {},

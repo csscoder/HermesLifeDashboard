@@ -29,11 +29,13 @@ export function useWidgetContext(source: {
   foreign: () => boolean
   config: () => Record<string, unknown>
   frame: () => Element | null
+  frameMode: () => WidgetContext['frame']
 }): WidgetContext {
   const initial = source.size()
   const context = reactive<WidgetContext>({
     size: { w: initial.w, h: initial.h },
     sizeClass: sizeClass(initial),
+    frame: source.frameMode(),
     theme: { id: source.themeId(), scheme: themeMeta(source.themeId()).mode, tokens: {} },
     rootFontSize: 16,
     config: source.config(),
@@ -65,6 +67,9 @@ export function useWidgetContext(source: {
   )
   watch(source.config, (config) => {
     context.config = config
+  })
+  watch(source.frameMode, (frame) => {
+    context.frame = frame
   })
   // `foreign` changes the computed tokens without changing the id (a widget fixed to Glass while the
   // board switches Glass → Paper), so the pair is watched.

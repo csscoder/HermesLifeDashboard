@@ -3,6 +3,7 @@ import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { BUILTIN_WIDGETS, findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
 import type { WidgetSizing } from '@lifedashboard/contracts/grid'
 import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
+import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import {
   parseWidgetFolder,
   type FolderFile,
@@ -22,6 +23,7 @@ export interface SourceInfo {
   sizing: WidgetSizing
   // The sandbox document of a package version; null for built-in widgets.
   hash: string | null
+  settings?: SettingsSchema
 }
 
 export interface PickerEntry {
@@ -56,7 +58,7 @@ export function describeSource(source: WidgetSource, packages: readonly Installe
     return manifest ? { title: manifest.title, sizing: manifest.sizing, hash: null } : null
   }
   const version = packages.find((pkg) => pkg.id === source.packageId)?.versions.find((item) => item.version === source.version)
-  return version ? { title: version.manifest.title, sizing: version.manifest.sizing, hash: version.hash } : null
+  return version ? { title: version.manifest.title, sizing: version.manifest.sizing, hash: version.hash, settings: version.manifest.settings } : null
 }
 
 /** «Добавить виджет»: built-in widgets, then the newest installed version of each package. */

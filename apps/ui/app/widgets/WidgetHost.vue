@@ -2,6 +2,7 @@
 import { computed, onUnmounted, useTemplateRef } from 'vue'
 import type { DropShadow, WidgetSource } from '@lifedashboard/contracts/board'
 import type { Size } from '@lifedashboard/contracts/grid'
+import { normalizeConfig } from '@lifedashboard/contracts/widget-settings'
 import { provideInProcessWidget } from '@lifedashboard/widget-sdk'
 import { api } from '../api'
 import { cancelConfirmations, requestConfirmation } from '../confirmations'
@@ -11,6 +12,7 @@ import { createGatewayClient } from './broker'
 import { describeSource } from './catalog'
 import { useWidgetContext } from './context'
 import { builtinWidgetRenderers } from './registry'
+import { useSecretFlags } from './secret-flags'
 import SandboxWidget from './SandboxWidget.vue'
 import WidgetFrame from './WidgetFrame.vue'
 
@@ -32,12 +34,14 @@ const frame = useTemplateRef<{ $el: Element }>('frameBox')
 const info = computed(() => describeSource(props.source))
 const title = computed(() => info.value?.title ?? 'Неизвестный виджет')
 const renderer = computed(() => (props.source.kind === 'builtin' ? builtinWidgetRenderers.get(props.source.type) : undefined))
+const flags = useSecretFlags(() => props.widgetId)
 const context = useWidgetContext({
   size: () => props.size,
   themeId: () => props.themeId,
   foreign: () => props.foreign,
-  config: () => props.config ?? {},
+  config: () => normalizeConfig(info.value?.settings, props.config ?? {}, flags.value),
   frame: () => frame.value?.$el ?? null,
+  frameMode: () => (props.skin === 'bare' ? 'frameless' : 'framed'),
 })
 
 // A placed built-in widget runs in-process behind the same broker client as a sandboxed one;

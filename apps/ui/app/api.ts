@@ -91,6 +91,11 @@ export const api = {
     apiRequest<PackageInspection>('POST', `/widget-uploads/${encodeURIComponent(uploadId)}/install`, {}, signal),
   cancelUpload: (uploadId: string) => apiRequest<null>('DELETE', `/widget-uploads/${encodeURIComponent(uploadId)}`, {}),
   deletePackage: (id: string) => apiRequest<null>('DELETE', `/widget-packages/${encodeURIComponent(id)}`, {}),
+  widgetSecrets: (widgetId: string) => apiRequest<Record<string, boolean>>('GET', `/widgets/${encodeURIComponent(widgetId)}/secrets`),
+  setWidgetSecret: (widgetId: string, key: string, value: string) =>
+    apiRequest<Record<string, boolean>>('PUT', `/widgets/${encodeURIComponent(widgetId)}/secrets/${encodeURIComponent(key)}`, { value }),
+  clearWidgetSecret: (widgetId: string, key: string) =>
+    apiRequest<Record<string, boolean>>('DELETE', `/widgets/${encodeURIComponent(widgetId)}/secrets/${encodeURIComponent(key)}`, {}),
   createWidgetSession: (widgetId: string) => apiRequest<WidgetSessionResponse>('POST', '/widget-sessions', { widgetId }),
   endWidgetSession: (token: string) => apiRequest<null>('DELETE', `/widget-sessions/${encodeURIComponent(token)}`, {}),
   gateway: (op: string, token: string, input: unknown, confirmationId?: string) =>
