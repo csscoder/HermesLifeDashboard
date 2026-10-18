@@ -52,13 +52,20 @@ describe('injectSecret', () => {
       .toEqual({ url: `https://a.example/v1?q=1&apikey=${value}`, headers: {} })
   })
 
-  it('uses URLSearchParams encoding and preserves headers, fragments and the original request', () => {
-    const request = { url: 'https://a.example/v1?q=a%20b#section', headers: { accept: 'application/json' } }
+  it('preserves the raw URL, headers and fragment while URI-encoding only the injected value', () => {
+    const request = { url: 'https://a.example/v1?q=a%20b&path=:/,~&escaped=%2f#section', headers: { accept: 'application/json' } }
     expect(injectSecret(request, { origin, query: 'apikey' }, 'a b+c&d=?/#')).toEqual({
-      url: 'https://a.example/v1?q=a+b&apikey=a+b%2Bc%26d%3D%3F%2F%23#section', headers: request.headers,
+      url: 'https://a.example/v1?q=a%20b&path=:/,~&escaped=%2f&apikey=a%20b%2Bc%26d%3D%3F%2F%23#section', headers: request.headers,
     })
-    expect(request.url).toBe('https://a.example/v1?q=a%20b#section')
+    expect(request.url).toBe('https://a.example/v1?q=a%20b&path=:/,~&escaped=%2f#section')
     expect(request.headers).toEqual({ accept: 'application/json' })
+  })
+
+  it('redacts the exact query value injected before a fragment', () => {
+    const secret = 'ключ ab+cd/ef=ghijklmnop'
+    const result = injectSecret({ url: 'https://a.example/v1#section', headers: {} }, { origin, query: 'apikey' }, secret)
+    expect(result).toEqual({ url: `https://a.example/v1?apikey=${encodeURIComponent(secret)}#section`, headers: {} })
+    if ('url' in result) expect(redactSecrets(result.url, [secret])).toBe('https://a.example/v1?apikey=[REDACTED]#section')
   })
 
   it('adds a query parameter when no query exists', () => {

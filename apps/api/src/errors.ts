@@ -69,7 +69,9 @@ export function registerErrorHandling(app: FastifyInstance): void {
     const status = statusOf(error)
     // Fastify's own client errors: malformed JSON, schema validation, body too large.
     if (status !== undefined && status >= 400 && status < 500) {
-      const message = error instanceof Error ? error.message : 'Invalid request'
+      const jsonParseError = (typeof error === 'object' && error !== null && 'code' in error && error.code === 'FST_ERR_CTP_INVALID_JSON_BODY') ||
+        (error instanceof SyntaxError && request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() === 'application/json')
+      const message = jsonParseError ? 'Body is not valid JSON' : error instanceof Error ? error.message : 'Invalid request'
       logRejection(request, message)
       return reply.status(400).send(envelope('VALIDATION_ERROR', message, request.id))
     }

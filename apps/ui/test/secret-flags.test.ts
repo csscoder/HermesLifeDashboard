@@ -58,20 +58,36 @@ describe('secret flags', () => {
     expect(api.widgetSecrets).toHaveBeenCalledExactlyOnceWith('changing')
   })
 
-  it('returns an empty set on an API failure and loads only once', async () => {
-    vi.mocked(api.widgetSecrets).mockResolvedValue({ ok: false, kind: 'unavailable' })
-    const flags = setup(() => 'failed')
+  it.each(['failure', 'rejection'] as const)('evicts a %s so the next use retries', async (kind) => {
+    const id = `retry-${kind}`
+    const mock = vi.mocked(api.widgetSecrets)
+    if (kind === 'failure') mock.mockResolvedValueOnce({ ok: false, kind: 'unavailable' })
+    else mock.mockRejectedValueOnce(new Error('offline'))
+    const flags = setup(() => id)
+    await nextTick()
     await nextTick()
     expect(flags.value).toEqual(new Set())
-    expect(setup(() => 'failed').value).toEqual(new Set())
-    expect(api.widgetSecrets).toHaveBeenCalledExactlyOnceWith('failed')
+    expect(mock).toHaveBeenCalledExactlyOnceWith(id)
+    const retried = setup(() => id)
+    await vi.waitFor(() => expect(retried.value).toEqual(new Set(['apiKey'])))
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(flags.value).toEqual(new Set())
   })
 
-  it('returns an empty set if the request rejects', async () => {
-    vi.mocked(api.widgetSecrets).mockRejectedValue(new Error('offline'))
-    const flags = setup(() => 'rejected')
+  it.each(['failure', 'rejection'] as const)('keeps a newer refresh cached after an initial GET %s', async (kind) => {
+    let resolve!: (result: ApiResult<Record<string, boolean>>) => void
+    let reject!: (reason: Error) => void
+    vi.mocked(api.widgetSecrets).mockReturnValueOnce(new Promise((done, fail) => { resolve = done; reject = fail }))
+    const id = `refreshed-${kind}`
+    const flags = setup(() => id)
+    refreshSecretFlags(id, { newerKey: true })
+    if (kind === 'failure') resolve({ ok: false, kind: 'unavailable' })
+    else reject(new Error('offline'))
     await nextTick()
-    expect(flags.value).toEqual(new Set())
+    await nextTick()
+    expect(flags.value).toEqual(new Set(['newerKey']))
+    expect(setup(() => id).value).toBe(flags.value)
+    expect(api.widgetSecrets).toHaveBeenCalledExactlyOnceWith(id)
   })
 
   it('keeps a refresh when the initial request finishes later', async () => {

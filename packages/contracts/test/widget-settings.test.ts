@@ -159,6 +159,25 @@ describe('parseSettingsSchema', () => {
     }
   })
 
+  it.each([
+    [{ origin, header: 'Authorization' }, { origin, header: 'authorization', prefix: 'Other ' }],
+    [{ origin, query: 'apikey' }, { origin, query: 'apikey' }],
+  ])('rejects duplicate injection points and names the second key: %j, %j', (first, second) => {
+    expect(parseSettingsSchema({ type: 'object', properties: {
+      first: { ...secret, bind: first }, second: { ...secret, bind: second },
+    } }, [origin])).toEqual({ ok: false, error: 'settings.second.bind duplicates the injection point of settings.first' })
+  })
+
+  it('allows distinct origins, header names, case-sensitive query names and binding types', () => {
+    const other = 'https://b.example'
+    const bindings = [
+      { origin, header: 'X-Key' }, { origin: other, header: 'x-key' }, { origin, header: 'X-Other-Key' },
+      { origin, query: 'X-Key' }, { origin, query: 'x-key' }, { origin: other, query: 'X-Key' },
+    ]
+    const raw = { type: 'object', properties: Object.fromEntries(bindings.map((bind, i) => [`key${i}`, { ...secret, bind }])) }
+    expect(parseSettingsSchema(raw, [origin, other])).toEqual({ ok: true, value: raw })
+  })
+
   it('rejects default and all plain constraints on secrets', () => {
     for (const [field, value] of Object.entries({ default: '', enum: ['a'], minimum: 0, maximum: 1, maxLength: 16 })) {
       expectInvalid(schema({ ...secret, [field]: value }), `key.${field}`, [origin])

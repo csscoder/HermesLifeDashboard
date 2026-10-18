@@ -45,11 +45,19 @@ export function parseSettingsSchema(raw: unknown, network: readonly string[]): P
     return fail('settings.properties must be an object with at most 32 properties')
   }
   const properties: Record<string, Setting> = {}
+  const injectionPoints = new Map<string, string>()
   for (const [key, value] of Object.entries(raw.properties)) {
     const path = `settings.${key}`
     if (!/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(key)) return fail(`${path} has an invalid setting key`)
     const parsed = parseSetting(value, path, network)
     if (!parsed.ok) return parsed
+    if (parsed.value.type === 'secret') {
+      const bind = parsed.value.bind
+      const point = JSON.stringify([bind.origin, 'header' in bind ? 'header' : 'query', 'header' in bind ? bind.header.toLowerCase() : bind.query])
+      const previous = injectionPoints.get(point)
+      if (previous !== undefined) return fail(`${path}.bind duplicates the injection point of settings.${previous}`)
+      injectionPoints.set(point, key)
+    }
     properties[key] = parsed.value
   }
   let required: string[] | undefined

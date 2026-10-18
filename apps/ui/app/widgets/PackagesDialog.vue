@@ -284,7 +284,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
             {{ bindingLine(secret) }}
           </li>
         </ul>
-        <p>Сервер может вернуть ключ в ответе; LifeDashboard заменяет точные совпадения на [REDACTED], но изменённые копии скрыть не может</p>
+        <p>Сервер может вернуть ключ в ответе; LifeDashboard заменяет точные и URL-кодированные копии на [REDACTED], но изменённые копии скрыть не может</p>
       </template>
       <p v-if="pending.inspection.installed">Эта версия уже установлена</p>
       <progress v-if="progress" class="packages__progress" :value="progress.sent" :max="progress.total" />

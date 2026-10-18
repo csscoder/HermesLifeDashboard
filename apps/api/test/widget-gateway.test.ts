@@ -627,7 +627,7 @@ describe('secrets', () => {
   })
 
   describe('responses without a listener', () => {
-    it('redacts the form-encoded query secret in an echoed request URL', async () => {
+    it('redacts the injected encodeURIComponent query secret in an echoed request URL', async () => {
       const queryValue = 'ab+cd/ef=gh ijklmnop'
       const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => new Response(String(url), {
         status: 400, headers: { 'content-type': 'text/plain' },
@@ -635,7 +635,7 @@ describe('secrets', () => {
       await put('apiKey', VALUE)
       await put('queryKey', queryValue)
       const response = await request('http.get', await openSession(PKG_WIDGET))
-      expect(upstream).toHaveBeenCalledWith(`${origin}/echo?apikey=ab%2Bcd%2Fef%3Dgh+ijklmnop`, expect.anything())
+      expect(upstream).toHaveBeenCalledWith(`${origin}/echo?apikey=ab%2Bcd%2Fef%3Dgh%20ijklmnop`, expect.anything())
       expect(response.statusCode).toBe(200)
       expect(response.json().data).toEqual({
         status: 400, contentType: 'text/plain', body: `${origin}/echo?apikey=[REDACTED]`,

@@ -16,9 +16,15 @@ function loadFlags(widgetId: string): Ref<ReadonlySet<string>> {
   cache.set(widgetId, flags)
   void api.widgetSecrets(widgetId).then((result) => {
     // A PUT/DELETE refresh is newer than an in-flight initial GET.
-    if (flags.value === initial) flags.value = result.ok ? enabledKeys(result.data) : EMPTY_FLAGS
+    if (flags.value === initial) {
+      flags.value = result.ok ? enabledKeys(result.data) : EMPTY_FLAGS
+      if (!result.ok) cache.delete(widgetId)
+    }
   }).catch(() => {
-    if (flags.value === initial) flags.value = EMPTY_FLAGS
+    if (flags.value === initial) {
+      flags.value = EMPTY_FLAGS
+      cache.delete(widgetId)
+    }
   })
   return flags
 }

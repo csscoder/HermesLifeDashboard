@@ -25,8 +25,10 @@ export function injectSecret(
   }
   const url = new URL(request.url)
   if (url.searchParams.has(bind.query)) return { error: 'QUERY_COLLISION' }
-  url.searchParams.append(bind.query, value)
-  return { url: url.href, headers: request.headers }
+  const fragmentIndex = request.url.indexOf('#')
+  const beforeFragment = fragmentIndex < 0 ? request.url : request.url.slice(0, fragmentIndex)
+  const fragment = fragmentIndex < 0 ? '' : request.url.slice(fragmentIndex)
+  return { url: `${beforeFragment}${url.search ? '&' : '?'}${bind.query}=${encodeURIComponent(value)}${fragment}`, headers: request.headers }
 }
 
 export function redactSecrets(text: string, values: readonly string[]): string {

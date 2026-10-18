@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue'
-import { normalizeConfig, type PlainSetting, type SettingsSchema } from '@lifedashboard/contracts/widget-settings'
+import { normalizeConfig, SETTINGS_LIMITS, type PlainSetting, type SettingsSchema } from '@lifedashboard/contracts/widget-settings'
+import { SECRET_MIN_LENGTH } from '@lifedashboard/contracts/widget-secrets'
 import { api } from '../api'
 import { refreshSecretFlags } from '../widgets/secret-flags'
-import { controlFor, parseFieldInput, plainConfig, secretStatusMessage } from './config-form'
+import { controlFor, isRequiredSetting, mergeConfigField, parseFieldInput, secretStatusMessage } from './config-form'
 
 const props = defineProps<{
   schema: SettingsSchema
@@ -13,7 +14,11 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ change: [config: Record<string, unknown>] }>()
 const uid = useId()
-const values = computed(() => normalizeConfig(props.schema, props.config, props.secrets))
+const draft = ref(props.config)
+watch([() => props.config, () => props.schema, () => props.widgetId], () => {
+  draft.value = props.config
+}, { flush: 'sync' })
+const values = computed(() => normalizeConfig(props.schema, draft.value, props.secrets))
 // Setting keys may match Object.prototype names.
 const passwords = ref<Record<string, string>>(Object.create(null))
 const pending = ref<Record<string, boolean>>(Object.create(null))
@@ -33,7 +38,14 @@ function changeField(key: string, setting: PlainSetting, event: Event) {
   const input = event.target as HTMLInputElement | HTMLSelectElement
   const raw = setting.type === 'boolean' ? (input as HTMLInputElement).checked : input.value
   const parsed = parseFieldInput(setting, raw)
-  if (parsed.ok) emit('change', plainConfig(props.schema, { ...values.value, [key]: parsed.value }))
+  if (parsed.ok) {
+    draft.value = mergeConfigField(props.schema, values.value, key, parsed.value)
+    emit('change', draft.value)
+  } else if (setting.type === 'boolean') {
+    (input as HTMLInputElement).checked = values.value[key] === true
+  } else {
+    input.value = String(values.value[key])
+  }
 }
 
 async function changeSecret(key: string, clear: boolean) {
@@ -61,7 +73,9 @@ function messageFor(key: string): string | null {
   <div class="settings__config">
     <div v-for="(setting, key) in schema.properties" :key="key" class="settings__field">
       <div class="settings__row">
-        <label class="settings__label" :for="`${uid}-${key}`">{{ setting.title }}</label>
+        <label class="settings__label" :for="`${uid}-${key}`">
+          {{ setting.title }}<template v-if="isRequiredSetting(schema, key)"> *<span class="settings__visually-hidden"> обязательно</span></template>
+        </label>
         <template v-if="setting.type === 'secret'">
           <input
             :id="`${uid}-${key}`"
@@ -69,16 +83,17 @@ function messageFor(key: string): string | null {
             class="settings__control"
             type="password"
             autocomplete="new-password"
-            minlength="16"
+            :minlength="SECRET_MIN_LENGTH"
             :disabled="!widgetId || missing || pending[key]"
+            :aria-required="isRequiredSetting(schema, key) ? 'true' : undefined"
             :aria-describedby="`${uid}-${key}-status${setting.description ? ` ${uid}-${key}-description` : ''}`"
           />
-          <span :id="`${uid}-${key}-status`" class="settings__description">{{ secrets.has(key) ? 'задан' : 'не задан' }}</span>
+          <span :id="`${uid}-${key}-status`" class="settings__description" :class="{ settings__warning: isRequiredSetting(schema, key) && !secrets.has(key) }">{{ secrets.has(key) ? 'задан' : 'не задан' }}</span>
           <div class="settings__actions">
             <button
               type="button"
               class="settings__reset"
-              :disabled="!widgetId || missing || pending[key] || (passwords[key]?.length ?? 0) < 16"
+              :disabled="!widgetId || missing || pending[key] || (passwords[key]?.length ?? 0) < SECRET_MIN_LENGTH"
               @click="changeSecret(key, false)"
             >Задать</button>
             <button
@@ -88,6 +103,7 @@ function messageFor(key: string): string | null {
               @click="changeSecret(key, true)"
             >Очистить</button>
           </div>
+          <p v-if="(passwords[key]?.length ?? 0) > 0 && (passwords[key]?.length ?? 0) < SECRET_MIN_LENGTH" class="settings__message" role="status">Минимум {{ SECRET_MIN_LENGTH }} символов</p>
           <p v-if="messageFor(key)" class="settings__message" role="status">{{ messageFor(key) }}</p>
         </template>
         <template v-else>
@@ -96,6 +112,7 @@ function messageFor(key: string): string | null {
             :id="`${uid}-${key}`"
             class="settings__control"
             :value="values[key]"
+            :aria-required="isRequiredSetting(schema, key) ? 'true' : undefined"
             :aria-describedby="setting.description ? `${uid}-${key}-description` : undefined"
             @change="changeField(key, setting, $event)"
           >
@@ -108,10 +125,11 @@ function messageFor(key: string): string | null {
             :type="controlFor(setting)"
             :value="values[key]"
             :checked="values[key] === true"
-            :maxlength="setting.maxLength"
+            :maxlength="setting.maxLength ?? SETTINGS_LIMITS.maxLength"
             :min="setting.minimum"
             :max="setting.maximum"
             :step="setting.type === 'integer' ? 1 : 'any'"
+            :aria-required="isRequiredSetting(schema, key) ? 'true' : undefined"
             :aria-describedby="setting.description ? `${uid}-${key}-description` : undefined"
             @change="changeField(key, setting, $event)"
           />
@@ -140,6 +158,20 @@ function messageFor(key: string): string | null {
 .settings__label,
 .settings__description {
   color: var(--ld-text-secondary);
+}
+
+.settings__warning {
+  color: var(--ld-warning-text);
+}
+
+.settings__visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .settings__control {

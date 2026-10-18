@@ -9,7 +9,7 @@ const OTHER_WIDGET = '00000000-0000-4000-8000-0000000000a2'
 const BUILTIN = '00000000-0000-4000-8000-0000000000b1'
 const UNKNOWN = '00000000-0000-4000-8000-0000000000ff'
 const VALUE = '0123456789abcdef'
-const MESSAGE = 'The secret must be at least 16 characters without control characters'
+const MESSAGE = 'The secret must be at least 16 characters without control characters or surrounding spaces'
 const screen: ScreenBoard = {
   id: SEED_SCREEN_ID,
   rows: 12,
@@ -38,6 +38,7 @@ beforeEach(async () => {
       type: 'object',
       properties: {
         apiKey: { type: 'secret', title: 'API key', bind: { origin: 'https://api.example.com', header: 'Authorization', prefix: 'Bearer ' } },
+        queryKey: { type: 'secret', title: 'Query key', bind: { origin: 'https://api.example.com', query: 'apikey' } },
         label: { type: 'string', title: 'Label', default: '' },
       },
     }
@@ -63,7 +64,7 @@ function save(expectedRevision: number, saved: ScreenBoard) {
 async function put(value = VALUE, widgetId = WIDGET) {
   const response = await secrets('PUT', widgetId, 'apiKey', { value })
   expect(response.statusCode).toBe(200)
-  expect(response.json().data).toEqual({ apiKey: true })
+  expect(response.json().data).toEqual({ apiKey: true, queryKey: false })
   expect(response.body).not.toContain(value)
   return response
 }
@@ -72,11 +73,11 @@ describe('per-instance widget secrets', () => {
   it('reports unset keys, stores a 16-character secret, and returns only booleans', async () => {
     const unset = await secrets('GET')
     expect(unset.statusCode).toBe(200)
-    expect(unset.json().data).toEqual({ apiKey: false })
+    expect(unset.json().data).toEqual({ apiKey: false, queryKey: false })
     await put()
     const response = await secrets('GET')
     expect(response.statusCode).toBe(200)
-    expect(response.json().data).toEqual({ apiKey: true })
+    expect(response.json().data).toEqual({ apiKey: true, queryKey: false })
     expect(response.body).not.toContain(VALUE)
     expect(t.db.prepare('SELECT value, updated_at FROM widget_secrets WHERE widget_id = ? AND key = ?').get(WIDGET, 'apiKey'))
       .toEqual({ value: VALUE, updated_at: '2026-10-05T10:00:00.000Z' })
@@ -90,7 +91,7 @@ describe('per-instance widget secrets', () => {
     await put('replacement-value-123')
     expect(t.db.prepare('SELECT value, updated_at FROM widget_secrets WHERE widget_id = ?').all(WIDGET))
       .toEqual([{ value: 'replacement-value-123', updated_at: '2026-10-05T10:00:01.000Z' }])
-    expect((await secrets('GET', OTHER_WIDGET)).json().data).toEqual({ apiKey: false })
+    expect((await secrets('GET', OTHER_WIDGET)).json().data).toEqual({ apiKey: false, queryKey: false })
     await put('another-instance-key', OTHER_WIDGET)
     const { secretValues } = await import('../src/widget-secrets.ts')
     expect(secretValues(t.db, WIDGET)).toEqual(new Map([['apiKey', 'replacement-value-123']]))
@@ -115,6 +116,40 @@ describe('per-instance widget secrets', () => {
     expect(errorCode(response)).toBe('VALIDATION_ERROR')
     expect(response.json().error.message).toBe(MESSAGE)
     expect(t.db.prepare('SELECT value FROM widget_secrets WHERE widget_id = ?').get(WIDGET)).toEqual({ value: VALUE })
+  })
+
+  it.each(['apiKey', 'queryKey'])('rejects surrounding whitespace for %s without replacing its value', async (key) => {
+    expect((await secrets('PUT', WIDGET, key, { value: VALUE })).statusCode).toBe(200)
+    for (const whitespace of [' ', '\t', '\n', '\u00a0', '\u2003', '\ufeff']) {
+      for (const value of [whitespace + VALUE, VALUE + whitespace]) {
+        const response = await secrets('PUT', WIDGET, key, { value })
+        expect(response.statusCode).toBe(400)
+        expect(response.json().error).toMatchObject({ code: 'VALIDATION_ERROR', message: MESSAGE })
+        expect(response.body).not.toContain(VALUE)
+        expect(t.db.prepare('SELECT value FROM widget_secrets WHERE widget_id = ? AND key = ?').get(WIDGET, key))
+          .toEqual({ value: VALUE })
+      }
+    }
+  })
+
+  it.each(['\u0100', 'ключ', '🔑'])('rejects non-Latin-1 header secrets containing %s', async (suffix) => {
+    await put()
+    const response = await secrets('PUT', WIDGET, 'apiKey', { value: VALUE + suffix })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toMatchObject({
+      code: 'VALIDATION_ERROR', message: 'A header secret may contain only Latin-1 characters',
+    })
+    expect(t.db.prepare('SELECT value FROM widget_secrets WHERE widget_id = ?').get(WIDGET)).toEqual({ value: VALUE })
+  })
+
+  it('accepts Latin-1 header secrets and Unicode query secrets without trimming internal spaces', async () => {
+    await put('abc défghijklmnÿop')
+    const value = 'ключ abcdefghijklmnop 🔑'
+    const response = await secrets('PUT', WIDGET, 'queryKey', { value })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data).toEqual({ apiKey: true, queryKey: true })
+    expect(t.db.prepare('SELECT value FROM widget_secrets WHERE widget_id = ? AND key = ?').get(WIDGET, 'queryKey'))
+      .toEqual({ value })
   })
 
   it('rejects every ASCII control character including DEL', async () => {
@@ -168,7 +203,7 @@ describe('per-instance widget secrets', () => {
     const response = await save(2, { ...screen, layout: screen.layout.map((item) => ({ ...item, y: 1 })) })
     expect(response.statusCode).toBe(200)
     expect(response.body).not.toContain(VALUE)
-    expect((await secrets('GET')).json().data).toEqual({ apiKey: true })
+    expect((await secrets('GET')).json().data).toEqual({ apiKey: true, queryKey: false })
     expect(t.db.prepare('SELECT value FROM widget_secrets WHERE widget_id = ?').get(WIDGET)).toEqual({ value: VALUE })
   })
 
@@ -188,13 +223,13 @@ describe('per-instance widget secrets', () => {
     })).statusCode).toBe(200)
     expect(t.db.prepare('SELECT widget_id, value FROM widget_secrets').all())
       .toEqual([{ widget_id: OTHER_WIDGET, value: 'another-instance-key' }])
-    expect((await secrets('GET', OTHER_WIDGET)).json().data).toEqual({ apiKey: true })
+    expect((await secrets('GET', OTHER_WIDGET)).json().data).toEqual({ apiKey: true, queryKey: false })
   })
 
   it('leaves secrets intact after a rejected board save', async () => {
     await put()
     expect((await save(1, { ...screen, instances: [], layout: [] })).statusCode).toBe(409)
-    expect((await secrets('GET')).json().data).toEqual({ apiKey: true })
+    expect((await secrets('GET')).json().data).toEqual({ apiKey: true, queryKey: false })
   })
 
   it('deletes only the requested instance secret and reports false on repeated DELETE', async () => {
@@ -203,11 +238,11 @@ describe('per-instance widget secrets', () => {
     for (let i = 0; i < 2; i++) {
       const response = await secrets('DELETE')
       expect(response.statusCode).toBe(200)
-      expect(response.json().data).toEqual({ apiKey: false })
+      expect(response.json().data).toEqual({ apiKey: false, queryKey: false })
       expect(response.body).not.toContain(VALUE)
     }
-    expect((await secrets('GET')).json().data).toEqual({ apiKey: false })
-    expect((await secrets('GET', OTHER_WIDGET)).json().data).toEqual({ apiKey: true })
+    expect((await secrets('GET')).json().data).toEqual({ apiKey: false, queryKey: false })
+    expect((await secrets('GET', OTHER_WIDGET)).json().data).toEqual({ apiKey: true, queryKey: false })
     expect(t.db.prepare('SELECT widget_id FROM widget_secrets').all()).toEqual([{ widget_id: OTHER_WIDGET }])
   })
 })

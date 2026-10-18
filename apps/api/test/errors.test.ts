@@ -64,6 +64,36 @@ describe('error handling', () => {
     await app.close()
   })
 
+  it.each(['default', 'syntax-error'] as const)('sanitizes malformed JSON responses and logs with the %s parser', async (parser) => {
+    const log: string[] = []
+    const app = Fastify({ genReqId: newRequestId, logger: { level: 'warn', stream: { write: (line: string) => log.push(line) } } })
+    registerErrorHandling(app)
+    if (parser === 'syntax-error') {
+      app.removeContentTypeParser('application/json')
+      app.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
+        try {
+          done(null, JSON.parse(body as string))
+        } catch (error) {
+          done(Object.assign(error as SyntaxError, { statusCode: 400 }))
+        }
+      })
+    }
+    app.put('/api/v1/widgets/widget/secrets/apiKey', async (request) => ok(request, {}))
+    const secret = 'sensitive-token-0123456789'
+    const response = await app.inject({
+      method: 'PUT', url: '/api/v1/widgets/widget/secrets/apiKey',
+      headers: { 'content-type': 'application/json' }, payload: secret,
+    })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toMatchObject({ code: 'VALIDATION_ERROR', message: 'Body is not valid JSON' })
+    expect(response.body).not.toContain(secret.slice(0, 10))
+    expect(log.join('')).not.toContain(secret.slice(0, 10))
+    expect(log.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({
+      code: 'VALIDATION_ERROR', reason: 'Body is not valid JSON', reqId: response.json().error.requestId,
+    }))
+    await app.close()
+  })
+
   it('logs the reason of a VALIDATION_ERROR with its request id, without the body', async () => {
     const log: string[] = []
     const app = await appWithRoutes(log)
