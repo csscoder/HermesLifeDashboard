@@ -231,15 +231,17 @@ Behaviour per call to an origin that has bound secrets: for each binding on that
 **Files:**
 - Modify: `packages/contracts/src/widget-package.ts` (`PackageInspection.newSecretBindings: BoundSecret[]`)
 - Modify: `apps/api/src/widget-packages.ts` (`newSecretBindingsOf(db, manifest)`), `apps/api/src/widget-uploads.ts` (fill it; `commit` returns `[]`)
+- Create: `apps/ui/app/widgets/secret-binding.ts`
 - Modify: `apps/ui/app/widgets/PackagesDialog.vue`
-- Test: `apps/api/test/widget-uploads.test.ts`
+- Test: `apps/api/test/widget-uploads.test.ts`, `apps/ui/test/secret-binding.test.ts`
 
 **Interfaces:**
+- Produces: `export function bindingLine(secret: BoundSecret): string` in `secret-binding.ts`, e.g. `Секрет «Ключ» отправляется на https://a.example (заголовок Authorization)` or `(параметр apikey)`.
 - Produces: `newSecretBindingsOf(db, manifest): BoundSecret[]` — bindings whose `canonicalJson({ key, bind })` is absent from every installed version of the package (stored manifests read without re-validation; absent `settings` means none).
 
-- [ ] **Step 1: Failing tests**: first upload of a manifest with one secret → `newSecretBindings` has it; second upload of a new version with the same binding → `[]`; changed `bind.origin` → listed again. Update the existing `toEqual` at `widget-uploads.test.ts:79` with `newSecretBindings: []`.
-- [ ] **Step 2: Run** `pnpm -C apps/api exec vitest run test/widget-uploads.test.ts` — Expected: FAIL.
-- [ ] **Step 3: Implement** the API part. In `PackagesDialog.vue`, for every secret in `manifest.settings` show a line «Секрет «<title>» отправляется на <origin> (<заголовок <name> | параметр <name>>)», mark the ones in `newSecretBindings` on an update like new origins, and add once: «Сервер может вернуть ключ в ответе; LifeDashboard заменяет точные совпадения на [REDACTED], но изменённые копии скрыть не может».
+- [ ] **Step 1: Failing tests**: first upload of a manifest with one secret → `newSecretBindings` has it; second upload of a new version with the same binding → `[]`; changed `bind.origin` → listed again. Update the existing `toEqual` at `widget-uploads.test.ts:79` with `newSecretBindings: []`. In `secret-binding.test.ts`: `bindingLine` for a header binding and for a query binding gives the two strings above.
+- [ ] **Step 2: Run** `pnpm -C apps/api exec vitest run test/widget-uploads.test.ts` and `pnpm -C apps/ui exec vitest run test/secret-binding.test.ts` — Expected: FAIL.
+- [ ] **Step 3: Implement** the API part and `bindingLine`. In `PackagesDialog.vue`, show `bindingLine` for every secret in `manifest.settings`, mark the ones in `newSecretBindings` on an update like new origins, and add once: «Сервер может вернуть ключ в ответе; LifeDashboard заменяет точные совпадения на [REDACTED], но изменённые копии скрыть не может».
 - [ ] **Step 4: Run** the command and `pnpm -C apps/ui test` — Expected: PASS. Check the dialog in Orca's browser with a test package (`pnpm dev`).
 - [ ] **Step 5: Commit** `feat: show secret bindings in the widget import review`
 
@@ -267,18 +269,27 @@ Behaviour per call to an origin that has bound secrets: for each binding on that
 ### Task 9: Settings form in the widget settings panel
 
 **Files:**
-- Create: `apps/ui/app/board/WidgetConfigForm.vue`
+- Create: `apps/ui/app/board/config-form.ts`, `apps/ui/app/board/WidgetConfigForm.vue`
 - Modify: `apps/ui/app/board/WidgetSettings.vue` (renders the form under the appearance controls when the instance has `settings`)
 - Modify: `apps/ui/app/board/edit-session.ts` (`setConfig`), `apps/ui/app/board/WidgetBoard.vue` (wire like `setAppearance`)
-- Test: `apps/ui/test/edit-session.test.ts`
+- Test: `apps/ui/test/edit-session.test.ts`, `apps/ui/test/config-form.test.ts`
 
 **Interfaces:**
+- Produces in `config-form.ts` (pure, tested; the component only renders them):
+  ```ts
+  export type FieldControl = 'text' | 'select' | 'number' | 'checkbox' | 'secret'
+  export function controlFor(setting: Setting): FieldControl
+  export function parseFieldInput(setting: PlainSetting, raw: string | boolean): { ok: true; value: string | number | boolean } | { ok: false }
+  export function plainConfig(schema: SettingsSchema, config: Record<string, unknown>): Record<string, unknown>  // drops secret keys
+  export function secretStatusMessage(result: ApiResult<unknown> | null): string | null
+  ```
+  `secretStatusMessage`: `null` result (no widget id) or 404 → `Сохраните доску, чтобы задать секрет`; 400 → the API message; success → `null`.
 - Produces: `export function setConfig(board: ScreenBoard, instanceId: string, config: Record<string, unknown>): ScreenBoard` in `edit-session.ts`, same shape as `setAppearance`.
-- `WidgetConfigForm` props `{ schema: SettingsSchema; config: Record<string, unknown>; widgetId: string | null; secrets: ReadonlySet<string> }`, emits `change: [config: Record<string, unknown>]`. Controls: `string` → text input (`maxlength`), with `enum` → select; `number`/`integer` → number input with `min`/`max`/`step` (`1` for integer); `boolean` → checkbox. Invalid input is not emitted (`isValidSettingValue`). Secret → password input plus «Задать» / «Очистить»; status «задан» / «не задан» from `secrets`; calls `setWidgetSecret`/`clearWidgetSecret` immediately, then `refreshSecretFlags`. Without `widgetId` (unsaved instance) or on 404 the secret control is disabled with «Сохраните доску, чтобы задать секрет». A 400 shows the API message.
+- `WidgetConfigForm` props `{ schema: SettingsSchema; config: Record<string, unknown>; widgetId: string | null; secrets: ReadonlySet<string> }`, emits `change: [config: Record<string, unknown>]` with plain keys only (`plainConfig`): the booleans `normalizeConfig` adds for secrets are never written back into the stored `config`. Controls: `string` → text input (`maxlength`), with `enum` → select; `number`/`integer` → number input with `min`/`max`/`step` (`1` for integer); `boolean` → checkbox. Invalid input is not emitted (`isValidSettingValue`). Secret → password input plus «Задать» / «Очистить»; status «задан» / «не задан» from `secrets`; calls `setWidgetSecret`/`clearWidgetSecret` immediately, then `refreshSecretFlags`. Without `widgetId` (unsaved instance) or on 404 the secret control is disabled with «Сохраните доску, чтобы задать секрет». A 400 shows the API message.
 - Consumes: `normalizeConfig`, `isValidSettingValue` (Tasks 2–3), api calls and `refreshSecretFlags` (Task 8).
 
-- [ ] **Step 1: Failing test** for `setConfig`: replaces only the target instance's `config`, keeps `configVersion` and appearance.
-- [ ] **Step 2: Run** `pnpm -C apps/ui exec vitest run test/edit-session.test.ts` — Expected: FAIL.
+- [ ] **Step 1: Failing tests**: `setConfig` replaces only the target instance's `config`, keeps `configVersion` and appearance; `controlFor` gives `select` for a string with `enum`, `number` for `integer`, `secret` for a secret; `parseFieldInput` on an integer setting with `minimum: 1` gives `{ ok: false }` for `'0'` and `'1.5'` and `{ ok: true, value: 3 }` for `'3'`; `plainConfig` drops secret keys; `secretStatusMessage` gives the save hint for `null` and for a 404 failure and the API message for a 400.
+- [ ] **Step 2: Run** `pnpm -C apps/ui exec vitest run test/edit-session.test.ts test/config-form.test.ts` — Expected: FAIL.
 - [ ] **Step 3: Implement** `setConfig`, the form and the wiring.
 - [ ] **Step 4: Run** the command, `pnpm -C apps/ui test`, `pnpm typecheck` — Expected: PASS. In Orca's browser, install a test package with one string, one integer and one secret setting: change values, save the board, reload — values persist; secret shows «задан» and never its value.
 - [ ] **Step 5: Commit** `feat(ui): edit widget settings from its schema`
@@ -286,7 +297,9 @@ Behaviour per call to an origin that has bound secrets: for each binding on that
 ### Task 10: Typed HTTP and documented members in the SDK
 
 **Files:**
+- Modify: `packages/contracts/src/widget-gateway.ts` (`GatewayOutputs`)
 - Modify: `packages/widget-sdk/src/widget.ts`, `packages/widget-sdk/src/index.ts`
+- Modify: `examples/widgets/hermes-tasks/src/api.ts` (`Call` type), `examples/widgets/hermes-tasks/src/use-tasks.ts:42` (use `widget.http`)
 - Test: `packages/widget-sdk/test/widget.test.ts`
 
 **Interfaces:**
@@ -296,15 +309,16 @@ Behaviour per call to an origin that has bound secrets: for each binding on that
     get(url: string, options?: { accept?: string }): Promise<HttpOutput>
     send(request: HttpSendInput): Promise<HttpOutput>
   }
-  call<Op extends GatewayOp>(op: Op, input: GatewayInputs[Op]): Promise<unknown>
+  call<Op extends GatewayOp>(op: Op, input: GatewayInputs[Op]): Promise<GatewayOutputs[Op]>
   ```
+  `GatewayOutputs` in `widget-gateway.ts`: `state.get` → `StateGetOutput`, `state.set` → `StateSetOutput`, `notifications.send` → `{ ok: true }`, `http.get`/`http.send` → `HttpOutput`.
   `call` stays in the runtime for `sdk: 1` widgets (typed now). Re-export `GatewayOp`, `GatewayInputs`, `HttpOutput`, `SettingsSchema`, `SdkLevel` from `index.ts`.
 - Every public member gets JSDoc: permission, limits (from the constants, by name), error codes, `@since sdk 2` for new members.
 
 - [ ] **Step 1: Failing tests**: `widget.http.get('https://a.example/x', { accept: 'application/json' })` calls `call('http.get', { url, headers: { accept: 'application/json' } })`; `http.get(url)` sends no `headers` key; `http.send(...)` passes the request through; `call('state.get', {})` still works.
 - [ ] **Step 2: Run** `pnpm -C packages/widget-sdk exec vitest run test/widget.test.ts` — Expected: FAIL.
 - [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the command and `pnpm typecheck` (the `hermes-tasks` example must still compile) — Expected: PASS.
+- [ ] **Step 4: Migrate `hermes-tasks`**: its `Call` type becomes `{ get: Widget['http']['get']; send: Widget['http']['send'] }` (or the narrowest equivalent its `api.ts` needs) and `use-tasks.ts` passes `widget.http`. Run the command, `pnpm -C examples/widgets/hermes-tasks test` and `pnpm typecheck` — Expected: PASS.
 - [ ] **Step 5: Commit** `feat(widget-sdk): typed http helpers and documented widget API`
 
 ### Task 11: Build writes the target level; desktop and README fixes
@@ -313,7 +327,7 @@ Behaviour per call to an origin that has bound secrets: for each binding on that
 - Modify: `packages/widget-sdk/src/build.ts` (manifest gets `sdk: SDK_TARGET_LEVEL`)
 - Modify: `apps/desktop/src-tauri/tauri.conf.json` (`bundle.macOS.minimumSystemVersion: "15.7"`)
 - Modify: `README.md` (Security and privacy: permissions `state`, `notifications`, `network`; mention secret settings)
-- Modify: `examples/widgets/*/widget.json` (`"sdk": 2`)
+- Modify: `examples/widgets/*/widget.json` (`"sdk": 2` and version `1.0.1`: an installed 1.0.0 with a changed manifest would be refused as `CONFLICT`)
 - Test: `packages/widget-sdk/test/build.test.ts`
 
 - [ ] **Step 1: Failing test**: building the `counter` fixture whose `widget.json` says `"sdk": 1` produces `dist/.../widget.json` with `"sdk": 2`.
