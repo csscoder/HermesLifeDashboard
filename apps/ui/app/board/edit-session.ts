@@ -32,6 +32,13 @@ export function setAppearance(doc: ScreenBoard, id: string, next: WidgetAppearan
   }
 }
 
+export function setConfig(board: ScreenBoard, instanceId: string, config: Record<string, unknown>): ScreenBoard {
+  return {
+    ...board,
+    instances: board.instances.map((item) => item.id === instanceId ? { ...item, config } : item),
+  }
+}
+
 /** The board with new configured rows; anything but an integer in ROWS.min..ROWS.max changes nothing. */
 export function withRows(doc: ScreenBoard, rows: number): ScreenBoard {
   return Number.isInteger(rows) && rows >= ROWS.min && rows <= ROWS.max ? { ...doc, rows } : doc

@@ -7,15 +7,24 @@ import {
   type DropShadow,
   type WidgetAppearance,
 } from '@lifedashboard/contracts/board'
+import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import { BUILTIN_THEMES } from '../theme/builtin'
 import { panelPosition, styleValue, withShadow, withStyle } from './widget-settings'
+import WidgetConfigForm from './WidgetConfigForm.vue'
 
 // One per board: a non-modal popover beside the widget being tuned, anchored to the widget item so its
 // «⚙» and «×» stay clear. It sits in the top layer, so the board never clips it; light dismiss and Esc
 // are native (spec «Host UI»).
-const props = defineProps<{ appearance: WidgetAppearance | undefined }>()
+const props = defineProps<{
+  appearance: WidgetAppearance | undefined
+  schema: SettingsSchema | undefined
+  config: Record<string, unknown>
+  widgetId: string | null
+  secrets: ReadonlySet<string>
+}>()
 const emit = defineEmits<{
   change: [next: WidgetAppearance | null]
+  config: [next: Record<string, unknown>]
   toggle: [open: boolean]
 }>()
 
@@ -140,6 +149,15 @@ defineExpose({ open, close, isOpen })
       <output class="settings__value">{{ percent }} %</output>
     </div>
     <button type="button" class="settings__reset" @click="emit('change', null)">Сбросить</button>
+    <WidgetConfigForm
+      v-if="schema && Object.keys(schema.properties).length > 0"
+      :key="widgetId ?? 'unsaved'"
+      :schema="schema"
+      :config="config"
+      :widget-id="widgetId"
+      :secrets="secrets"
+      @change="emit('config', $event)"
+    />
   </div>
 </template>
 
@@ -151,6 +169,8 @@ defineExpose({ open, close, isOpen })
   inset: auto;
   margin: 0;
   width: 21rem;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
   padding: 0.75rem;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: var(--ld-radius-card);

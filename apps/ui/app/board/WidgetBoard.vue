@@ -5,8 +5,9 @@ import { GRID_COLS, ROWS, findFreeRect, gridRows, type Rect } from '@lifedashboa
 import { api } from '../api'
 import { resolveWidgetLook } from '../theme/resolve'
 import { describeSource } from '../widgets/catalog'
+import { useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setPlacement, withRows, type BoardMode } from './edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
@@ -263,7 +264,14 @@ function changeAppearance(next: WidgetAppearance | null) {
   if (editing.value && !saving.value && settingsId.value) working.value = setAppearance(working.value, settingsId.value, next)
 }
 
+function changeConfig(next: Record<string, unknown>) {
+  if (editing.value && !saving.value && settingsId.value) working.value = setConfig(working.value, settingsId.value, next)
+}
+
 const settingsInstance = computed(() => working.value.instances.find((item) => item.id === settingsId.value))
+const settingsSchema = computed(() => settingsInstance.value ? describeSource(settingsInstance.value.source)?.settings : undefined)
+const settingsWidgetId = computed(() => doc.value.instances.find((item) => item.id === settingsInstance.value?.id)?.id ?? null)
+const settingsSecrets = useSecretFlags(() => settingsSchema.value && settingsWidgetId.value ? settingsWidgetId.value : undefined)
 
 // The panel closes with its widget, when the mode leaves edit and when a save starts.
 watch(
@@ -470,7 +478,12 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
     <WidgetSettings
       ref="settingsPanel"
       :appearance="settingsInstance?.appearance"
+      :schema="settingsSchema"
+      :config="settingsInstance?.config ?? {}"
+      :widget-id="settingsWidgetId"
+      :secrets="settingsSecrets"
       @change="changeAppearance"
+      @config="changeConfig"
       @toggle="onSettingsToggle"
     />
     <p class="board__live" aria-live="polite">{{ liveLabel }}</p>

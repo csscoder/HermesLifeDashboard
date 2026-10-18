@@ -1,6 +1,6 @@
 import { DEFAULT_SHADOW, parseScreenBoard, type ScreenBoard, type WidgetAppearance } from '@lifedashboard/contracts/board'
 import { describe, expect, it } from 'vitest'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setPlacement, withRows } from '../app/board/edit-session'
+import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows } from '../app/board/edit-session'
 
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
@@ -108,6 +108,28 @@ describe('withRows', () => {
 
   it('makes a board with only changed rows differ', () => {
     expect(isSameBoard(withRows(board, 13), board)).toBe(false)
+  })
+})
+
+describe('setConfig', () => {
+  it('replaces only the target config and preserves configVersion, appearance and the input', () => {
+    const original = setAppearance(board, A, { themeId: 'builtin:paper', shadow: null })
+    original.instances[0] = { ...original.instances[0]!, configVersion: 3, config: { old: true } }
+    const before = structuredClone(original)
+    const config = { title: 'Updated', count: 3 }
+    const next = setConfig(original, A, config)
+    expect(next.instances[0]).toStrictEqual({ ...original.instances[0], config })
+    expect(next.instances[0]!.config).toEqual(config)
+    expect(next.instances[1]).toBe(original.instances[1])
+    expect(next.instances[2]).toBe(original.instances[2])
+    expect(next.layout).toBe(original.layout)
+    expect(next.id).toBe(original.id)
+    expect(next.rows).toBe(original.rows)
+    expect(original).toEqual(before)
+  })
+
+  it('keeps an equal board for an unknown instance', () => {
+    expect(setConfig(board, 'missing', { title: 'Updated' })).toEqual(board)
   })
 })
 
