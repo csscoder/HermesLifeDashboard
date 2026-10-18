@@ -163,6 +163,14 @@ export interface GatewayInputs {
   'http.send': HttpSendInput
 }
 
+export interface GatewayOutputs {
+  'state.get': StateGetOutput
+  'state.set': StateSetOutput
+  'notifications.send': { ok: true }
+  'http.get': HttpOutput
+  'http.send': HttpOutput
+}
+
 /** `POST /widget-sessions` answers with this. */
 export interface WidgetSessionResponse {
   widgetSession: string
@@ -234,6 +242,10 @@ export function sizeClass(size: Size): SizeClass {
 export interface WidgetContext {
   size: Size
   sizeClass: SizeClass
+  /**
+   * Host-selected frame appearance.
+   * @since sdk 2
+   */
   frame: 'framed' | 'frameless'
   // Tokens are full custom property names (`--ld-bg`) with resolved values.
   theme: { id: string; scheme: 'light' | 'dark'; tokens: Record<string, string> }

@@ -1,4 +1,4 @@
-import type { HttpOutput } from '@lifedashboard/widget-sdk'
+import type { HttpOutput, Widget } from '@lifedashboard/widget-sdk'
 import type { View } from './views.ts'
 
 export const BASE = 'http://127.0.0.1:8787/api/v1'
@@ -8,7 +8,7 @@ export const LIST_CAP = 1000
 // Gateway codes after which the very same request may be sent again.
 const RETRYABLE = new Set(['UNAVAILABLE', 'TIMEOUT', 'BRIDGE_CLOSED'])
 
-export type Call = (op: 'http.get' | 'http.send', input: unknown) => Promise<unknown>
+export type Call = { get: Widget['http']['get']; send: Widget['http']['send'] }
 export type Priority = 'none' | 'low' | 'medium' | 'high'
 export type Schedule = { kind: 'date'; date: string } | { kind: 'datetime'; datetime: string } | null
 
@@ -167,14 +167,15 @@ export function createTasksApi(call: Call, base: string = BASE) {
   async function request<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<T> {
     let output: HttpOutput
     try {
-      output = (method === 'GET'
-        ? await call('http.get', { url: base + path, headers: { accept: 'application/json' } })
-        : await call('http.send', {
-            url: base + path,
-            method,
-            headers: { accept: 'application/json', 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          })) as HttpOutput
+      output =
+        method === 'GET'
+          ? await call.get(base + path, { accept: 'application/json' })
+          : await call.send({
+              url: base + path,
+              method,
+              headers: { accept: 'application/json', 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            })
     } catch (error) {
       throw toTasksError(error)
     }

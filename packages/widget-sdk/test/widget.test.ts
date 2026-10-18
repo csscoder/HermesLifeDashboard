@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createSSRApp, defineComponent, h, reactive } from 'vue'
 import { renderToString } from 'vue/server-renderer'
-import type { WidgetContext } from '@lifedashboard/contracts/widget-gateway'
+import type { HttpOutput, HttpSendInput, StateGetOutput, WidgetContext } from '@lifedashboard/contracts/widget-gateway'
 import { createPortClient } from '../src/port-client.ts'
 import { createWidget, provideInProcessWidget, useWidget, WidgetError, type Widget, type WidgetCall } from '../src/widget.ts'
 
@@ -23,7 +23,9 @@ interface Harness {
   close(): void
 }
 
-// The host's answers: state at revision 3, notifications ok, every other op unknown.
+const HTTP_OUTPUT: HttpOutput = { status: 200, contentType: 'application/json', body: '{"ok":true}' }
+
+// The host's answers: state at revision 3, notifications ok, HTTP response, every other op unknown.
 function fakeCall(calls: [string, unknown][]): WidgetCall {
   return async (op, input) => {
     calls.push([op, input])
@@ -33,6 +35,7 @@ function fakeCall(calls: [string, unknown][]): WidgetCall {
       return { revision: 4 }
     }
     if (op === 'notifications.send') return { ok: true }
+    if (op === 'http.get' || op === 'http.send') return HTTP_OUTPUT
     throw new WidgetError('UNKNOWN_OP', `Unknown operation "${op}"`)
   }
 }
@@ -123,8 +126,51 @@ describe.each([
     expect(current.calls).toEqual([['notifications.send', { title: 'Hi', body: '' }]])
   })
 
-  it('passes other operations through call', async () => {
+  it('gets HTTP with an accept header', async () => {
     current = await create()
+    const output = await current.widget.http.get('https://a.example/x', { accept: 'application/json' })
+    expectTypeOf(output).toEqualTypeOf<HttpOutput>()
+    expect(output).toEqual(HTTP_OUTPUT)
+    expect(current.calls).toEqual([['http.get', { url: 'https://a.example/x', headers: { accept: 'application/json' } }]])
+  })
+
+  it.each([undefined, {}, { accept: undefined }])('gets HTTP without a headers key for options %j', async (options) => {
+    current = await create()
+    expect(await current.widget.http.get('https://a.example/x', options)).toEqual(HTTP_OUTPUT)
+    expect(current.calls).toEqual([['http.get', { url: 'https://a.example/x' }]])
+  })
+
+  it('preserves an explicitly empty accept header', async () => {
+    current = await create()
+    await current.widget.http.get('https://a.example/x', { accept: '' })
+    expect(current.calls).toEqual([['http.get', { url: 'https://a.example/x', headers: { accept: '' } }]])
+  })
+
+  it('passes HTTP sends through unchanged', async () => {
+    current = await create()
+    const request: HttpSendInput = {
+      url: 'https://a.example/x',
+      method: 'PATCH',
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: '{"n":2}',
+    }
+    const output = await current.widget.http.send(request)
+    expectTypeOf(output).toEqualTypeOf<HttpOutput>()
+    expect(output).toEqual(HTTP_OUTPUT)
+    expect(current.calls).toEqual([['http.send', request]])
+  })
+
+  it('keeps state.get available through typed call', async () => {
+    current = await create()
+    const output = await current.widget.call('state.get', {})
+    expectTypeOf(output).toEqualTypeOf<StateGetOutput>()
+    expect(output).toEqual({ data: { n: 1 }, revision: 3 })
+    expect(current.calls).toEqual([['state.get', {}]])
+  })
+
+  it('keeps runtime unknown-operation errors for JavaScript widgets', async () => {
+    current = await create()
+    // @ts-expect-error Unknown operations are rejected by the public TypeScript API.
     await expect(current.widget.call('data.query', { a: 1 })).rejects.toMatchObject({ code: 'UNKNOWN_OP' })
     expect(current.calls).toEqual([['data.query', { a: 1 }]])
   })

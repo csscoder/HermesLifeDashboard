@@ -1,11 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { HttpOutput, HttpSendInput } from '@lifedashboard/widget-sdk'
 import { BASE, createTasksApi, TasksError, type ListItem } from '../src/api.ts'
 
-type Handler = (op: string, input: { url: string; method?: string; headers?: Record<string, string>; body?: string }) => unknown
+type Handler = (op: string, input: { url: string; method?: string; headers?: Record<string, string>; body?: string }) => HttpOutput | undefined | Promise<never>
 
 function fake(handler: Handler) {
-  const call = vi.fn(async (op: string, input: unknown) => handler(op, input as Parameters<Handler>[1]))
-  return { call, api: createTasksApi(call) }
+  async function answer(op: string, input: Parameters<Handler>[1]): Promise<HttpOutput> {
+    const output = await handler(op, input)
+    if (output === undefined) throw new Error('No fake HTTP response')
+    return output
+  }
+  const http = {
+    get: vi.fn((url: string, _options?: { accept?: string }) => answer('http.get', { url })),
+    send: vi.fn((request: HttpSendInput) => answer('http.send', request)),
+  }
+  return { http, api: createTasksApi(http) }
 }
 
 const meta = (epoch = 'e1') => ({ workspaceEpoch: epoch, mutationSeq: 1, asOf: '2026-10-11T08:00:00Z', replayed: false })
@@ -22,10 +31,10 @@ const query = (url: string) => new URL(url).searchParams
 
 describe('request', () => {
   it('returns envelope data, remembers the epoch and asks for JSON', async () => {
-    const { api, call } = fake(() => ok({ today: '2026-10-11', tags: [], nextTagsCursor: null }, 'e7'))
+    const { api, http } = fake(() => ok({ today: '2026-10-11', tags: [], nextTagsCursor: null }, 'e7'))
     expect(await api.workspace()).toEqual({ today: '2026-10-11', tags: [] })
     expect(api.epoch).toBe('e7')
-    expect(call).toHaveBeenCalledWith('http.get', { url: `${BASE}/workspace?tagsLimit=200`, headers: { accept: 'application/json' } })
+    expect(http.get).toHaveBeenCalledWith(`${BASE}/workspace?tagsLimit=200`, { accept: 'application/json' })
   })
 
   it('turns an error envelope into a TasksError with its code', async () => {
@@ -52,13 +61,13 @@ describe('request', () => {
 
 describe('reading lists', () => {
   it('follows tag pages', async () => {
-    const { api, call } = fake((_op, { url }) =>
+    const { api, http } = fake((_op, { url }) =>
       query(url).get('tagsCursor') === null
         ? ok({ today: '2026-10-11', tags: [{ name: 'a', openCount: 1 }], nextTagsCursor: 'c1' })
         : ok({ today: '2026-10-11', tags: [{ name: 'b', openCount: 2 }], nextTagsCursor: null }),
     )
     expect((await api.workspace()).tags.map((tag) => tag.name)).toEqual(['a', 'b'])
-    expect(query((call.mock.calls[1]![1] as { url: string }).url).get('tagsCursor')).toBe('c1')
+    expect(query(http.get.mock.calls[1]![0]).get('tagsCursor')).toBe('c1')
   })
 
   it('merges Today: a row in both answers appears once, under overdue', async () => {
@@ -73,11 +82,11 @@ describe('reading lists', () => {
   })
 
   it('maps views to queries', async () => {
-    const { api, call } = fake(() => ok({ items: [], nextCursor: null }))
+    const { api, http } = fake(() => ok({ items: [], nextCursor: null }))
     await api.list('upcoming', null)
     await api.list('inbox', null)
     await api.list('all', null)
-    const urls = call.mock.calls.map(([, input]) => (input as { url: string }).url)
+    const urls = http.get.mock.calls.map(([url]) => url)
     expect(urls.map((url) => Object.fromEntries(query(url)))).toEqual([
       { status: 'open', due: 'upcoming', limit: '200' },
       { status: 'open', projectId: 'inbox', limit: '200' },
@@ -86,20 +95,20 @@ describe('reading lists', () => {
   })
 
   it('encodes tag names in the query', async () => {
-    const { api, call } = fake(() => ok({ items: [], nextCursor: null }))
+    const { api, http } = fake(() => ok({ items: [], nextCursor: null }))
     await api.list('all', 'дом & сад #1')
-    const url = (call.mock.calls[0]![1] as { url: string }).url
+    const url = http.get.mock.calls[0]![0]
     expect(query(url).getAll('tags')).toEqual(['дом & сад #1'])
     expect(url).not.toContain(' ')
   })
 
   it('reads pages up to 1000 rows and reports the rest as truncated', async () => {
     let n = 0
-    const { api, call } = fake(() => ok({ items: Array.from({ length: 200 }, () => item(String(n++))), nextCursor: 'more' }))
+    const { api, http } = fake(() => ok({ items: Array.from({ length: 200 }, () => item(String(n++))), nextCursor: 'more' }))
     const result = await api.list('all', null)
     expect(result.items).toHaveLength(1000)
     expect(result.truncated).toBe(true)
-    expect(call).toHaveBeenCalledTimes(5)
+    expect(http.get).toHaveBeenCalledTimes(5)
   })
 
   it('restarts a request once after CURSOR_STALE, then gives up', async () => {
@@ -123,7 +132,7 @@ describe('reading lists', () => {
 
 describe('writes', () => {
   it('prepares an attempt with the latest epoch and a new key, and resends it unchanged', async () => {
-    const { api, call } = fake((op) => (op === 'http.get' ? ok({ today: '2026-10-11', tags: [], nextTagsCursor: null }, 'e9') : ok({ task: { version: 4 } })))
+    const { api, http } = fake((op) => (op === 'http.get' ? ok({ today: '2026-10-11', tags: [], nextTagsCursor: null }, 'e9') : ok({ task: { version: 4 } })))
     await api.workspace()
     const attempt = api.update('t 1', 3, { title: 'Новое' })
     expect(attempt).toEqual({
@@ -134,7 +143,7 @@ describe('writes', () => {
     expect(api.update('t 1', 3, { title: 'Новое' }).body.idempotencyKey).not.toBe(attempt.body.idempotencyKey)
     await api.send(attempt)
     await api.send(attempt)
-    const sends = call.mock.calls.filter(([op]) => op === 'http.send').map(([, input]) => input)
+    const sends = http.send.mock.calls.map(([request]) => request)
     expect(sends).toEqual([
       { url: `${BASE}/tasks/t%201`, method: 'PATCH', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify(attempt.body) },
       { url: `${BASE}/tasks/t%201`, method: 'PATCH', headers: { accept: 'application/json', 'content-type': 'application/json' }, body: JSON.stringify(attempt.body) },

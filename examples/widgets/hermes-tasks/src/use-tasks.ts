@@ -39,7 +39,7 @@ interface MutationOptions<T> {
 
 /** Spec «Refresh», «Actions» and «Errors»: the widget's data and every call to Hermes Tasks. */
 export function useTasks(widget: Widget) {
-  const api = markRaw(createTasksApi((op, input) => widget.call(op, input)))
+  const api = markRaw(createTasksApi(widget.http))
   const view = ref<View>('today')
   const tag = ref<string | null>(null)
   const today = ref<string | null>(null)
