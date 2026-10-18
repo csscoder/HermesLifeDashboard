@@ -41,8 +41,9 @@ export interface Widget {
   }
   /**
    * Show a notification; requires `notifications` and may ask for user confirmation.
-   * Limited by NOTIFICATION_TITLE_MAX, NOTIFICATION_BODY_MAX, RATE_LIMITS['notifications.send']
-   * and the shared BRIDGE_LIMITS described on call. An omitted body becomes an empty string.
+   * Title must be 1–80 characters (NOTIFICATION_TITLE_MAX); body may be up to 300 characters
+   * (NOTIFICATION_BODY_MAX), measured by JavaScript string.length. An omitted body becomes
+   * an empty string. Limited by RATE_LIMITS['notifications.send'] and the shared BRIDGE_LIMITS on call.
    * @throws {WidgetError} SESSION_EXPIRED, PERMISSION_DENIED, INVALID_INPUT, RATE_LIMITED,
    * TIMEOUT, BRIDGE_CLOSED, UNAVAILABLE, DECLINED.
    */
@@ -50,7 +51,8 @@ export interface Widget {
   /**
    * HTTP through the host; requires `network` and an approved manifest origin.
    * See get/send for limits and WidgetError codes. The host injects bound secrets;
-   * literal secret values in response body/contentType become [REDACTED].
+   * exact and URL-encoded copies of secret values in response body/contentType become [REDACTED]
+   * (encodeURIComponent and URLSearchParams forms). Other modified copies are not redacted.
    * @since sdk 2
    */
   http: {
@@ -58,10 +60,15 @@ export interface Widget {
      * GET without a confirmation dialog; requires `network` and an approved origin.
      * Only the optional accept header is sent by the widget. Limited by HTTP_LIMITS.urlLength,
      * HTTP_LIMITS.headerValueLength, HTTP_LIMITS.responseBytes, HTTP_LIMITS.answerBytes,
-     * HTTP_LIMITS.timeoutMs, RATE_LIMITS['http.get'] and the shared BRIDGE_LIMITS on call.
+     * HTTP_LIMITS.timeoutMs (4 s upstream deadline), RATE_LIMITS['http.get'] and the shared
+     * BRIDGE_LIMITS on call.
+     * @returns The upstream status and UTF-8-decoded text body. Any HTTP status is a result,
+     * including 4xx/5xx; redirects are not followed, so 3xx is returned as the status.
      * @throws {WidgetError} SESSION_EXPIRED, PERMISSION_DENIED, INVALID_INPUT (including a
-     * secret query collision), RATE_LIMITED, TIMEOUT, BRIDGE_CLOSED, UNAVAILABLE (including a
-     * missing bound secret, whose setting is named in the message), DECLINED.
+     * secret query collision), RATE_LIMITED, TIMEOUT (bridge deadline: BRIDGE_LIMITS.requestTimeoutMs,
+     * 10 s), BRIDGE_CLOSED, UNAVAILABLE (upstream timeout, unreachable host, response exceeding
+     * HTTP_LIMITS.responseBytes or HTTP_LIMITS.answerBytes, or a missing bound secret whose
+     * setting is named in the message), DECLINED.
      * @since sdk 2
      */
     get(url: string, options?: { accept?: string }): Promise<HttpOutput>
@@ -69,11 +76,15 @@ export interface Widget {
      * POST, PUT, PATCH or DELETE; requires `network` and an approved origin and may ask
      * for user confirmation. Widget headers are limited to accept and content-type.
      * Limited by HTTP_LIMITS.urlLength, HTTP_LIMITS.headerValueLength, HTTP_LIMITS.bodyBytes,
-     * HTTP_LIMITS.responseBytes, HTTP_LIMITS.answerBytes, HTTP_LIMITS.timeoutMs,
+     * HTTP_LIMITS.responseBytes, HTTP_LIMITS.answerBytes, HTTP_LIMITS.timeoutMs (4 s upstream deadline),
      * RATE_LIMITS['http.send'] and the shared BRIDGE_LIMITS on call.
+     * @returns The upstream status and UTF-8-decoded text body. Any HTTP status is a result,
+     * including 4xx/5xx; redirects are not followed, so 3xx is returned as the status.
      * @throws {WidgetError} SESSION_EXPIRED, PERMISSION_DENIED, INVALID_INPUT (including a
-     * secret query collision), RATE_LIMITED, TIMEOUT, BRIDGE_CLOSED, UNAVAILABLE (including a
-     * missing bound secret, whose setting is named in the message), DECLINED.
+     * secret query collision), RATE_LIMITED, TIMEOUT (bridge deadline: BRIDGE_LIMITS.confirmTimeoutMs,
+     * 250 s for this confirmable operation), BRIDGE_CLOSED, UNAVAILABLE (upstream timeout,
+     * unreachable host, response exceeding HTTP_LIMITS.responseBytes or HTTP_LIMITS.answerBytes,
+     * or a missing bound secret whose setting is named in the message), DECLINED.
      * @since sdk 2
      */
     send(request: HttpSendInput): Promise<HttpOutput>

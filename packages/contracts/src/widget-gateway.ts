@@ -37,8 +37,8 @@ export const CONFIRMATION_TTL_MS = 120_000
 export const CONFIRMATION_DIALOG_MS = 110_000
 
 export const STATE_MAX_BYTES = 65_536
-const NOTIFICATION_TITLE_MAX = 80
-const NOTIFICATION_BODY_MAX = 300
+export const NOTIFICATION_TITLE_MAX = 80
+export const NOTIFICATION_BODY_MAX = 300
 
 export interface StateGetOutput {
   data: unknown
@@ -251,6 +251,11 @@ export interface WidgetContext {
   theme: { id: string; scheme: 'light' | 'dark'; tokens: Record<string, string> }
   // px of the dashboard's html font-size, so `rem` in a frame matches the board (§7.4).
   rootFontSize: number
+  /**
+   * Values of the manifest settings, with defaults used for missing or invalid non-secret values;
+   * an empty object when the manifest declares no settings. Each secret setting is only a boolean:
+   * true when the user has set it, false otherwise, never the secret value.
+   */
   config: Record<string, unknown>
   locale: string
   visible: boolean
