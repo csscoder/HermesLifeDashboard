@@ -98,15 +98,15 @@ Widgets compile against the npm SDK but run against the SDK runtime shipped insi
 - `ld-widget dev`/`check`/`build` generate a declaration file in the project (Raycast `raycast-env.d.ts` pattern) that types `widget.context.config` from the schema, so the agent gets compile-time feedback. File name left to the builder.
 
 **Secret settings (decision 9).**
-- A secret is a separate property type `secret`: no `default` and no other constraints. In `context.config` and in the generated declaration it is a `boolean` that says whether the secret is set.
+- A secret is a separate property type `secret`: no `default` and no other constraints declared by the widget. The host requires a minimum length for an entered secret (at least 8 characters; the exact rule is left to the builder) so that redaction (below) cannot hit ordinary short substrings. In `context.config` and in the generated declaration it is a `boolean` that says whether the secret is set.
 - A secret property is bound to one origin from the manifest `network` list and one injection point: a request header (for example `Authorization` with a prefix such as `Bearer `) or a query parameter. Exact manifest syntax is left to the builder. The bound origin must be `https:`; `http:` is allowed only for loopback hosts (`127.0.0.1`, `localhost`, `[::1]`). A manifest that binds a secret to another `http:` origin is rejected.
-- The widget is never given the value: `context.config` carries only whether the secret is set. On every `http.get`/`http.send` to the bound origin, the API adds the secret at the declared injection point. Requests to other origins never carry it. A widget cannot set the bound header itself.
+- The widget is never given the value: `context.config` carries only whether the secret is set. On every `http.get`/`http.send` to the bound origin, the API adds the secret at the declared injection point. Requests to other origins never carry it. A widget cannot set the bound header itself: the gateway input parser keeps rejecting that header from the widget, and only the API adds it when it sends the request out. If the injection point is a query parameter and the widget's URL already contains that parameter, the call is rejected with `INVALID_INPUT`. If the secret is not set, the request is not sent and the call is rejected with `UNAVAILABLE` and a message naming the missing setting.
 - The import review shows each secret binding ("sends your <title> to <origin>"); a new or changed binding in a new version is reviewed like a new origin.
-- The secret is entered in the settings form, stored by the API per widget instance outside `config`, never sent to the UI after saving (write-only field with a "set/replace/clear" control), never logged, never part of a board export or a built folder. Storage is the existing SQLite data directory (my call; an OS keychain is a later upgrade).
+- The secret is entered in the settings form, stored by the API per widget instance outside `config`, never sent to the UI after saving (write-only field with a "set/replace/clear" control; the UI receives only a per-instance flag per secret saying whether it is set), never logged, never part of a board export or a built folder. Storage is the existing SQLite data directory (my call; an OS keychain is a later upgrade).
 - The secret is keyed by the stable widget instance ID, not by a database row: it survives board saves that rewrite instance rows (today `PUT` of a board deletes and re-inserts every `widgets` row) and is deleted only when the instance is absent from a successfully saved board.
 - Dev: secrets come from a local `.env`-style file in the widget project; `.env*` is already excluded from `source/`.
-- This changes the security model: the gateway header allow-list grows by the bound header for the bound origin only.
-- A server on the bound origin may echo the secret back. Before returning a response to the widget, the API removes every literal occurrence of the secret value from the body and headers (my call). Transformed echoes (encoded or split) are out of the host's control. The guarantee is therefore narrowed: the widget is never given the secret and literal echoes are redacted, but a server that transforms the secret can still leak it to the widget. The import review shows this risk next to each binding, and the docs say so.
+- This changes the security model: the API now adds a credential to outgoing requests. The headers a widget may pass in stay as today (`accept`, `content-type`).
+- A server on the bound origin may echo the secret back. Before returning a response to the widget, the API replaces every literal occurrence of the secret value in the body and headers with the fixed marker `[REDACTED]` (my call). Transformed echoes (encoded or split) are out of the host's control. The guarantee is therefore narrowed: the widget is never given the secret and literal echoes are redacted, but a server that transforms the secret can still leak it to the widget. The import review shows this risk next to each binding, and the docs say so.
 
 **Typed gateway.**
 - `widget.http.get(url, options?)` and `widget.http.send({ url, method, headers?, body? })`, returning `HttpOutput`.
@@ -147,7 +147,7 @@ Runtime problems are reported by `ld-widget dev` (section 4). The docs tell the 
 
 Coding agents load the project's root `AGENTS.md`/`CLAUDE.md` automatically but do not discover files inside `node_modules` on their own (sources below). So:
 
-- `npm create @lifedashboard/widget` scaffolds `widget.json`, `src/index.vue`, `package.json`, a root `AGENTS.md` (short: what this project is, the rules that cause most failures, where the docs are) and `CLAUDE.md` containing `@AGENTS.md`. One minimal template.
+- `npm create @lifedashboard/widget` scaffolds `widget.json`, `src/index.vue`, `package.json`, `tsconfig.json`, a root `AGENTS.md` (short: what this project is, the rules that cause most failures, where the docs are) and `CLAUDE.md` containing `@AGENTS.md`. One minimal template.
 - Full docs ship in the package (`node_modules/@lifedashboard/widget-sdk/docs/`), version-matched:
   - **Levers:** the complete list of API members, context fields and gateway operations with permissions and limits.
   - **Runtime restrictions:** sandbox and CSP in plain words (no storage APIs → use `state`; no Web Notifications → use `notify`; files only from the widget folder; media only by URL from `assets/`; workers from `blob:` only).
@@ -168,7 +168,7 @@ Coding agents load the project's root `AGENTS.md`/`CLAUDE.md` automatically but 
 | --- | --- | --- |
 | macOS 15.7+ | WKWebView, WebKit 18.6 out of the box | Safari 26 is an optional update that also updates WKWebView |
 | Windows | WebView2 (evergreen Chromium) | least constrained |
-| Linux | WebKitGTK, distro-dependent | 2.50+ on Ubuntu 22.04 / Debian 12 per search; media through GStreamer |
+| Linux | WebKitGTK, distro-dependent | 2.50+ on Ubuntu 22.04 / Debian 12 (security updates); media through GStreamer |
 
 Rule for widgets: target the intersection of WebKit 18.6 and WebKitGTK 2.50. Anything newer only behind feature detection with a fallback. Specifically:
 
@@ -193,7 +193,7 @@ The built folder must import and behave the same on macOS, Windows and Linux: re
 
 ## Left to the builder
 
-- Settings form placement and look in the dashboard; declaration file name; frame field name.
+- Settings form placement and look in the dashboard; declaration file name; frame field name; API endpoints for saving and clearing secrets.
 - How shared sandbox/CSP code and theme tokens get from `apps/` into the package, as long as a divergence test exists.
 - Whether `widget.call` stays (typed) or goes.
 - Template contents beyond the minimum; docs file layout; skill wording.
@@ -207,6 +207,6 @@ The built folder must import and behave the same on macOS, Windows and Linux: re
 - macOS 15.7 ships Safari 18.6; Safari 26 is a separate update that also updates WKWebView: https://webkit.org/blog/17333/webkit-features-in-safari-26-0/.
 - Sandboxed documents without `allow-same-origin` get an opaque origin with no `localStorage`/cookies: https://html.spec.whatwg.org/multipage/browsers.html.
 - Tauri webview per OS: https://v2.tauri.app/reference/webview-versions/ (its WebKitGTK table is outdated per search).
-- WebKitGTK 2.50.x on Ubuntu 22.04 and Debian 12, 2.52.x on Ubuntu 24.04 / Debian 13 / Fedora 43 — Perplexity only, not confirmed on packages.ubuntu.com / packages.debian.org. Verify before fixing the 2.50 floor in docs.
+- `libwebkit2gtk-4.1-0` versions checked directly on 2026-10-18: Ubuntu 22.04 `jammy-updates` 2.50.4 (https://packages.ubuntu.com/jammy-updates/libwebkit2gtk-4.1-0), Debian 12 `bookworm` 2.50.6 (https://packages.debian.org/bookworm/libwebkit2gtk-4.1-0), Ubuntu 24.04 `noble-updates` 2.52.6. Debian 13 and Fedora 43 (2.52.x) — Perplexity only.
 - `requestIdleCallback` disabled by default in Safari, `scheduler.postTask` unsupported — caniuse per search; not fetched directly (caniuse blocks curl). Verify on MDN when writing the docs.
 - Node 24 type stripping refuses files under `node_modules` — checked locally (v24.21.0).
