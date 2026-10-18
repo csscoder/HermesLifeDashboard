@@ -165,6 +165,7 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
     }
     // widget_state has no foreign key (spec «Data»): drop the state of widgets this save removed.
     db.prepare('DELETE FROM widget_state WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
+    db.prepare('DELETE FROM widget_secrets WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
     db.prepare('UPDATE rooms SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), roomId)
     db.exec('COMMIT')
   } catch (error) {

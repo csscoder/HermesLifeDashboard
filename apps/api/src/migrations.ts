@@ -166,4 +166,14 @@ CREATE TABLE widget_network_origins (
   PRIMARY KEY (package_id, origin)
 );
 `,
+  `
+-- No foreign key: a board save re-inserts widget rows and deletes orphaned secrets itself.
+CREATE TABLE widget_secrets (
+  widget_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (widget_id, key)
+);
+`,
 ]

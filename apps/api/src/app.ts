@@ -7,6 +7,7 @@ import { registerRooms } from './rooms.ts'
 import { registerSandbox } from './sandbox.ts'
 import { registerUiStatic } from './ui-static.ts'
 import { registerWidgetGateway } from './widget-gateway.ts'
+import { registerWidgetSecrets } from './widget-secrets.ts'
 import { registerWidgetPackages } from './widget-packages.ts'
 import { registerWidgetUploads } from './widget-uploads.ts'
 
@@ -27,6 +28,7 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   registerWidgetPackages(app, { db, now, dataDir: config.dataDir })
   registerWidgetUploads(app, { db, now, dataDir: config.dataDir })
   registerWidgetGateway(app, { db, now })
+  registerWidgetSecrets(app, { db, now })
   registerSandbox(app, { db, config })
   if (config.uiDir !== undefined) registerUiStatic(app, { config: { port: config.port, uiDir: config.uiDir } })
   return app

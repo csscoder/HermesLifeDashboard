@@ -41,6 +41,7 @@ describe('openDatabase', () => {
       'widget_network_origins',
       'widget_package_versions',
       'widget_packages',
+      'widget_secrets',
       'widget_state',
       'widgets',
     ])

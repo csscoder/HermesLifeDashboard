@@ -15,6 +15,7 @@ import {
   type WidgetSessionResponse,
 } from '@lifedashboard/contracts/widget-gateway'
 import { canonicalJson, type GrantMode, type WidgetPackageManifest, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
+import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import { ApiError, ok } from './errors.ts'
 import { proxyHttp } from './http-proxy.ts'
 import { grantsOf, originsOf } from './widget-packages.ts'
@@ -218,7 +219,12 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   })
 }
 
-function resolveWidget(db: DatabaseSync, widgetId: string): { packageId: string | null; grants: WidgetPermission[]; origins: string[] } {
+export function resolveWidget(db: DatabaseSync, widgetId: string): {
+  packageId: string | null
+  grants: WidgetPermission[]
+  origins: string[]
+  settings: SettingsSchema | undefined
+} {
   const row = db.prepare('SELECT source_kind, source_type, source_version FROM widgets WHERE id = ?').get(widgetId) as
     | { source_kind: string; source_type: string; source_version: string | null }
     | undefined
@@ -235,11 +241,12 @@ function resolveWidget(db: DatabaseSync, widgetId: string): { packageId: string 
       packageId: row.source_type,
       grants: grantsOf(db, row.source_type).map((grant) => grant.permission),
       origins: (manifest.network ?? []).filter((origin) => approved.has(origin)),
+      settings: manifest.settings,
     }
   }
   const manifest = findBuiltinWidget(row.source_type)
   if (!manifest) throw new ApiError('NOT_FOUND', 'Unknown built-in widget')
-  return { packageId: null, grants: [...manifest.permissions], origins: [] }
+  return { packageId: null, grants: [...manifest.permissions], origins: [], settings: undefined }
 }
 
 function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
