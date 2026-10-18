@@ -259,6 +259,7 @@ function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
   async function http(context: GatewayContext, input: ProxyRequest): Promise<HttpOutput> {
     const values = secretValues(db, context.widgetId)
     const origin = new URL(input.url).origin
+    if (!context.origins.has(origin)) throw new ApiError('PERMISSION_DENIED', 'The widget may not reach this origin')
     const bindings = context.secrets.filter(({ bind }) => bind.origin === origin)
     // Check all values before injection, so a later missing setting wins over a query collision.
     for (const { key, title } of bindings) {
@@ -274,7 +275,7 @@ function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
       request = injected
     }
     const output = await proxyHttp({ ...input, ...request }, context.origins)
-    const redactions = [...values.values()].sort((a, b) => b.length - a.length)
+    const redactions = [...values.values()]
     return {
       ...output,
       body: redactSecrets(output.body, redactions),

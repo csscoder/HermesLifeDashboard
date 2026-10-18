@@ -93,6 +93,19 @@ describe('redactSecrets', () => {
     expect(redactSecrets('', ['', value])).toBe('')
   })
 
+  it.each([
+    ['ab+cd/ef=gh ijklmnop', 'ab%2Bcd%2Fef%3Dgh%20ijklmnop', 'ab%2Bcd%2Fef%3Dgh+ijklmnop'],
+    ['ключ+ab/cd=ef ghijklmnop', '%D0%BA%D0%BB%D1%8E%D1%87%2Bab%2Fcd%3Def%20ghijklmnop', '%D0%BA%D0%BB%D1%8E%D1%87%2Bab%2Fcd%3Def+ghijklmnop'],
+  ])('redacts literal, URI-encoded and form-encoded variants of %s', (secret, uriEncoded, formEncoded) => {
+    const text = [secret, uriEncoded, formEncoded, uriEncoded, formEncoded].join('|')
+    expect(redactSecrets(text, [secret])).toBe(Array(5).fill('[REDACTED]').join('|'))
+  })
+
+  it('deduplicates variants and redacts overlapping values longest first', () => {
+    expect(redactSecrets('token+suffix|token%2Bsuffix|token', ['token', 'token+suffix', 'token']))
+      .toBe('[REDACTED]|[REDACTED]|[REDACTED]')
+  })
+
   it('redacts literal echoes in content types', () => {
     expect(redactSecrets(`application/${value}; echo=${value}`, [value])).toBe('application/[REDACTED]; echo=[REDACTED]')
   })

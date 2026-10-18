@@ -30,8 +30,13 @@ export function injectSecret(
 }
 
 export function redactSecrets(text: string, values: readonly string[]): string {
+  const variants = new Set<string>()
   for (const value of values) {
-    if (value !== '') text = text.replaceAll(value, REDACTED)
+    if (value === '') continue
+    variants.add(value)
+    variants.add(encodeURIComponent(value))
+    variants.add(new URLSearchParams({ k: value }).toString().slice(2))
   }
+  for (const variant of [...variants].sort((a, b) => b.length - a.length)) text = text.replaceAll(variant, REDACTED)
   return text
 }

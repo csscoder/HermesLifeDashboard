@@ -581,6 +581,14 @@ describe('secrets', () => {
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected upstream request'))
     })
 
+    it.each(['http.get', 'http.send'] as const)('denies an unapproved origin before checking missing secrets for %s', async (op) => {
+      t.db.prepare('DELETE FROM widget_network_origins').run()
+      const response = await request(op, await openSession(PKG_WIDGET))
+      expect([response.statusCode, errorCode(response), response.json().error.message])
+        .toEqual([403, 'PERMISSION_DENIED', 'The widget may not reach this origin'])
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
     it.each(['http.get', 'http.send'] as const)('rejects %s with the setting title when its secret is missing', async (op) => {
       const response = await request(op, await openSession(PKG_WIDGET))
       expect([response.statusCode, errorCode(response), response.json().error.message])
@@ -619,6 +627,21 @@ describe('secrets', () => {
   })
 
   describe('responses without a listener', () => {
+    it('redacts the form-encoded query secret in an echoed request URL', async () => {
+      const queryValue = 'ab+cd/ef=gh ijklmnop'
+      const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => new Response(String(url), {
+        status: 400, headers: { 'content-type': 'text/plain' },
+      }))
+      await put('apiKey', VALUE)
+      await put('queryKey', queryValue)
+      const response = await request('http.get', await openSession(PKG_WIDGET))
+      expect(upstream).toHaveBeenCalledWith(`${origin}/echo?apikey=ab%2Bcd%2Fef%3Dgh+ijklmnop`, expect.anything())
+      expect(response.statusCode).toBe(200)
+      expect(response.json().data).toEqual({
+        status: 400, contentType: 'text/plain', body: `${origin}/echo?apikey=[REDACTED]`,
+      })
+    })
+
     it.each(['http.get', 'http.send'] as const)('injects and redacts %s with current values and preserves upstream status', async (op) => {
       const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
         `${OTHER_VALUE}|${VALUE}|${QUERY_VALUE}|${OTHER_VALUE}|${VALUE}`,
