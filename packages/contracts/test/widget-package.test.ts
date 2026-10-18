@@ -153,6 +153,50 @@ describe('parseWidgetManifest', () => {
   })
 })
 
+describe('manifest settings', () => {
+  const settings = { type: 'object', properties: { city: { type: 'string', title: 'Город', default: 'Москва' } } }
+
+  it('requires sdk 2 when settings is present', () => {
+    expect(parseWidgetManifest({ ...manifestV2, settings })).toEqual({ ok: false, error: 'manifest.settings needs sdk 2' })
+    expect(parseWidgetManifest({ ...manifestV2, settings: null })).toEqual({ ok: false, error: 'manifest.settings needs sdk 2' })
+  })
+
+  it('includes parsed settings on sdk 2 manifests', () => {
+    expect(parseWidgetManifest({ ...manifestV2, sdk: 2, settings })).toEqual({
+      ok: true, value: { ...valid.manifest, sdk: 2, settings },
+    })
+  })
+
+  it('leaves absent settings out and preserves canonical JSON for both sdk levels', () => {
+    for (const sdk of [1, 2]) {
+      const result = parseWidgetManifest({ ...manifestV2, sdk })
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(Object.hasOwn(result.value, 'settings')).toBe(false)
+        expect(canonicalJson(result.value)).toBe(canonicalJson({ ...valid.manifest, sdk }))
+      }
+    }
+  })
+
+  it('passes manifest.network to secret binding validation', () => {
+    const secretSettings = { type: 'object', properties: { key: { type: 'secret', title: 'Key', bind: { origin: 'https://a.example', query: 'apikey' } } } }
+    const raw = { ...manifestV2, sdk: 2, settings: secretSettings, permissions: ['network'], network: ['https://a.example'] }
+    expect(parseWidgetManifest(raw)).toMatchObject({ ok: true, value: { settings: secretSettings } })
+    expect(parseWidgetManifest({ ...raw, network: ['https://b.example'] })).toEqual({
+      ok: false, error: 'settings.key.bind.origin must be one of manifest.network',
+    })
+    expect(parseWidgetManifest({ ...raw, network: undefined, permissions: [] })).toEqual({
+      ok: false, error: 'settings.key.bind.origin must be one of manifest.network',
+    })
+  })
+
+  it('propagates settings validation failures', () => {
+    expect(parseWidgetManifest({ ...manifestV2, sdk: 2, settings: { type: 'object', properties: { n: { type: 'integer', title: 'N', default: 50, minimum: 1, maximum: 10 } } } })).toEqual({
+      ok: false, error: 'settings.n.default must satisfy its own type and constraints',
+    })
+  })
+})
+
 describe('classifyPath', () => {
   it.each([
     ['widget.json', 'manifest'],

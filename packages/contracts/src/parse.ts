@@ -8,6 +8,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+export function isPlainText(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= 60 && !/[\u0000-\u001f\u007f]/.test(value)
+}
+
 /** The first key of `record` outside `allowed`, or undefined. */
 export function unknownKey(record: Record<string, unknown>, allowed: readonly string[]): string | undefined {
   return Object.keys(record).find((key) => !allowed.includes(key))

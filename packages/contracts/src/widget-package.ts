@@ -1,6 +1,7 @@
 import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
-import { fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
+import { fail, isPlainText, isRecord, unknownKey, type ParseResult } from './parse.ts'
 import { SDK_LEVELS, type SdkLevel } from './widget-gateway.ts'
+import { parseSettingsSchema, type SettingsSchema } from './widget-settings.ts'
 
 export const WIDGET_PERMISSIONS = ['state', 'notifications', 'network'] as const
 export type WidgetPermission = (typeof WIDGET_PERMISSIONS)[number]
@@ -89,9 +90,8 @@ const SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/
 
 const ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
 
-const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions', 'network']
+const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions', 'network', 'settings']
 const SIZING_KEYS = ['default', 'min', 'max']
 const SIZE_KEYS = ['w', 'h']
 
@@ -108,6 +108,7 @@ export interface WidgetPackageManifest {
   // Spec 2026-10-11: exact origins for http.get/http.send. Optional: stored manifests of older
   // versions are read back without re-validation and lack it; absent means no origins.
   network?: string[]
+  settings?: SettingsSchema
 }
 
 /** `POST /widget-uploads` (hash null) and `POST /widget-uploads/:id/install` answer with this. */
@@ -172,15 +173,6 @@ function parseNetwork(raw: unknown): string[] | null {
   return [...raw]
 }
 
-function isPlainText(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length >= 1 &&
-    value.length <= PACKAGE_LIMITS.maxTextLength &&
-    !CONTROL_CHARACTER.test(value)
-  )
-}
-
 function parseSize(raw: unknown): Size | null {
   if (!isRecord(raw) || unknownKey(raw, SIZE_KEYS) !== undefined) return null
   const { w, h } = raw
@@ -225,6 +217,7 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
     }
     return fail('manifest.sdk must be an integer level')
   }
+  if (Object.hasOwn(raw, 'settings') && sdk === 1) return fail('manifest.settings needs sdk 2')
   if (typeof raw.entry !== 'string') return fail('manifest.entry must name a .js file in files')
   if (!Array.isArray(raw.styles) || !raw.styles.every((item) => typeof item === 'string')) {
     return fail('manifest.styles must name .css files in files')
@@ -248,6 +241,12 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
   if (permissions.includes('network') !== (network !== undefined)) {
     return fail('manifest.network and the network permission must be declared together')
   }
+  let settings: SettingsSchema | undefined
+  if (Object.hasOwn(raw, 'settings')) {
+    const parsed = parseSettingsSchema(raw.settings, network ?? [])
+    if (!parsed.ok) return parsed
+    settings = parsed.value
+  }
   return {
     ok: true,
     value: {
@@ -262,6 +261,7 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
       permissions,
       // Left out when absent, so a manifest without network keeps its canonical JSON and package hash.
       ...(network === undefined ? {} : { network }),
+      ...(settings === undefined ? {} : { settings }),
     },
   }
 }
