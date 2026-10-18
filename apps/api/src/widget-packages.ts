@@ -3,7 +3,9 @@ import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
 import { confirmablePermissions } from '@lifedashboard/contracts/widget-gateway'
+import { secretsOf, type BoundSecret } from '@lifedashboard/contracts/widget-secrets'
 import {
+  canonicalJson,
   compareVersions,
   type Grant,
   type InstalledPackage,
@@ -61,6 +63,15 @@ export function originsOf(db: DatabaseSync, packageId: string): string[] {
 export function newOriginsOf(db: DatabaseSync, manifest: WidgetPackageManifest): string[] {
   const held = new Set(originsOf(db, manifest.id))
   return (manifest.network ?? []).filter((origin) => !held.has(origin))
+}
+
+export function newSecretBindingsOf(db: DatabaseSync, manifest: WidgetPackageManifest): BoundSecret[] {
+  const versions = db.prepare('SELECT manifest FROM widget_package_versions WHERE package_id = ?').all(manifest.id) as unknown as { manifest: string }[]
+  const held = new Set(versions.flatMap((row) => {
+    const stored = JSON.parse(row.manifest) as WidgetPackageManifest
+    return secretsOf(stored.settings).map(({ key, bind }) => canonicalJson({ key, bind }))
+  }))
+  return secretsOf(manifest.settings).filter(({ key, bind }) => !held.has(canonicalJson({ key, bind })))
 }
 
 /** Package, version and grants rows; the caller holds the transaction. */

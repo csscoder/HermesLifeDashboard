@@ -2,6 +2,7 @@ import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
 import { fail, isPlainText, isRecord, unknownKey, type ParseResult } from './parse.ts'
 import { SDK_LEVELS, type SdkLevel } from './widget-gateway.ts'
 import { parseSettingsSchema, type SettingsSchema } from './widget-settings.ts'
+import type { BoundSecret } from './widget-secrets.ts'
 
 export const WIDGET_PERMISSIONS = ['state', 'notifications', 'network'] as const
 export type WidgetPermission = (typeof WIDGET_PERMISSIONS)[number]
@@ -120,6 +121,8 @@ export interface PackageInspection {
   newPermissions: WidgetPermission[]
   // Manifest network origins the package does not hold yet (spec 2026-10-11).
   newOrigins: string[]
+  // Secret bindings absent from every installed version of the package.
+  newSecretBindings: BoundSecret[]
   sizes: FolderSizes
 }
 

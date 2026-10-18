@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lifedashboard/contracts/widget-package'
+import { secretsOf } from '@lifedashboard/contracts/widget-secrets'
 import { api, type ApiFailure } from '../api'
+import { bindingLine } from './secret-binding'
 import {
   CONFIRMABLE_PERMISSIONS,
   describeInstallFailure,
@@ -53,6 +55,7 @@ let run = 0
 const modes = ref<GrantModes>({})
 
 const manifest = computed(() => pending.value?.inspection.manifest ?? null)
+const secretBindings = computed(() => secretsOf(manifest.value?.settings))
 const isUpdate = computed(() => installedPackages.value.some((pkg) => pkg.id === manifest.value?.id))
 const heldGrants = computed(() => installedPackages.value.find((pkg) => pkg.id === manifest.value?.id)?.grants ?? [])
 
@@ -270,6 +273,19 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
       <p v-if="isUpdate && pending.inspection.newOrigins.length > 0" class="packages__warning">
         Новые адреса: {{ pending.inspection.newOrigins.join(', ') }}
       </p>
+      <template v-if="secretBindings.length > 0">
+        <h3 class="packages__subtitle">Секреты</h3>
+        <ul class="packages__permissions">
+          <li
+            v-for="secret in secretBindings"
+            :key="secret.key"
+            :class="{ packages__warning: isUpdate && pending.inspection.newSecretBindings.some((binding) => binding.key === secret.key) }"
+          >
+            {{ bindingLine(secret) }}
+          </li>
+        </ul>
+        <p>Сервер может вернуть ключ в ответе; LifeDashboard заменяет точные совпадения на [REDACTED], но изменённые копии скрыть не может</p>
+      </template>
       <p v-if="pending.inspection.installed">Эта версия уже установлена</p>
       <progress v-if="progress" class="packages__progress" :value="progress.sent" :max="progress.total" />
       <div class="packages__actions">

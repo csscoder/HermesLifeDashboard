@@ -16,7 +16,7 @@ import {
 } from '@lifedashboard/contracts/widget-package'
 import { ApiError, ok } from './errors.ts'
 import { moveToOrphaned, stagingDir, userwidgetsDir, versionDir, versionHash } from './userwidgets.ts'
-import { insertVersion, newOriginsOf, newPermissionsOf } from './widget-packages.ts'
+import { insertVersion, newOriginsOf, newPermissionsOf, newSecretBindingsOf } from './widget-packages.ts'
 
 const MAX_UPLOADS = 3
 const UPLOAD_IDLE_MS = 30 * 60_000
@@ -90,7 +90,7 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
     const installed = db.prepare('SELECT 1 FROM widget_package_versions WHERE package_id = ? AND version = ?').get(packageId, version) !== undefined
     const result: UploadCreated = {
       uploadId: id,
-      inspection: { manifest: session.manifest, hash: null, installed, newPermissions: newPermissionsOf(db, session.manifest), newOrigins: newOriginsOf(db, session.manifest), sizes: session.sizes },
+      inspection: { manifest: session.manifest, hash: null, installed, newPermissions: newPermissionsOf(db, session.manifest), newOrigins: newOriginsOf(db, session.manifest), newSecretBindings: newSecretBindingsOf(db, session.manifest), sizes: session.sizes },
     }
     return ok(request, result)
   })
@@ -182,7 +182,7 @@ export function registerWidgetUploads(app: FastifyInstance, { db, now, dataDir }
         insertVersion(db, session.manifest, hash, now().toISOString())
       }
       db.exec('COMMIT')
-      return { manifest: session.manifest, hash, installed: true, newPermissions: [], newOrigins: [], sizes: session.sizes }
+      return { manifest: session.manifest, hash, installed: true, newPermissions: [], newOrigins: [], newSecretBindings: [], sizes: session.sizes }
     } catch (error) {
       if (db.isTransaction) db.exec('ROLLBACK')
       if (moved) renameSync(target, session.dir)

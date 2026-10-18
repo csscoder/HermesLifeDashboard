@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SecretBinding } from '@lifedashboard/contracts/widget-settings'
 import { call, errorCode, folderFiles, installPackage, pair, putFile, testApp, uploadPackage, widgetPackage, type TestApp } from './helpers.ts'
 
 // Holds the next `versionHash` open so a test can act while install is in progress.
@@ -76,7 +77,7 @@ describe('POST /widget-uploads', () => {
     const { uploadId, inspection } = response.json().data
     expect(uploadId).toMatch(/^[0-9a-f]{32}$/)
     const { format: _format, ...manifest } = pkg.manifest
-    expect(inspection).toEqual({ manifest, hash: null, installed: false, newPermissions: ['state'], newOrigins: [], sizes: { code: 25, assets: 0, source: 0 } })
+    expect(inspection).toEqual({ manifest, hash: null, installed: false, newPermissions: ['state'], newOrigins: [], newSecretBindings: [], sizes: { code: 25, assets: 0, source: 0 } })
     expect(existsSync(join(staging(), uploadId))).toBe(true)
   })
 
@@ -318,5 +319,74 @@ describe('network origins', () => {
     expect(listed.json().data[0].origins).toEqual([ORIGIN_A])
     expect((await call(t.app, { method: 'DELETE', url: '/api/v1/widget-packages/dev.test.hello', cookie, payload: {} })).statusCode).toBe(200)
     expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_network_origins').get()).toEqual({ n: 0 })
+  })
+})
+
+describe('secret bindings', () => {
+  const binding: SecretBinding = { origin: 'https://a.example', header: 'Authorization', prefix: 'Bearer ' }
+
+  function secretPackage(version: string, bind: SecretBinding = binding, title = 'Ключ', key = 'apiKey') {
+    return widgetPackage((pkg) => {
+      pkg.manifest.version = version
+      pkg.manifest.sdk = 2
+      pkg.manifest.permissions = ['network']
+      pkg.manifest.network = [bind.origin]
+      pkg.manifest.settings = { type: 'object', properties: { [key]: { type: 'secret', title, bind } } }
+    })
+  }
+
+  it('lists a secret on first upload and clears the list after install', async () => {
+    const first = await uploadPackage(t, cookie, secretPackage('1.0.0'))
+    expect(first.inspection.newSecretBindings).toEqual([{ key: 'apiKey', title: 'Ключ', bind: binding }])
+    const installed = await install(first.uploadId)
+    expect(installed.statusCode).toBe(200)
+    expect(installed.json().data.newSecretBindings).toEqual([])
+  })
+
+  it('does not re-list an unchanged binding or a title-only change', async () => {
+    await installPackage(t, cookie, secretPackage('1.0.0'))
+    const same = await uploadPackage(t, cookie, secretPackage('1.1.0'))
+    expect(same.inspection.newSecretBindings).toEqual([])
+    const renamed = await uploadPackage(t, cookie, secretPackage('1.2.0', binding, 'Другой ключ'))
+    expect(renamed.inspection.newSecretBindings).toEqual([])
+  })
+
+  it.each<[string, SecretBinding, string]>([
+    ['origin', { ...binding, origin: 'https://b.example' }, 'apiKey'],
+    ['header', { ...binding, header: 'X-Api-Key' }, 'apiKey'],
+    ['prefix', { ...binding, prefix: 'Token ' }, 'apiKey'],
+    ['query', { origin: binding.origin, query: 'apikey' }, 'apiKey'],
+    ['key', binding, 'otherKey'],
+  ])('re-lists a binding when its %s changes', async (_name, bind, key) => {
+    await installPackage(t, cookie, secretPackage('1.0.0'))
+    const changed = await uploadPackage(t, cookie, secretPackage('1.1.0', bind, 'Ключ', key))
+    expect(changed.inspection.newSecretBindings).toEqual([{ key, title: 'Ключ', bind }])
+  })
+
+  it('compares against every installed version and ignores object key order', async () => {
+    await installPackage(t, cookie, secretPackage('1.0.0'))
+    const stored = JSON.parse(t.db.prepare('SELECT manifest FROM widget_package_versions').get()!.manifest as string)
+    stored.settings.properties.apiKey.bind = { prefix: 'Bearer ', header: 'Authorization', origin: 'https://a.example' }
+    t.db.prepare('UPDATE widget_package_versions SET manifest = ?').run(JSON.stringify(stored))
+    await installPackage(t, cookie, secretPackage('1.1.0', { origin: 'https://b.example', query: 'apikey' }))
+    const older = await uploadPackage(t, cookie, secretPackage('1.2.0'))
+    expect(older.inspection.newSecretBindings).toEqual([])
+  })
+
+  it('treats legacy stored manifests without settings as having no secrets', async () => {
+    await installPackage(t, cookie)
+    const legacy = JSON.parse(t.db.prepare('SELECT manifest FROM widget_package_versions').get()!.manifest as string)
+    legacy.sdk = 0
+    t.db.prepare('UPDATE widget_package_versions SET manifest = ?').run(JSON.stringify(legacy))
+    const first = await uploadPackage(t, cookie, secretPackage('1.1.0'))
+    expect(first.inspection.newSecretBindings).toEqual([{ key: 'apiKey', title: 'Ключ', bind: binding }])
+  })
+
+  it('does not treat another package binding as already installed', async () => {
+    const other = secretPackage('1.0.0')
+    other.manifest.id = 'dev.test.other'
+    await installPackage(t, cookie, other)
+    const first = await uploadPackage(t, cookie, secretPackage('1.0.0'))
+    expect(first.inspection.newSecretBindings).toEqual([{ key: 'apiKey', title: 'Ключ', bind: binding }])
   })
 })
