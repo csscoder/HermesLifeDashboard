@@ -156,6 +156,20 @@ export function isValidSettingValue(setting: PlainSetting, value: unknown): bool
   }
 }
 
+export function normalizeConfig(
+  schema: SettingsSchema | undefined,
+  raw: Record<string, unknown>,
+  secretsSet: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (schema === undefined) return {}
+  return Object.fromEntries(Object.entries(schema.properties).map(([key, setting]) => [
+    key,
+    setting.type === 'secret'
+      ? secretsSet.has(key)
+      : isValidSettingValue(setting, raw[key]) ? raw[key] : setting.default,
+  ]))
+}
+
 export function isSecretOriginAllowed(origin: string): boolean {
   let url: URL
   try {

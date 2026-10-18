@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSecretOriginAllowed, isValidSettingValue, parseSettingsSchema, type PlainSetting } from '../src/widget-settings.ts'
+import { isSecretOriginAllowed, isValidSettingValue, normalizeConfig, parseSettingsSchema, type PlainSetting, type SettingsSchema } from '../src/widget-settings.ts'
 
 const city = { type: 'string', title: 'Город', default: 'Москва' }
 const origin = 'https://a.example'
@@ -244,6 +244,52 @@ describe('isValidSettingValue', () => {
     [{ type: 'boolean', title: 'B', default: false }, null, false],
   ])('validates %j against %j as %s', (setting, value, valid) => {
     expect(isValidSettingValue(setting, value)).toBe(valid)
+  })
+})
+
+describe('normalizeConfig', () => {
+  const settings: SettingsSchema = { type: 'object', properties: {
+    city: { type: 'string', title: 'Город', default: 'Москва', maxLength: 40 },
+    days: { type: 'integer', title: 'Дни', default: 3, minimum: 1, maximum: 7 },
+    key: { type: 'secret', title: 'Ключ', bind: { origin: 'https://a.example', header: 'Authorization' } },
+  } }
+
+  it('keeps valid values, defaults invalid values and removes unknown keys and raw secrets', () => {
+    expect(normalizeConfig(settings, { city: 'Казань', days: 9, legacy: true, key: 'leak' }, new Set())).toEqual({ city: 'Казань', days: 3, key: false })
+  })
+
+  it('uses defaults for missing values and exposes secret presence as a boolean', () => {
+    expect(normalizeConfig(settings, {}, new Set(['key']))).toEqual({ city: 'Москва', days: 3, key: true })
+  })
+
+  it('returns an empty config without a schema', () => {
+    expect(normalizeConfig(undefined, { a: 1 }, new Set())).toEqual({})
+  })
+
+  it('returns exactly the schema keys in schema order', () => {
+    expect(Object.keys(normalizeConfig(settings, { key: true, legacy: true, days: 7, city: '' }, new Set(['legacy'])))).toEqual(['city', 'days', 'key'])
+  })
+
+  it('preserves valid falsy and numeric values', () => {
+    const settings: SettingsSchema = { type: 'object', properties: {
+      text: { type: 'string', title: 'Text', default: 'fallback' },
+      enabled: { type: 'boolean', title: 'Enabled', default: true },
+      count: { type: 'integer', title: 'Count', default: 3 },
+      scale: { type: 'number', title: 'Scale', default: 1 },
+    } }
+    expect(normalizeConfig(settings, { text: '', enabled: false, count: 0, scale: 1.5 }, new Set())).toEqual({ text: '', enabled: false, count: 0, scale: 1.5 })
+  })
+
+  it.each<[PlainSetting, unknown]>([
+    [{ type: 'string', title: 'Text', default: 'ok', maxLength: 2 }, 'long'],
+    [{ type: 'string', title: 'Text', default: 'ok', enum: ['ok'] }, 'other'],
+    [{ type: 'string', title: 'Text', default: 'ok' }, 'x'.repeat(1001)],
+    [{ type: 'integer', title: 'Count', default: 3 }, 1.5],
+    [{ type: 'number', title: 'Count', default: 3, minimum: 1 }, 0],
+    [{ type: 'number', title: 'Count', default: 3 }, NaN],
+    [{ type: 'boolean', title: 'Enabled', default: true }, 'false'],
+  ])('defaults an invalid value for %j', (setting, value) => {
+    expect(normalizeConfig({ type: 'object', properties: { value: setting } }, { value }, new Set())).toEqual({ value: setting.default })
   })
 })
 
