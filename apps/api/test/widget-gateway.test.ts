@@ -1,4 +1,5 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import type { AddressInfo } from 'node:net'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
@@ -433,7 +434,10 @@ describe('http', () => {
         handle(request, response)
       })
     })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
 
@@ -526,5 +530,259 @@ describe('http', () => {
   it('denies http to a built-in widget', async () => {
     const token = await openSession(BUILTIN_WIDGET)
     expect(errorCode(await gateway('http.get', token, { url: `${origin}/` }))).toBe('PERMISSION_DENIED')
+  })
+})
+
+describe('secrets', () => {
+  const VALUE = '0123456789abcdef'
+  const QUERY_VALUE = 'fedcba9876543210'
+  const OTHER_VALUE = `${VALUE}-other-origin`
+  let origin = 'http://127.0.0.1:12345'
+  let otherOrigin = 'https://other.example.com'
+
+  beforeEach(async () => {
+    await installSecrets()
+    t.db.prepare("UPDATE widget_grants SET mode = 'allow' WHERE permission = 'network'").run()
+    t.db.prepare("UPDATE widgets SET source_version = '1.1.0' WHERE id = ?").run(PKG_WIDGET)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  async function installSecrets(properties: SettingsSchema['properties'] = {
+    apiKey: { type: 'secret', title: 'Ключ', bind: { origin, header: 'Authorization', prefix: 'Bearer ' } },
+    queryKey: { type: 'secret', title: 'Query key', bind: { origin, query: 'apikey' } },
+    otherKey: { type: 'secret', title: 'Other key', bind: { origin: otherOrigin, header: 'X-Other-Key' } },
+  }) {
+    await installPackage(t, cookie, widgetPackage((pkg) => {
+      pkg.manifest.version = '1.1.0'
+      pkg.manifest.sdk = 2
+      pkg.manifest.permissions = ['state', 'network']
+      pkg.manifest.network = [origin, otherOrigin]
+      pkg.manifest.settings = { type: 'object', properties }
+    }))
+  }
+
+  async function put(key: string, value: string) {
+    const response = await call(t.app, {
+      method: 'PUT', url: `/api/v1/widgets/${PKG_WIDGET}/secrets/${key}`, cookie, payload: { value },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toContain(value)
+  }
+
+  function request(op: 'http.get' | 'http.send', token: string, url = `${origin}/echo`) {
+    return gateway(op, token, op === 'http.get'
+      ? { url, headers: { accept: 'application/json' } }
+      : { url, method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'payload' })
+  }
+
+  describe('validation before upstream requests', () => {
+    beforeEach(() => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected upstream request'))
+    })
+
+    it.each(['http.get', 'http.send'] as const)('rejects %s with the setting title when its secret is missing', async (op) => {
+      const response = await request(op, await openSession(PKG_WIDGET))
+      expect([response.statusCode, errorCode(response), response.json().error.message])
+        .toEqual([502, 'UPSTREAM_ERROR', 'Secret «Ключ» is not set'])
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it.each(['http.get', 'http.send'] as const)('rejects a query collision for %s without sending a request', async (op) => {
+      await put('apiKey', VALUE)
+      await put('queryKey', QUERY_VALUE)
+      const response = await request(op, await openSession(PKG_WIDGET), `${origin}/echo?apikey=x`)
+      expect([response.statusCode, errorCode(response), response.json().error.message])
+        .toEqual([400, 'INVALID_INPUT', 'The URL already contains the secret parameter "apikey"'])
+      expect(fetch).not.toHaveBeenCalled()
+      expect(JSON.stringify(auditRows())).not.toContain(VALUE)
+      expect(JSON.stringify(auditRows())).not.toContain(QUERY_VALUE)
+    })
+
+    it('checks every missing value before attempting an earlier query injection', async () => {
+      // Preserve manifest order: the query binding precedes the missing header binding.
+      const row = t.db.prepare('SELECT manifest FROM widget_package_versions WHERE package_id = ? AND version = ?')
+        .get('dev.test.hello', '1.1.0') as { manifest: string }
+      const manifest = JSON.parse(row.manifest)
+      manifest.settings.properties = {
+        queryKey: manifest.settings.properties.queryKey,
+        apiKey: manifest.settings.properties.apiKey,
+      }
+      t.db.prepare('UPDATE widget_package_versions SET manifest = ? WHERE package_id = ? AND version = ?')
+        .run(JSON.stringify(manifest), 'dev.test.hello', '1.1.0')
+      await put('queryKey', QUERY_VALUE)
+      const response = await request('http.get', await openSession(PKG_WIDGET), `${origin}/echo?apikey=x`)
+      expect([response.statusCode, errorCode(response), response.json().error.message])
+        .toEqual([502, 'UPSTREAM_ERROR', 'Secret «Ключ» is not set'])
+      expect(fetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('responses without a listener', () => {
+    it.each(['http.get', 'http.send'] as const)('injects and redacts %s with current values and preserves upstream status', async (op) => {
+      const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+        `${OTHER_VALUE}|${VALUE}|${QUERY_VALUE}|${OTHER_VALUE}|${VALUE}`,
+        { status: 409, headers: { 'content-type': `text/plain; token=${OTHER_VALUE}; key=${VALUE}` } },
+      ))
+      const token = await openSession(PKG_WIDGET)
+      await put('apiKey', VALUE)
+      await put('queryKey', QUERY_VALUE)
+      await put('otherKey', OTHER_VALUE)
+      const response = await request(op, token, `${origin.replace('http:', 'HTTP:')}/echo`)
+      expect(response.statusCode).toBe(200)
+      expect(response.json().data).toEqual({
+        status: 409,
+        contentType: 'text/plain; token=[REDACTED]; key=[REDACTED]',
+        body: '[REDACTED]|[REDACTED]|[REDACTED]|[REDACTED]|[REDACTED]',
+      })
+      expect(upstream).toHaveBeenCalledOnce()
+      const [url, init] = upstream.mock.calls[0]!
+      expect(new URL(String(url)).searchParams.get('apikey')).toBe(QUERY_VALUE)
+      expect(init).toMatchObject({
+        method: op === 'http.get' ? 'GET' : 'POST',
+        headers: { authorization: `Bearer ${VALUE}`, ...(op === 'http.get' ? { accept: 'application/json' } : { 'content-type': 'text/plain' }) },
+        ...(op === 'http.send' ? { body: 'payload' } : {}),
+      })
+      expect(init!.headers).not.toHaveProperty('x-other-key')
+      expect(JSON.stringify(auditRows())).not.toContain(VALUE)
+      expect(JSON.stringify(auditRows())).not.toContain(QUERY_VALUE)
+      expect(JSON.stringify(auditRows())).not.toContain(OTHER_VALUE)
+    })
+
+    it('ignores missing bindings on another origin and preserves a null contentType', async () => {
+      const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+      await put('otherKey', OTHER_VALUE)
+      const response = await request('http.get', await openSession(PKG_WIDGET), `${otherOrigin}/echo`)
+      expect(response.statusCode).toBe(200)
+      expect(response.json().data).toEqual({ status: 204, contentType: null, body: '' })
+      expect(upstream).toHaveBeenCalledWith(`${otherOrigin}/echo`, expect.objectContaining({
+        headers: { accept: 'application/json', 'x-other-key': OTHER_VALUE },
+      }))
+    })
+  })
+
+  describe('echo server', () => {
+    const servers: Server[] = []
+    const seen: { url: string; headers: IncomingMessage['headers']; method: string; body: string }[] = []
+    let handle: (request: IncomingMessage, response: ServerResponse) => void
+
+    beforeAll(async () => {
+      async function listen(): Promise<string> {
+        const server = createServer((request, response) => {
+          let body = ''
+          request.on('data', (chunk: Buffer) => (body += chunk.toString('utf8')))
+          request.on('end', () => {
+            seen.push({ url: request.url!, headers: request.headers, method: request.method!, body })
+            handle(request, response)
+          })
+        })
+        servers.push(server)
+        await new Promise<void>((resolve, reject) => {
+          server.once('error', reject)
+          server.listen(0, '127.0.0.1', resolve)
+        })
+        return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+      }
+      origin = await listen()
+      otherOrigin = await listen()
+    })
+
+    afterAll(async () => {
+      for (const server of servers) {
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      }
+    })
+
+    beforeEach(() => {
+      seen.length = 0
+      handle = (request, response) => response.writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ headers: request.headers, url: request.url }))
+    })
+
+    it.each(['http.get', 'http.send'] as const)('injects header and query secrets for %s and redacts every echoed occurrence', async (op) => {
+      const token = await openSession(PKG_WIDGET)
+      // Setting values after opening a session must take effect on its first call.
+      await put('apiKey', VALUE)
+      await put('queryKey', QUERY_VALUE)
+      const response = await request(op, token)
+      expect(response.statusCode).toBe(200)
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.headers.authorization).toBe(`Bearer ${VALUE}`)
+      expect(new URL(seen[0]!.url, origin).searchParams.get('apikey')).toBe(QUERY_VALUE)
+      if (op === 'http.get') expect(seen[0]!.headers.accept).toBe('application/json')
+      if (op === 'http.send') expect(seen[0]).toMatchObject({ method: 'POST', body: 'payload', headers: { 'content-type': 'text/plain' } })
+      expect(response.json().data).toEqual({
+        status: 200,
+        contentType: 'application/json',
+        body: expect.stringContaining('Bearer [REDACTED]'),
+      })
+      expect(JSON.parse(response.json().data.body).url).toBe('/echo?apikey=[REDACTED]')
+      expect(response.body).not.toContain(VALUE)
+      expect(response.body).not.toContain(QUERY_VALUE)
+      expect(JSON.stringify(auditRows())).not.toContain(VALUE)
+      expect(JSON.stringify(auditRows())).not.toContain(QUERY_VALUE)
+    })
+
+    it('sends no request when a bound secret is missing', async () => {
+      const response = await request('http.get', await openSession(PKG_WIDGET))
+      expect([response.statusCode, errorCode(response), response.json().error.message])
+        .toEqual([502, 'UPSTREAM_ERROR', 'Secret «Ключ» is not set'])
+      expect(seen).toHaveLength(0)
+    })
+
+    it('sends no bound secret to another approved origin', async () => {
+      // The second origin has no binding; missing secrets on the first must not block it.
+      const row = t.db.prepare('SELECT manifest FROM widget_package_versions WHERE package_id = ? AND version = ?')
+        .get('dev.test.hello', '1.1.0') as { manifest: string }
+      const manifest = JSON.parse(row.manifest)
+      delete manifest.settings.properties.otherKey
+      t.db.prepare('UPDATE widget_package_versions SET manifest = ? WHERE package_id = ? AND version = ?')
+        .run(JSON.stringify(manifest), 'dev.test.hello', '1.1.0')
+      await put('apiKey', VALUE)
+      const response = await request('http.get', await openSession(PKG_WIDGET), `${otherOrigin}/echo`)
+      expect(response.statusCode).toBe(200)
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.headers.authorization).toBeUndefined()
+      expect(seen[0]!.headers['x-other-key']).toBeUndefined()
+      expect(seen[0]!.url).toBe('/echo')
+    })
+
+    it('redacts all instance values longest first in the body and contentType, preserving status', async () => {
+      await put('apiKey', VALUE)
+      await put('queryKey', QUERY_VALUE)
+      await put('otherKey', OTHER_VALUE)
+      handle = (_request, response) => response.writeHead(409, { 'content-type': `text/plain; token=${OTHER_VALUE}; key=${VALUE}` })
+        .end(`${OTHER_VALUE}|${VALUE}|${QUERY_VALUE}|${OTHER_VALUE}|${VALUE}`)
+      const response = await request('http.get', await openSession(PKG_WIDGET))
+      expect(response.statusCode).toBe(200)
+      expect(response.json().data).toEqual({
+        status: 409,
+        contentType: 'text/plain; token=[REDACTED]; key=[REDACTED]',
+        body: '[REDACTED]|[REDACTED]|[REDACTED]|[REDACTED]|[REDACTED]',
+      })
+    })
+
+    it('keeps a null contentType and reads replacements and deletion on the same session', async () => {
+      const token = await openSession(PKG_WIDGET)
+      await put('apiKey', VALUE)
+      await put('queryKey', QUERY_VALUE)
+      handle = (_request, response) => response.writeHead(204).end()
+      expect((await request('http.get', token)).json().data).toEqual({ status: 204, contentType: null, body: '' })
+      await put('apiKey', OTHER_VALUE)
+      expect((await request('http.get', token)).statusCode).toBe(200)
+      expect(seen[1]!.headers.authorization).toBe(`Bearer ${OTHER_VALUE}`)
+      expect((await call(t.app, { method: 'DELETE', url: `/api/v1/widgets/${PKG_WIDGET}/secrets/apiKey`, cookie, payload: {} })).statusCode).toBe(200)
+      const missing = await request('http.get', token)
+      expect([missing.statusCode, errorCode(missing)]).toEqual([502, 'UPSTREAM_ERROR'])
+      expect(seen).toHaveLength(2)
+    })
+
+    it.each(['http.get', 'http.send'] as const)('still rejects widget-supplied authorization headers for %s', async (op) => {
+      const token = await openSession(PKG_WIDGET)
+      const response = await gateway(op, token, { url: `${origin}/echo`, headers: { authorization: 'Bearer forged' }, ...(op === 'http.send' ? { method: 'POST' } : {}) })
+      expect([response.statusCode, errorCode(response)]).toEqual([400, 'INVALID_INPUT'])
+      expect(seen).toHaveLength(0)
+    })
   })
 })

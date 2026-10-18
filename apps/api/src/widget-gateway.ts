@@ -16,9 +16,11 @@ import {
 } from '@lifedashboard/contracts/widget-gateway'
 import { canonicalJson, type GrantMode, type WidgetPackageManifest, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
+import { injectSecret, redactSecrets, secretsOf, type BoundSecret } from '@lifedashboard/contracts/widget-secrets'
 import { ApiError, ok } from './errors.ts'
-import { proxyHttp } from './http-proxy.ts'
+import { proxyHttp, type ProxyRequest } from './http-proxy.ts'
 import { grantsOf, originsOf } from './widget-packages.ts'
+import { secretValues } from './widget-secrets.ts'
 
 export { RATE_LIMITS } from '@lifedashboard/contracts/widget-gateway'
 
@@ -29,13 +31,14 @@ const SESSION_IDLE_MS = HOUR
 const MAX_SESSIONS = 200
 const AUDIT_TTL_MS = 30 * DAY
 
-/** What an operation handler may use; sub-project 2 adds a secret resolver here without changing the pipeline. */
+/** What an operation handler may use; secret values are resolved only when making an HTTP call. */
 export interface GatewayContext {
   widgetId: string
   packageId: string | null
   grants: ReadonlySet<WidgetPermission>
   // Manifest origins of the instance's version that the user approved for the package.
   origins: ReadonlySet<string>
+  secrets: Array<BoundSecret & { title: string }>
 }
 
 interface PendingConfirmation {
@@ -149,7 +152,7 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   app.post<{ Body: { widgetId?: unknown } | undefined }>('/api/v1/widget-sessions', async (request) => {
     const widgetId = request.body?.widgetId
     if (typeof widgetId !== 'string') throw new ApiError('VALIDATION_ERROR', 'widgetId must be a string')
-    const { packageId, grants, origins } = resolveWidget(db, widgetId)
+    const { packageId, grants, origins, settings } = resolveWidget(db, widgetId)
     const token = randomBytes(32).toString('base64url')
     sessions.set(token, {
       dashboard: request.sessionHash,
@@ -157,6 +160,7 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
       packageId,
       grants: new Set(grants),
       origins: new Set(origins),
+      secrets: secretsOf(settings),
       lastUsedAt: now().getTime(),
       confirmation: null,
     })
@@ -194,7 +198,7 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
       const handler = handlers[op] as (context: GatewayContext, input: unknown) => unknown
       // Awaited inside try: an HTTP handler is asynchronous, and catch and audit must see its end.
       const output = await handler(
-        { widgetId: session.widgetId, packageId: session.packageId, grants: session.grants, origins: session.origins },
+        { widgetId: session.widgetId, packageId: session.packageId, grants: session.grants, origins: session.origins, secrets: session.secrets },
         input.value,
       )
       if (target !== '') outcome = String((output as HttpOutput).status)
@@ -251,6 +255,33 @@ export function resolveWidget(db: DatabaseSync, widgetId: string): {
 
 function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
   const read = db.prepare('SELECT data, revision FROM widget_state WHERE widget_id = ?')
+
+  async function http(context: GatewayContext, input: ProxyRequest): Promise<HttpOutput> {
+    const values = secretValues(db, context.widgetId)
+    const origin = new URL(input.url).origin
+    const bindings = context.secrets.filter(({ bind }) => bind.origin === origin)
+    // Check all values before injection, so a later missing setting wins over a query collision.
+    for (const { key, title } of bindings) {
+      if (!values.has(key)) throw new ApiError('UPSTREAM_ERROR', `Secret «${title}» is not set`)
+    }
+    let request = { url: input.url, headers: { ...input.headers } }
+    for (const { key, bind } of bindings) {
+      const injected = injectSecret(request, bind, values.get(key)!)
+      if ('error' in injected) {
+        const name = 'query' in bind ? bind.query : ''
+        throw new ApiError('INVALID_INPUT', `The URL already contains the secret parameter "${name}"`)
+      }
+      request = injected
+    }
+    const output = await proxyHttp({ ...input, ...request }, context.origins)
+    const redactions = [...values.values()].sort((a, b) => b.length - a.length)
+    return {
+      ...output,
+      body: redactSecrets(output.body, redactions),
+      contentType: output.contentType === null ? null : redactSecrets(output.contentType, redactions),
+    }
+  }
+
   return {
     'state.get': ({ widgetId }) => {
       const row = read.get(widgetId) as { data: string; revision: number } | undefined
@@ -268,8 +299,8 @@ function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
     },
     // The host displays the notification after this answer (toast now, Tauri plugin at E7).
     'notifications.send': () => ({ ok: true }),
-    'http.get': ({ origins }, { url, headers }) => proxyHttp({ url, method: 'GET', headers: { ...headers } as Record<string, string> }, origins),
-    'http.send': ({ origins }, { url, method, headers, body }) =>
-      proxyHttp({ url, method, headers: { ...headers } as Record<string, string>, body }, origins),
+    'http.get': (context, { url, headers }) => http(context, { url, method: 'GET', headers: { ...headers } as Record<string, string> }),
+    'http.send': (context, { url, method, headers, body }) =>
+      http(context, { url, method, headers: { ...headers } as Record<string, string>, body }),
   }
 }
