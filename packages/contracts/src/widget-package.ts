@@ -1,5 +1,6 @@
 import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
 import { fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
+import { SDK_LEVELS, type SdkLevel } from './widget-gateway.ts'
 
 export const WIDGET_PERMISSIONS = ['state', 'notifications', 'network'] as const
 export type WidgetPermission = (typeof WIDGET_PERMISSIONS)[number]
@@ -99,7 +100,7 @@ export interface WidgetPackageManifest {
   version: string
   title: string
   author: string
-  sdk: 1
+  sdk: SdkLevel
   entry: string
   styles: string[]
   sizing: WidgetSizing
@@ -216,7 +217,14 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
   if (!isPackageVersion(raw.version)) return fail('manifest.version must be MAJOR.MINOR.PATCH')
   if (!isPlainText(raw.title)) return fail('manifest.title must be 1–60 characters of plain text')
   if (!isPlainText(raw.author)) return fail('manifest.author must be 1–60 characters of plain text')
-  if (raw.sdk !== 1) return fail('manifest.sdk must be 1')
+  const sdk = raw.sdk
+  if (typeof sdk !== 'number' || !Number.isInteger(sdk)) return fail('manifest.sdk must be an integer level')
+  if (!(SDK_LEVELS as readonly number[]).includes(sdk)) {
+    if (sdk > SDK_LEVELS.at(-1)!) {
+      return fail(`manifest.sdk ${sdk} needs a newer LifeDashboard (this one supports ${SDK_LEVELS[0]}–${SDK_LEVELS.at(-1)})`)
+    }
+    return fail('manifest.sdk must be an integer level')
+  }
   if (typeof raw.entry !== 'string') return fail('manifest.entry must name a .js file in files')
   if (!Array.isArray(raw.styles) || !raw.styles.every((item) => typeof item === 'string')) {
     return fail('manifest.styles must name .css files in files')
@@ -247,7 +255,7 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
       version: raw.version,
       title: raw.title,
       author: raw.author,
-      sdk: 1,
+      sdk: sdk as SdkLevel,
       entry: raw.entry,
       styles: [...(raw.styles as string[])],
       sizing,

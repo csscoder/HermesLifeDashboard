@@ -246,6 +246,9 @@ export type WidgetErrorCode =
   | 'DECLINED'
 
 export const SDK_VERSION = 1
+export const SDK_LEVELS = [1, 2] as const
+export type SdkLevel = (typeof SDK_LEVELS)[number]
+export const SDK_TARGET_LEVEL: SdkLevel = 2
 
 export interface HelloMessage {
   t: 'ld:hello'

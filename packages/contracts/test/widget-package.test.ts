@@ -46,6 +46,31 @@ describe('manifest field rules', () => {
     expect(parseWidgetManifest(mutatedManifest((m) => { m.sizing.max = { w: 24, h: 100 } })).ok).toBe(true)
   })
 
+  it('accepts sdk 1 and 2', () => {
+    for (const sdk of [2, 1]) {
+      const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = sdk }))
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.value.sdk).toBe(sdk)
+    }
+  })
+
+  it('rejects a newer sdk level with an update hint', () => {
+    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 3 }))
+    expect(result).toEqual({ ok: false, error: 'manifest.sdk 3 needs a newer LifeDashboard (this one supports 1–2)' })
+  })
+
+  it('rejects a non-integer sdk', () => {
+    expect(parseWidgetManifest(mutatedManifest((m) => { m.sdk = '2' }))).toMatchObject({
+      ok: false, error: 'manifest.sdk must be an integer level',
+    })
+  })
+
+  it.each([0, -1, 1.5, 2.5, null, undefined, true, NaN, Infinity, -Infinity])('rejects unsupported sdk %s', (sdk) => {
+    expect(parseWidgetManifest(mutatedManifest((m) => { m.sdk = sdk }))).toEqual({
+      ok: false, error: 'manifest.sdk must be an integer level',
+    })
+  })
+
   it.each([
     ['null', null, /manifest must be an object/],
     ['an unknown manifest field', mutatedManifest((m) => { m.configSchema = {} }), /manifest: unknown field "configSchema"/],
@@ -57,7 +82,6 @@ describe('manifest field rules', () => {
     ['a 61-character title', mutatedManifest((m) => { m.title = 'x'.repeat(61) }), /manifest\.title/],
     ['a title with a control character', mutatedManifest((m) => { m.title = 'a\nb' }), /manifest\.title/],
     ['an empty author', mutatedManifest((m) => { m.author = '' }), /manifest\.author/],
-    ['sdk 2', mutatedManifest((m) => { m.sdk = 2 }), /manifest\.sdk must be 1/],
     ['min above default', mutatedManifest((m) => { m.sizing.min.w = 4 }), /manifest\.sizing/],
     ['max wider than the grid', mutatedManifest((m) => { m.sizing.max.w = 25 }), /manifest\.sizing.*inside the 24x100 grid/],
     ['max taller than the grid', mutatedManifest((m) => { m.sizing.max.h = 101 }), /manifest\.sizing.*inside the 24x100 grid/],
