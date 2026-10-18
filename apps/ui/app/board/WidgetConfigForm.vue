@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, ref, shallowRef, useId, watch } from 'vue'
 import { normalizeConfig, SETTINGS_LIMITS, type PlainSetting, type SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import { SECRET_MIN_LENGTH } from '@lifedashboard/contracts/widget-secrets'
 import { api } from '../api'
@@ -14,7 +14,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ change: [config: Record<string, unknown>] }>()
 const uid = useId()
-const draft = ref(props.config)
+const draft = shallowRef(props.config)
 watch([() => props.config, () => props.schema, () => props.widgetId], () => {
   draft.value = props.config
 }, { flush: 'sync' })

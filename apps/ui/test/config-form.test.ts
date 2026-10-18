@@ -257,4 +257,22 @@ describe('WidgetConfigForm', () => {
     form.edit('count', '4')
     expect(form.change).toHaveBeenLastCalledWith({ title: 'Other', count: 4 })
   })
+
+  it('emits plain config objects across consecutive edits and props updates', async () => {
+    const original = { title: 'Hello', count: 1 }
+    const form = mountForm({ type: 'object', properties: { title: text, count: integer } }, original)
+    form.edit('title', 'Hi')
+    form.edit('count', '3')
+    form.props.config = { title: 'Other', count: 2 }
+    await Vue.nextTick()
+    form.edit('count', '4')
+
+    const expected = [{ title: 'Hi', count: 1 }, { title: 'Hi', count: 3 }, { title: 'Other', count: 4 }]
+    expect(form.change.mock.calls.map(([config]) => config)).toEqual(expected)
+    for (const [config] of form.change.mock.calls) {
+      expect(Vue.isProxy(config)).toBe(false)
+      expect(structuredClone(config)).toEqual(config)
+    }
+    expect(original).toEqual({ title: 'Hello', count: 1 })
+  })
 })

@@ -73,6 +73,11 @@ describe('injectSecret', () => {
       .toEqual({ url: `https://a.example/v1?apikey=${value}`, headers: {} })
   })
 
+  it.each(['', '#f'])('reuses an empty query delimiter before fragment %j', (fragment) => {
+    expect(injectSecret({ url: `https://a.example/v1?${fragment}`, headers: {} }, { origin, query: 'apikey' }, value))
+      .toEqual({ url: `https://a.example/v1?apikey=${value}${fragment}`, headers: {} })
+  })
+
   it.each(['apikey=x', 'apikey=', 'apikey', 'api%6bey=x', 'q=1&apikey=x&apikey=y'])('rejects a query collision in %s', (query) => {
     const request = { url: `https://a.example/v1?${query}`, headers: { accept: 'application/json' } }
     expect(injectSecret(request, { origin, query: 'apikey' }, value)).toEqual({ error: 'QUERY_COLLISION' })

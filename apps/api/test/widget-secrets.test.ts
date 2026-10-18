@@ -152,6 +152,16 @@ describe('per-instance widget secrets', () => {
       .toEqual({ value })
   })
 
+  it.each(['\ud800', '\udc00'])('rejects an unpaired surrogate %j without replacing a query secret', async (surrogate) => {
+    expect((await secrets('PUT', WIDGET, 'queryKey', { value: VALUE })).statusCode).toBe(200)
+    const response = await secrets('PUT', WIDGET, 'queryKey', { value: VALUE + surrogate })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toMatchObject({ code: 'VALIDATION_ERROR', message: MESSAGE })
+    expect(response.body).not.toContain(VALUE)
+    expect(t.db.prepare('SELECT value FROM widget_secrets WHERE widget_id = ? AND key = ?').get(WIDGET, 'queryKey'))
+      .toEqual({ value: VALUE })
+  })
+
   it('rejects every ASCII control character including DEL', async () => {
     for (const code of [...Array.from({ length: 32 }, (_, i) => i), 127]) {
       const value = VALUE + String.fromCharCode(code)

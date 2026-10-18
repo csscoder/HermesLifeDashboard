@@ -58,10 +58,11 @@ describe('secret flags', () => {
     expect(api.widgetSecrets).toHaveBeenCalledExactlyOnceWith('changing')
   })
 
-  it.each(['failure', 'rejection'] as const)('evicts a %s so the next use retries', async (kind) => {
+  it.each(['failure', 'not-found', 'rejection'] as const)('retries a %s into the ref held by the first caller', async (kind) => {
     const id = `retry-${kind}`
     const mock = vi.mocked(api.widgetSecrets)
     if (kind === 'failure') mock.mockResolvedValueOnce({ ok: false, kind: 'unavailable' })
+    else if (kind === 'not-found') mock.mockResolvedValueOnce({ ok: false, kind: 'invalid', code: 'NOT_FOUND', message: 'Widget not found' })
     else mock.mockRejectedValueOnce(new Error('offline'))
     const flags = setup(() => id)
     await nextTick()
@@ -71,7 +72,45 @@ describe('secret flags', () => {
     const retried = setup(() => id)
     await vi.waitFor(() => expect(retried.value).toEqual(new Set(['apiKey'])))
     expect(mock).toHaveBeenCalledTimes(2)
+    expect(flags.value).toBe(retried.value)
+  })
+
+  it.each(['failure', 'not-found', 'rejection'] as const)('refreshes the ref held by the first caller after a %s', async (kind) => {
+    const id = `failed-then-refreshed-${kind}`
+    const mock = vi.mocked(api.widgetSecrets)
+    if (kind === 'failure') mock.mockResolvedValueOnce({ ok: false, kind: 'unavailable' })
+    else if (kind === 'not-found') mock.mockResolvedValueOnce({ ok: false, kind: 'invalid', code: 'NOT_FOUND', message: 'Widget not found' })
+    else mock.mockRejectedValueOnce(new Error('offline'))
+    const flags = setup(() => id)
+    await nextTick()
+    await nextTick()
     expect(flags.value).toEqual(new Set())
+
+    refreshSecretFlags(id, { apiKey: true, unused: false })
+    expect(flags.value).toEqual(new Set(['apiKey']))
+    expect(setup(() => id).value).toBe(flags.value)
+    expect(mock).toHaveBeenCalledExactlyOnceWith(id)
+  })
+
+  it('shares an in-flight retry and keeps a newer refresh after the retry resolves', async () => {
+    const mock = vi.mocked(api.widgetSecrets)
+    mock.mockResolvedValueOnce({ ok: false, kind: 'unavailable' })
+    const id = 'retry-in-flight'
+    const flags = setup(() => id)
+    await nextTick()
+    await nextTick()
+
+    let resolve!: (result: ApiResult<Record<string, boolean>>) => void
+    mock.mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    const retried = setup(() => id)
+    const third = setup(() => id)
+    expect(mock).toHaveBeenCalledTimes(2)
+    refreshSecretFlags(id, { newerKey: true })
+    resolve({ ok: true, data: { staleKey: true } })
+    await nextTick()
+    expect(flags.value).toEqual(new Set(['newerKey']))
+    expect(retried.value).toBe(flags.value)
+    expect(third.value).toBe(flags.value)
   })
 
   it.each(['failure', 'rejection'] as const)('keeps a newer refresh cached after an initial GET %s', async (kind) => {

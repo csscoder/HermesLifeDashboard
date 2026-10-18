@@ -34,7 +34,7 @@ export function registerWidgetSecrets(app: FastifyInstance, { db, now }: { db: D
       const { widgetId, key } = request.params
       const secrets = secretsFor(widgetId, key)
       const value = request.body?.value
-      if (typeof value !== 'string' || value.length < SECRET_MIN_LENGTH || value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
+      if (typeof value !== 'string' || !value.isWellFormed() || value.length < SECRET_MIN_LENGTH || value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
         throw new ApiError('VALIDATION_ERROR', 'The secret must be at least 16 characters without control characters or surrounding spaces')
       }
       if (secrets.some((secret) => secret.key === key && 'header' in secret.bind) && /[^\u0000-\u00ff]/.test(value)) {

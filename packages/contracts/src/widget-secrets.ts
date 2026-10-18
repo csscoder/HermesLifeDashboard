@@ -28,7 +28,8 @@ export function injectSecret(
   const fragmentIndex = request.url.indexOf('#')
   const beforeFragment = fragmentIndex < 0 ? request.url : request.url.slice(0, fragmentIndex)
   const fragment = fragmentIndex < 0 ? '' : request.url.slice(fragmentIndex)
-  return { url: `${beforeFragment}${url.search ? '&' : '?'}${bind.query}=${encodeURIComponent(value)}${fragment}`, headers: request.headers }
+  const separator = url.search ? '&' : beforeFragment.endsWith('?') ? '' : '?'
+  return { url: `${beforeFragment}${separator}${bind.query}=${encodeURIComponent(value)}${fragment}`, headers: request.headers }
 }
 
 export function redactSecrets(text: string, values: readonly string[]): string {
