@@ -152,6 +152,7 @@ it('packs a standalone CLI and scaffolds with a packed SDK without installing', 
   expect(packedFiles).toContain('dist/cli.js')
   expect(packedFiles).toContain('template/gitignore')
   expect(await readFile(join(packed, 'dist/cli.js'), 'utf8')).toMatch(/^#!\/usr\/bin\/env node\n/)
+  // This pack relies on the workspace dependency ordering SDK tests before create-widget tests.
   run('pnpm', ['-C', join(repoDir, 'packages/widget-sdk'), 'pack', '--pack-destination', work], repoDir)
   const sdkTarball = join(work, 'lifedashboard-widget-sdk-0.1.0.tgz')
   const result = run(process.execPath, [join(packed, 'dist/cli.js'), 'demo', '--sdk', sdkTarball], work)

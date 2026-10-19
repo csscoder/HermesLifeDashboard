@@ -150,6 +150,9 @@ importers:
       '@lifedashboard/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@lifedashboard/widget-sdk':
+        specifier: workspace:*
+        version: link:../widget-sdk
       '@types/node':
         specifier: 24.19.1
         version: 24.19.1
