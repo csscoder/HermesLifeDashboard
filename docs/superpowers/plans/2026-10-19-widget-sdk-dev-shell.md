@@ -159,7 +159,7 @@ git commit -m "refactor: share the sandbox document builder through contracts"
 
 - [ ] **Step 2: Run the tests and see them fail**
 
-Run: `pnpm -C packages/contracts exec vitest run test/widget-gateway.test.ts test/widget-secrets.test.ts`
+Run: `pnpm -C packages/contracts exec vitest run test/widget-gateway.test.ts test/widget-secrets.test.ts test/widget-http.test.ts`
 Expected: FAIL. The new exports do not exist.
 
 - [ ] **Step 3: Implement the moves and rewire the API route, the secret PUT and the UI broker.**
@@ -273,7 +273,8 @@ git commit -m "build(widget-sdk): ship theme tokens, the dev Vue runtime and the
   - `type DevCallResult = { ok: true; value: unknown } | { ok: false; code: WidgetErrorCode; message: string }`
   - `interface DevGateway { call(op: string, input: unknown, confirm: ConfirmMode, shell?: string): Promise<DevCallResult>; reset(): void }`. `reset` clears state and rate counters. `shell` is the caller's `describeShell` string and is passed to the log unchanged.
   - `createDevGateway(deps: { manifest: () => WidgetPackageManifest; secrets: () => ReadonlyMap<string, string>; log: (kind: 'gateway', message: string, shell?: string) => void; now?: () => number }): DevGateway`
-  - `readDevSecrets(dir: string, manifest: WidgetPackageManifest, log: (kind: 'secret', message: string) => void): Map<string, string>`. It reads `.env.local` with `parseEnv`, keeps `LD_SECRET_<key>` for the manifest's secret settings, and drops a value for which `secretValueError` returns a message. It logs `<key>: <message>` and never the value.
+  - `readDevSecrets(dir: string, manifest: WidgetPackageManifest, log: (kind: 'secret', message: string) => void, seen?: Map<string, string>): Map<string, string>`. It reads `.env.local` with `parseEnv`, keeps `LD_SECRET_<key>` for the manifest's secret settings, and drops a value for which `secretValueError` returns a message. It logs `<key>: <message>` and never the value.
+  - Repeated reads must not repeat log lines: `info` is polled every 2 s. `readDevSecrets` takes an optional last argument `seen: Map<string, string>` (key → last logged message), owned by the server for the whole session. It logs a problem only when `seen.get(key)` differs, stores it, and deletes `seen` entries for keys whose value is now valid or absent, so a problem that returns after a fix is logged again.
 - Pipeline, in order:
   1. `checkGatewayCall`, with grants equal to the manifest permissions.
   2. When `GATEWAY_OPS[op].confirm !== 'never'` and the mode is `decline`, fail with `DECLINED` and `'The user declined the call'`.
@@ -283,7 +284,7 @@ git commit -m "build(widget-sdk): ship theme tokens, the dev Vue runtime and the
      - `notifications.send` returns `{ ok: true }`;
      - `http.*` calls `performHttp` with `origins` equal to the manifest `network`, the manifest secrets, and the current values.
   5. Map each `GatewayFailure` through `widgetFailure`.
-- Every call logs exactly one `gateway` line: `<op> <ok|CODE>`, plus ` <METHOD> <origin> <status>` for HTTP, with the caller's `shell` string. It never logs a body, path, query or secret.
+- Every call logs exactly one `gateway` line: `<op> <ok|CODE>`, plus ` <METHOD> <origin> <status>` for HTTP, plus `: <message>` when the result is `ok: false`, with the caller's `shell` string. It never logs a body, path, query or secret value; the shared failure messages carry none of these (they name a setting title, a parameter name or a permission).
 
 - [ ] **Step 1: Write the failing tests**
 - `state.set` with a stale revision gives `CONFLICT`.
@@ -291,6 +292,8 @@ git commit -m "build(widget-sdk): ship theme tokens, the dev Vue runtime and the
 - A call with `shell = 'w=4 h=3 theme=builtin:glass frame=framed'` produces exactly one log call, and that call carries the same `shell` string.
 - `notifications.send` in `decline` mode gives `DECLINED`; in `allow` mode, `{ ok: true }`.
 - `readDevSecrets` keeps a 16-character `LD_SECRET_apiKey`. It drops a 10-character one and logs `apiKey: The secret must be at least 16 characters without control characters or surrounding spaces`. It ignores keys that are not secret settings.
+- With one shared `seen` map, three reads of the same 10-character value log once; a valid value then clears it, and the short value coming back logs again.
+- A failed call's `gateway` line ends with `: <message>`: the missing-secret call logs a line that contains `UNAVAILABLE` and `Secret «Ключ» is not set`, and no secret value.
 - *Controller-run*, with a loopback echo server: a header secret is injected and the echoed value comes back as `[REDACTED]`. Without the secret, the call gives `UNAVAILABLE` and `Secret «Ключ» is not set`. The collected log lines never contain the value.
 
 - [ ] **Step 2: Run the tests and see them fail**
@@ -361,7 +364,7 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
   - `Log: .ld-widget/dev.log`;
   - when the manifest has secret settings, `Secrets: .env.local (LD_SECRET_<key>=…)`.
   
-  It runs until SIGINT.
+  It runs until SIGINT. The usage line becomes `Usage: ld-widget <build|check|dev> [dir] [options]`, and `cli.test.ts` asserts it for an unknown command.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -422,15 +425,15 @@ git commit -m "feat(widget-sdk): add ld-widget dev with the production sandbox a
   - `parseShellState(search: string, manifest: WidgetPackageManifest, themeIds: readonly string[]): ShellState`. It clamps `w`/`h` to the sizing `min`/`max`, defaults to `sizing.default`, the first theme, `framed` and `allow`.
   - `serializeShellState(state: ShellState): string`, giving `?w=…&h=…&theme=…&frame=…&confirm=…`.
   - `describeShell(state: ShellState): string`, giving `w=4 h=3 theme=builtin:glass frame=framed`.
-  - `frameSizePx(state: ShellState, cellPx: number): { width: number; height: number }`, with gap 8 px: `n * cell + (n - 1) * 8`.
-  - `shellContext(state: ShellState, theme: DevTheme, settings: SettingsSchema | undefined, rawConfig: Record<string, unknown>, secretsSet: ReadonlySet<string>, locale: string): WidgetContext`. `rootFontSize` is 16, `locale` is the argument (the shell passes `navigator.language`), and `visible` is true.
+  - `frameSizePx(state: ShellState, cellPx: number, gapPx: number): { width: number; height: number }`: `n * cell + (n - 1) * gap`.
+  - `shellContext(state: ShellState, theme: DevTheme, settings: SettingsSchema | undefined, rawConfig: Record<string, unknown>, secretsSet: ReadonlySet<string>, env: { locale: string; rootFontSize: number }): WidgetContext`. `locale` and `rootFontSize` come from `env`, and `visible` is true. The shell passes `navigator.language` and `parseFloat(getComputedStyle(document.documentElement).fontSize) || 16`, re-read on `resize`, as `apps/ui/app/widgets/context.ts` does.
   - `createFrameSession(open: () => { close(): void }): { hello(): void; dispose(): void }`. Every `hello()` closes the previous session, if any, and calls `open()` for a new one; `dispose()` closes the current one. It does not depend on the frame's `load` event.
   - `secretsChanged(a: Record<string, boolean>, b: Record<string, boolean>): boolean`.
 - Shell behaviour:
   - A toolbar with `w`/`h` inputs limited to the manifest, a theme select, a framed/frameless toggle, a confirm `allow`/`decline` select, and «Сбросить состояние».
   - The frame:
     - uses the production frame markup from `apps/ui/app/widgets/WidgetFrame.vue` and `SandboxWidget.vue` (`.widget` › `.widget__wrapper` › `.widget__box` › `.widget__body` › `.sandbox` › `iframe.sandbox__frame`) with the classes `widget--theme-<id>` and `widget--skin-<skin>`, where framed uses the theme's own skin and frameless uses `bare`, styled by `dist/dev/frame.css` (Task 4). So `--ld-widget-padding`, border and box-sizing are the production ones;
-    - is sized by `frameSizePx` on the outer `.widget` box, with the cell taken from the board formula `(contentWidth − 23 × 8 px) / 24`;
+    - is sized by `frameSizePx` on the outer `.widget` box. As on the board (`WidgetBoard.vue`, gap `0.5rem`), `gap = 0.5 × rootFontSize` and `cell = (contentWidth − 23 × gap) / 24`;
     - sets the theme tokens as CSS variables on the `.widget` box.
   - A settings panel:
     - one control per plain setting, validated with `isValidSettingValue`;
@@ -453,8 +456,8 @@ git commit -m "feat(widget-sdk): add ld-widget dev with the production sandbox a
 - [ ] **Step 1: Write the failing test** (`shell-state.test.ts`)
 - `parseShellState('?w=99&h=0&theme=nope&frame=x&confirm=y', counter, ['builtin:glass', 'builtin:paper'])` gives `{ w: 4, h: 1, theme: 'builtin:glass', frame: 'framed', confirm: 'allow' }`.
 - `serializeShellState` round-trips.
-- `frameSizePx({ w: 3, h: 2, … }, 40)` is `{ width: 136, height: 88 }`.
-- `shellContext` gives `sizeClass` `s` for 2×3. It gives `frame` from the state, the theme tokens, `locale` from its argument (`'ru-RU'`), and `config` from `normalizeConfig`, so a secret key becomes a boolean that follows `secretsSet` (unset → set → cleared).
+- `frameSizePx({ w: 3, h: 2, … }, 40, 8)` is `{ width: 136, height: 88 }`, and with gap 10 it is `{ width: 140, height: 90 }`.
+- `shellContext` gives `sizeClass` `s` for 2×3. It gives `frame` from the state, the theme tokens, `locale` and `rootFontSize` from `env` (`{ locale: 'ru-RU', rootFontSize: 20 }`), and `config` from `normalizeConfig`, so a secret key becomes a boolean that follows `secretsSet` (unset → set → cleared).
 - `createFrameSession`: two `hello()` calls open two sessions and close the first; `dispose()` closes the second. The test fires hello once without any load event and once after a simulated reload, and each time a session is open.
 - `secretsChanged({ apiKey: false }, { apiKey: true })` is true, and equal maps give false.
 
