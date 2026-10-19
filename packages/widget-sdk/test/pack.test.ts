@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { renderConfigDeclaration } from '../src/config-declaration.ts'
+import { packedSdk } from './packed.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(new URL('../package.json', import.meta.url))
@@ -14,20 +14,12 @@ let work: string
 let extracted: string
 let pkg: Record<string, any>
 let files: string[]
+let packed: Awaited<ReturnType<typeof packedSdk>>
 
 beforeAll(async () => {
-  work = await mkdtemp(join(tmpdir(), 'ld-widget-pack-'))
-  const packed = spawnSync('pnpm', ['-C', root, 'pack', '--pack-destination', work], {
-    encoding: 'utf8', timeout: 180_000,
-  })
-  expect(packed.error).toBeUndefined()
-  expect(packed.status, packed.stdout + packed.stderr).toBe(0)
-  const tarball = (await readdir(work)).find((file) => file.endsWith('.tgz'))!
-  const unpack = join(work, 'x')
-  await mkdir(unpack)
-  const tar = spawnSync('tar', ['-xzf', join(work, tarball), '-C', unpack], { encoding: 'utf8' })
-  expect(tar.status, tar.stderr).toBe(0)
-  extracted = join(unpack, 'package')
+  packed = await packedSdk()
+  work = packed.work
+  extracted = packed.extracted
   pkg = JSON.parse(await readFile(join(extracted, 'package.json'), 'utf8'))
   const entries = await readdir(extracted, { recursive: true, withFileTypes: true })
   files = entries.filter((entry) => entry.isFile())
@@ -35,7 +27,7 @@ beforeAll(async () => {
 }, 180_000)
 
 afterAll(async () => {
-  if (work) await rm(work, { recursive: true, force: true })
+  if (packed) await packed.cleanup()
 })
 
 it('packs the compiled public package without workspace references or sources', async () => {

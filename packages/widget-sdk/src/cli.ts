@@ -2,9 +2,23 @@
 import { readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { buildWidget } from './build.ts'
+import { checkWidget } from './check.ts'
 
 const usage = 'Usage: ld-widget <build|check> [dir] [options]'
 const commands: Record<string, (args: string[]) => Promise<number>> = {
+  async check(args) {
+    if (args.length > 1 || args.some((arg) => arg.startsWith('--'))) {
+      console.error(usage)
+      return 2
+    }
+    const { ok, problems } = await checkWidget(args[0] ?? process.cwd())
+    for (const problem of problems) {
+      const location = problem.file === undefined ? '' : `${problem.file}${problem.line === undefined ? '' : `:${problem.line}`} `
+      console.log(`✗ [${problem.rule}] ${location}${problem.message}`)
+    }
+    console.log(ok ? 'check: OK' : `check: ${problems.length} problems`)
+    return ok ? 0 : 1
+  },
   async build(args) {
     const unknown = args.find((arg) => arg.startsWith('--') && arg !== '--no-source')
     if (unknown !== undefined) {
