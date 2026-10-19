@@ -216,7 +216,7 @@ git commit -m "feat(widget-sdk): type context.config from the manifest settings"
 ### Task 3: Publishable SDK package
 
 **Files:**
-- Modify: `packages/widget-sdk/package.json`, `packages/widget-sdk/src/cli.ts` (subcommand dispatch), `packages/contracts/package.json` (add `"version": "0.1.0"`; it stays `private`)
+- Modify: `packages/widget-sdk/package.json`, `packages/widget-sdk/tsconfig.json` (add `"scripts"` to `include`, so `pnpm -r typecheck` covers the build scripts), `packages/widget-sdk/src/cli.ts` (subcommand dispatch), `packages/contracts/package.json` (add `"version": "0.1.0"`; it stays `private`)
 - Create: `packages/widget-sdk/scripts/build.ts`, `packages/widget-sdk/tsconfig.build.json`, `packages/widget-sdk/scripts/rewrite-declarations.ts`
 - Keep: `packages/widget-sdk/vite.config.ts` (the `dev` script `vite build --watch` still rebuilds `dist/sandbox.js` for `pnpm dev`)
 - Test: `packages/widget-sdk/test/pack.test.ts`
@@ -299,7 +299,7 @@ Expected: FAIL. `private` is set and there is no `publishConfig`.
 2. Build the sandbox with the existing `vite.config.ts`.
 3. Build `src/index.ts` as a library to `dist/index.js` (`emptyOutDir: false`).
 4. Build `src/cli.ts` with `build.ssr` to `dist/cli.js`, bundling `@lifedashboard/contracts` (`ssr.noExternal`).
-5. Run `tsc -p tsconfig.build.json`. It sets `emitDeclarationOnly`, `declaration`, `rootDir: ".."`, `outDir: "dist/types"` and includes `src/index.ts`, `src/env.d.ts`.
+5. Run `tsc -p tsconfig.build.json`. It extends `./tsconfig.json` (so it keeps `nodenext` and `allowImportingTsExtensions`, which the `.ts` specifiers of the SDK and contracts sources need; TS5097 otherwise), overrides `noEmit: false`, sets `emitDeclarationOnly`, `declaration`, `rootDir: ".."`, `outDir: "dist/types"`, and sets `include` to `src/index.ts`, `src/env.d.ts`.
 6. Run `rewrite-declarations.ts`. In every emitted `.d.ts`, it rewrites `@lifedashboard/contracts/<name>` to the relative path of `dist/types/contracts/src/<name>.js`, and relative `.ts` specifiers to `.js`.
 
 If `pnpm pack` writes no `publishConfig` override or keeps a `workspace:` range, stop and report. Do not work around it with a hand-edited copy.
@@ -355,7 +355,7 @@ Scan rules work on `ts.createSourceFile` nodes, never on raw text:
 
 A *gpu test* is an expression that is `navigator.gpu` or `'gpu' in navigator`, optionally under `!`/`!!` or parentheses. `navigator.gpu` counts as guarded in any of these cases, decided by walking the node's ancestors:
 - the node's parent access or call uses `?.`;
-- the node is itself a gpu test (the whole `navigator.gpu` expression, optionally under `!`/`!!` or parentheses, is the condition of an `if`, a ternary, or an operand of `&&`/`||`). An access such as `navigator.gpu.requestAdapter()` inside a condition is not a gpu test;
+- the node is itself a gpu test (the whole `navigator.gpu` expression, optionally under `!`/`!!` or parentheses, is the condition of an `if`, a ternary, an operand of `&&`/`||`, or the left operand of `??`). An access such as `navigator.gpu.requestAdapter()` inside a condition is not a gpu test;
 - the node is inside the `then` branch of an `if`, the `whenTrue` branch of a ternary, or the right operand of `&&`, whose condition is (or is an `&&` chain containing) a gpu test without `!`.
 
 A gpu test elsewhere in the file guards nothing.
@@ -386,7 +386,7 @@ it.each([
   '// localStorage and https://evil.example in a comment', '/* document.cookie */', 'const s = "localStorage"',
   'const t = `see ${a} localStorage docs`', 'const o = { localStorage: 1 }', 'foo.localStorage', 'foo.cookie',
   "if ('gpu' in navigator) { navigator.gpu.requestAdapter() }", 'navigator.gpu?.requestAdapter()',
-  'if (navigator.gpu) start()', 'const ok = navigator.gpu && 1', 'fetch("assets/bg.webm")', 'fetch("/relative")',
+  'if (navigator.gpu) start()', 'const ok = navigator.gpu && 1', 'const g = navigator.gpu ?? null', 'fetch("assets/bg.webm")', 'fetch("/relative")',
   'if (navigator.gpu) { navigator.gpu.requestAdapter() }', "const a = 'gpu' in navigator ? navigator.gpu.requestAdapter() : null",
   "'gpu' in navigator && navigator.gpu.requestAdapter()",
 ])('does not flag %s', (code) => expect(scan(code)).toEqual([]))
