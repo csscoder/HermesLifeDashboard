@@ -48,7 +48,10 @@ onMounted(load)
 
 <template>
   <div class="hello" :data-size="widget.context.sizeClass">
-    <video ref="videoBox" class="hello__bg" src="assets/bg.mp4" autoplay muted loop playsinline />
+    <video ref="videoBox" class="hello__bg" autoplay muted loop playsinline>
+      <source src="assets/bg.webm" type="video/webm" />
+      <source src="assets/bg.mp4" type="video/mp4" />
+    </video>
     <p class="hello__count">{{ count }}</p>
     <div class="hello__actions">
       <button type="button" class="hello__button" @click="increment">+1</button>

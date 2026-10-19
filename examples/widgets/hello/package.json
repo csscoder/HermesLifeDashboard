@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "ld-widget build"
+    "build": "ld-widget build",
+    "check": "ld-widget check"
   },
   "devDependencies": {
-    "@lifedashboard/widget-sdk": "workspace:*"
+    "@lifedashboard/widget-sdk": "workspace:*",
+    "vue": "3.5.43",
+    "typescript": "6.0.3",
+    "vue-tsc": "3.3.12"
   }
 }
