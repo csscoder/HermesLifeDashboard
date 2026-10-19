@@ -130,7 +130,7 @@ git commit -m "refactor: share the sandbox document builder through contracts"
   - `class GatewayFailure extends Error { readonly code: GatewayFailureCode }`
   - `checkGatewayCall(op: string, input: unknown, grants: ReadonlySet<WidgetPermission>): { ok: true; op: GatewayOp; input: unknown } | { ok: false; code: 'UNKNOWN_OP' | 'PERMISSION_DENIED' | 'INVALID_INPUT'; message: string }`. It uses the API's current messages, verbatim: `Unknown operation "<op, first 100 chars>"`, `The widget has no "<permission>" permission`, and the parser error.
   - `createRateLimiter(now: () => number): (key: string, op: GatewayOp) => boolean`. It returns `true` when allowed and uses the API's sliding window over `RATE_LIMITS`.
-  - `widgetFailure(code: GatewayFailureCode, message: string): { code: WidgetErrorCode; message: string }`. It reproduces today's `toWidgetError` in `broker.ts`:
+  - `widgetFailure(code: string, message: string): { code: WidgetErrorCode; message: string }`. It takes `string`, because the UI receives any API code, and reproduces today's `toWidgetError` in `broker.ts`. Any other code, such as `VALIDATION_ERROR` or `NOT_FOUND`, becomes `INVALID_INPUT` with the message, as today; the table test includes that row.
     - `CONFLICT` → `CONFLICT` with `'The widget state changed since it was read'`;
     - `RATE_LIMITED` → `RATE_LIMITED` with `'Too many calls'`;
     - `CONFIRMATION_INVALID` → `DECLINED` with `'The confirmation expired'`;
@@ -326,9 +326,10 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
     - a body over 256 KB gets 413.
   - `interface DevInfo { revision: number; manifest: WidgetPackageManifest; themes: DevTheme[]; secrets: Record<string, boolean>; settingsProblems: string[] }`
   - `startDevServer(dir: string, options?: { port?: number }): Promise<{ url: string; close(): Promise<void> }>`
+- `widgetVitePlugins(): Plugin[]`, exported from `build.ts`. It returns `[mediaImportGuard(), vue({ template: { transformAssetUrls: false } })]`. `buildWidget` uses it (plus `stripRegionMarkers()`, which is build-only), and so does the dev server. Dev must reject what the build rejects.
 - Vite config:
   - `root: dir`, `base: DEV_PATHS.pkg`, `configFile: false`;
-  - plugins `[vue(), ldDevPlugin]`;
+  - plugins `[...widgetVitePlugins(), ldDevPlugin]`;
   - `server: { port, strictPort: true, cors: false }`;
   - `optimizeDeps: { exclude: ['vue', '@lifedashboard/widget-sdk'] }`.
   
@@ -361,6 +362,7 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
 - `GET /@ld/runtime/vue.js` is 200.
 - `POST /@ld/api/call` for `state.get` gives `{ ok: true, value: { data: null, revision: 0 } }`.
 - Writing an invalid `widget.json` adds a `[manifest]` line to `.ld-widget/dev.log`, and the server still answers.
+- A component that imports `../assets/x.mp4` fails to transform with `reference media by URL: assets/x.mp4`, as in `buildWidget`.
 
 - [ ] **Step 2: Run the tests and see them fail**
 

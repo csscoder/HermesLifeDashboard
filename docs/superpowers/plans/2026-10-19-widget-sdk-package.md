@@ -396,7 +396,7 @@ In `check.test.ts`, inject a stub `typecheck` returning `[]` except in the last 
 - `assets/a.mp3` alone gives a `media` problem.
 - A project without `typescript` (the default `deps`, a temp dir with no `node_modules`) gives exactly one `types` problem with the install command.
 - The project lives in a temp dir named `Мои виджеты/часы` (with a space).
-- *Integration:* a project with `node_modules` symlinks to the workspace `typescript`, `vue-tsc`, `vue` and `@lifedashboard/widget-sdk`, and `src/index.vue` containing `const n: number = 'x'`. The result is one `types` problem with `file: 'src/index.vue'` and a line number.
+- *Integration:* a project with `node_modules` symlinks to the workspace `typescript`, `vue-tsc` and `vue`, plus the **packed** SDK. Use the extracted tarball, via a `packedSdk()` helper shared with `pack.test.ts` in `test/packed.ts`. The workspace source uses `.ts` specifiers, which a consumer tsconfig rejects with TS5097; this was checked on 2026-10-19. `src/index.vue` contains `const n: number = 'x'`. The result is one `types` problem with `file: 'src/index.vue'` and a line number.
 
 - [ ] **Step 2: Run the tests and see them fail**
 
@@ -449,7 +449,7 @@ Template contents:
 
 | File | Content |
 | --- | --- |
-| `widget.json` | `id` `dev.local.__NAME__`, `version` `0.1.0`, `title` `__NAME__`, `author` `""`, `sdk` 2, `entry` `index.js`, `styles` `["style.css"]`, `sizing` default 4×4, min 2×2, max 12×12, `permissions` `[]` |
+| `widget.json` | `id` `dev.local.__NAME__`, `version` `0.1.0`, `title` `__NAME__`, `author` `"Автор"` (the manifest requires 1–60 characters), `sdk` 2, `entry` `index.js`, `styles` `["style.css"]`, `sizing` default 4×4, min 2×2, max 12×12, `permissions` `[]` |
 | `package.json` | `name` `__NAME__`, `private` true, `type` `module`, scripts `check`/`build` → `ld-widget check`/`ld-widget build`, devDependencies `@lifedashboard/widget-sdk` `__SDK__`, `vue` `3.5.43`, `typescript` `6.0.3`, `vue-tsc` `3.3.12` |
 | `tsconfig.json` | `target` `es2022`, `module` `esnext`, `moduleResolution` `bundler`, `strict`, `noEmit`, `skipLibCheck`, `lib` `["es2022","dom","dom.iterable"]`, `types` `[]`, `include` `["src","widget-env.d.ts"]` |
 | `widget-env.d.ts` | output of `renderConfigDeclaration(undefined)`, copied verbatim (no settings) |
@@ -529,7 +529,7 @@ git commit -m "feat(create-widget): scaffold a widget project outside the monore
 
 **Files:**
 - Create: `examples/widgets/hello/assets/bg.webm`, `examples/widgets/hello/tsconfig.json`, `examples/widgets/hermes-tasks/tsconfig.json`
-- Modify: `examples/widgets/hello/src/index.vue`, `examples/widgets/hello/widget.json` (version `1.0.4`), `examples/widgets/hello/package.json`, `examples/widgets/hermes-tasks/widget.json` (version `1.0.2`), `examples/widgets/hermes-tasks/package.json`
+- Modify: `examples/widgets/hello/src/index.vue`, `examples/widgets/hello/widget.json` (version `1.0.4`), `examples/widgets/hello/package.json`, `examples/widgets/hermes-tasks/widget.json` (version `1.0.2`), `examples/widgets/hermes-tasks/package.json`, `examples/widgets/hostile/widget.json` (version `1.0.2`)
 - Generated and committed: `examples/widgets/*/widget-env.d.ts` (it is part of `source/`)
 
 **Interfaces:**
@@ -545,9 +545,9 @@ Expected: FAIL. `hello` has `media` (no WebM) and `types` (no `typescript`/`vue-
 - Encode the WebM once: `ffmpeg -i examples/widgets/hello/assets/bg.mp4 -c:v libvpx-vp9 -b:v 0 -crf 40 -an examples/widgets/hello/assets/bg.webm`.
 - Change the `<video>` to two `<source>` children: WebM first, then MP4.
 - Add devDependencies `vue` 3.5.43, `typescript` 6.0.3 and `vue-tsc` 3.3.12, plus a `"check": "ld-widget check"` script, to both examples.
-- Add a `tsconfig.json` with the same content as the template's.
+- Add a `tsconfig.json` with the template's content plus `"allowImportingTsExtensions": true`. The examples and the workspace SDK source they resolve to use `.ts` import specifiers (TS5097 otherwise; checked on 2026-10-19).
 - Bump the versions as listed above.
-- `examples/widgets/hostile` is a security fixture that uses forbidden APIs on purpose. Leave it unchanged.
+- `examples/widgets/hostile` is a security fixture that uses forbidden APIs on purpose. Do not make it pass `check`. Still bump its version from `1.0.1` to `1.0.2`: Tasks 1 and 2 change its built `source/`.
 
 - [ ] **Step 3: Verify**
 
@@ -557,7 +557,7 @@ Expected: both print `check: OK`, and the full suite passes.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add examples/widgets/hello examples/widgets/hermes-tasks pnpm-lock.yaml
+git add examples/widgets/hello examples/widgets/hermes-tasks examples/widgets/hostile/widget.json pnpm-lock.yaml
 git commit -m "chore(examples): add WebM media and type checking so examples pass ld-widget check"
 ```
 
