@@ -25,6 +25,16 @@ export interface DevInfo {
   settingsProblems: string[]
 }
 
+/** The only differences between the dev sandbox and production; the divergence test fails on any other. */
+export const DEV_SANDBOX_DIFFERENCES: { id: string; description: string }[] = [
+  { id: 'vue-dev-build', description: 'The runtime vue.js is the Vue development build of the app Vue version.' },
+  { id: 'vite-client', description: 'The sandbox document adds a module script for the Vite client.' },
+  { id: 'probe', description: 'The sandbox document adds a module script for the probe.' },
+  { id: 'hmr-websocket', description: 'connect-src adds the HMR WebSocket origin.' },
+  { id: 'styles-via-vite', description: 'Styles reach the frame through the style element Vite injects, not a link element.' },
+  { id: 'frame-reload', description: 'A second load of the frame (Vite full reload) re-handshakes instead of failing the widget.' },
+]
+
 export function devSandboxDocument(origin: string, wsOrigin: string): Promise<{ html: string; csp: string }> {
   const runtime = origin + DEV_PATHS.runtime
   const packageDir = origin + DEV_PATHS.pkg
