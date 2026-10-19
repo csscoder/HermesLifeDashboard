@@ -5,7 +5,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    emptyOutDir: false,
     lib: { entry: 'src/sandbox.ts', formats: ['es'], fileName: () => 'sandbox.js' },
     rolldownOptions: { external: ['vue', '@lifedashboard/widget-entry'] },
   },
