@@ -5,13 +5,26 @@ import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import type { DevTheme } from '../src/dev/themes.ts'
 import {
   createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
-  serializeShellState, shellContext, type ShellState,
+  serializeShellState, shellContext, themeClass, type ShellState,
 } from '../src/dev/shell-state.ts'
 
 const counter = JSON.parse(readFileSync(new URL('./fixtures/counter/widget.json', import.meta.url), 'utf8')) as WidgetPackageManifest
 const themeIds = ['builtin:glass', 'builtin:paper']
 const state: ShellState = { w: 4, h: 3, theme: 'builtin:glass', frame: 'framed', confirm: 'allow' }
 const theme: DevTheme = { id: themeIds[0]!, name: 'Glass', mode: 'dark', skin: 'glass', tokens: { '--ld-widget-padding': '1rem' } }
+
+it('matches production theme classes for every built-in theme, a user theme, and invalid formats', async () => {
+  const [{ themeClass: productionThemeClass }, { BUILTIN_THEME_IDS }] = await Promise.all([
+    import(new URL('../../../apps/ui/app/theme/resolve.ts', import.meta.url).href),
+    import(new URL('../../../apps/ui/app/theme/builtin.ts', import.meta.url).href),
+  ])
+  for (const id of [...BUILTIN_THEME_IDS, 'user:12345678-1234-4234-8234-123456789abc']) {
+    expect(themeClass(id)).toBe(productionThemeClass(id))
+  }
+  const unknown = 'unknown:theme'
+  expect(() => productionThemeClass(unknown)).toThrow(`Unknown theme id format: ${unknown}`)
+  expect(() => themeClass(unknown)).toThrow(`Unknown theme id format: ${unknown}`)
+})
 
 it('clamps dimensions and defaults invalid choices', () => {
   expect(parseShellState('?w=99&h=0&theme=nope&frame=x&confirm=y', counter, themeIds)).toEqual({ ...state, h: 1 })

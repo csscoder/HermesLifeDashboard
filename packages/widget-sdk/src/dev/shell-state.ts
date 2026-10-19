@@ -78,3 +78,10 @@ export function secretsChanged(a: Record<string, boolean>, b: Record<string, boo
   const keys = Object.keys(a)
   return keys.length !== Object.keys(b).length || keys.some((key) => !Object.hasOwn(b, key) || a[key] !== b[key])
 }
+
+/** CSS class suffix of a theme id; the same rule as themeClass in apps/ui/app/theme/resolve.ts (parity-tested). */
+export function themeClass(id: string): string {
+  if (id.startsWith('builtin:')) return id.slice('builtin:'.length)
+  if (id.startsWith('user:')) return `u-${id.slice('user:'.length)}`
+  throw new Error(`Unknown theme id format: ${id}`)
+}

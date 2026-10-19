@@ -5,7 +5,7 @@ import { createBridge, createHandshakes, type Bridge } from '../src/host.ts'
 import { WidgetError } from '../src/widget.ts'
 import {
   createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
-  serializeShellState, shellContext, type ShellState,
+  serializeShellState, shellContext, themeClass, type ShellState,
 } from '../src/dev/shell-state.ts'
 import type { DevInfo } from '../src/dev/server.ts'
 import type { DevCallResult } from '../src/dev/gateway.ts'
@@ -46,12 +46,7 @@ const frameStyle = computed(() => {
   const size = frameSizePx(state.value, cell, gap)
   return { ...theme.value.tokens, width: `${size.width}px`, height: `${size.height}px` }
 })
-const themeClass = computed(() => {
-  const id = theme.value?.id ?? ''
-  if (id.startsWith('builtin:')) return id.slice('builtin:'.length)
-  if (id.startsWith('user:')) return `u-${id.slice('user:'.length)}`
-  throw new Error(`Unknown theme id format: ${id}`)
-})
+const themeClassName = computed(() => themeClass(theme.value?.id ?? ''))
 
 function append(kind: DevLogKind, message: string) {
   entries.value.push({ id: ++sequence, time: new Date().toISOString(), kind, message, shell: state.value ? describeShell(state.value) : '' })
@@ -214,7 +209,7 @@ onBeforeUnmount(() => {
     <template v-if="info && state && theme && context">
       <Toolbar :state="state" :manifest="info.manifest" :themes="info.themes" @change="updateState" @reset="reset" />
       <div ref="preview" class="shell-preview">
-        <div :class="['widget', `widget--theme-${themeClass}`, `widget--skin-${state.frame === 'frameless' ? 'bare' : theme.skin}`]" :style="frameStyle">
+        <div :class="['widget', `widget--theme-${themeClassName}`, `widget--skin-${state.frame === 'frameless' ? 'bare' : theme.skin}`]" :style="frameStyle">
           <div class="widget__wrapper">
             <div class="widget__box">
               <div class="widget__body">
