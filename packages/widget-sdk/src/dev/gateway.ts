@@ -33,10 +33,11 @@ export function createDevGateway(deps: {
         const manifest = deps.manifest()
         const call = checkGatewayCall(op, input, new Set(manifest.permissions))
         if (!call.ok) return { ok: false, ...widgetFailure(call.code, call.message) }
+        // Production spends the limit when it issues the confirmation, so a declined call costs capacity too.
+        if (!allowCall('dev', call.op)) throw new GatewayFailure('RATE_LIMITED', 'Too many calls')
         if (GATEWAY_OPS[call.op].confirm !== 'never' && confirm === 'decline') {
           return { ok: false, code: 'DECLINED', message: 'The user declined the call' }
         }
-        if (!allowCall('dev', call.op)) throw new GatewayFailure('RATE_LIMITED', 'Too many calls')
 
         let value: GatewayOutputs[keyof GatewayOutputs]
         switch (call.op) {

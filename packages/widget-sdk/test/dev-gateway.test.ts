@@ -90,14 +90,19 @@ describe('dev gateway', () => {
     expect(await gateway.call('state.set', { data: 7, expectedRevision: 0 }, 'allow')).toEqual({ ok: true, value: { revision: 1 } })
   })
 
-  it('declines notifications before spending rate capacity and allows notifications', async () => {
+  it('spends rate capacity on a declined notification, as production does, and allows notifications', async () => {
     const { gateway, log } = setup()
     const input = { title: 'Hello', body: 'Notification body' }
-    for (let i = 0; i <= RATE_LIMITS['notifications.send'].max; i++) {
+    const { max } = RATE_LIMITS['notifications.send']
+    for (let i = 0; i < max; i++) {
       expect(await gateway.call('notifications.send', input, 'decline', shell))
         .toEqual({ ok: false, code: 'DECLINED', message: 'The user declined the call' })
     }
     expect(log).toHaveBeenLastCalledWith('gateway', 'notifications.send DECLINED: The user declined the call', shell)
+    expect(await gateway.call('notifications.send', input, 'decline', shell))
+      .toEqual({ ok: false, ...widgetFailure('RATE_LIMITED', 'Too many calls') })
+    expect(await gateway.call('notifications.send', input, 'allow')).toEqual({ ok: false, ...widgetFailure('RATE_LIMITED', 'Too many calls') })
+    gateway.reset()
     expect(await gateway.call('notifications.send', input, 'allow')).toEqual({ ok: true, value: { ok: true } })
   })
 

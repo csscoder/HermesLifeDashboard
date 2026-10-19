@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { sandboxDocument } from '@lifedashboard/contracts/sandbox-document'
 import {
-  checkGatewayCall, GatewayFailure, STATE_MAX_BYTES, widgetFailure,
+  checkGatewayCall, GatewayFailure, RATE_LIMITS, STATE_MAX_BYTES, widgetFailure,
 } from '@lifedashboard/contracts/widget-gateway'
 import { performHttp } from '@lifedashboard/contracts/widget-http'
 import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
@@ -107,5 +107,18 @@ describe('dev gateway rules', () => {
     expect(failure).toBeInstanceOf(GatewayFailure)
     const { code, message } = failure as GatewayFailure
     expect(await gateway(current).call('http.get', input, 'allow')).toEqual({ ok: false, ...widgetFailure(code, message) })
+  })
+
+  // Production issues the confirmation (and spends the limit) before the user answers, so a declined
+  // call costs capacity; once spent, the next request is RATE_LIMITED and the broker maps it with widgetFailure.
+  it('answers a declined notification after the limit as production does', async () => {
+    const current = manifest(['notifications'])
+    const dev = gateway(current)
+    const input = { title: 'x', body: '' }
+    const declined = { ok: false, code: 'DECLINED', message: 'The user declined the call' }
+    for (let i = 0; i < RATE_LIMITS['notifications.send'].max; i++) {
+      expect(await dev.call('notifications.send', input, 'decline')).toEqual(declined)
+    }
+    expect(await dev.call('notifications.send', input, 'decline')).toEqual({ ok: false, ...widgetFailure('RATE_LIMITED', '') })
   })
 })
