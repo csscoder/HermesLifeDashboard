@@ -86,8 +86,10 @@ export function scanSource(file: string, text: string, network: readonly string[
       report(node, 'sandbox-api', '"navigator.gpu" (WebGPU) is not in the runtime baseline. Fix: wrap the use in if (\'gpu\' in navigator) { … } and fall back to WebGL 2.')
     }
     if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node))
-      && /^https?:\/\//.test(node.text)) {
-      // A dynamic host may leave the template head incomplete; it has no static origin to check.
+      && /^https?:\/\//.test(node.text)
+      && !node.text.startsWith('http://www.w3.org/')
+      // A template head has a static origin only after its authority is terminated.
+      && (!ts.isTemplateHead(node) || /^https?:\/\/[^/?#]*[/?#]/.test(node.text))) {
       let origin: string | undefined
       try { origin = new URL(node.text).origin } catch { /* Not a complete static URL. */ }
       if (origin !== undefined && !network.includes(origin)) {

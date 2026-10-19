@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, afterEach, beforeAll, expect, it } from 'vitest'
+import { afterEach, expect, it } from 'vitest'
 import { checkWidget } from '../src/check.ts'
 import { packedSdk } from './packed.ts'
 
@@ -13,10 +13,8 @@ const require = createRequire(join(root, 'package.json'))
 const uiRequire = createRequire(new URL('../../../apps/ui/package.json', import.meta.url))
 const dirs: string[] = []
 const deps = { typecheck: async () => [] }
-let packed: Awaited<ReturnType<typeof packedSdk>>
+const extracted = packedSdk()
 
-beforeAll(async () => { packed = await packedSdk() }, 180_000)
-afterAll(async () => { if (packed) await packed.cleanup() })
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
@@ -39,7 +37,7 @@ async function integrationProject(): Promise<string> {
   const modules = join(dir, 'node_modules')
   await symlink(dirname(require.resolve('vue/package.json')), join(modules, 'vue'), 'dir')
   await mkdir(join(modules, '@lifedashboard'))
-  await cp(packed.extracted, join(modules, '@lifedashboard/widget-sdk'), { recursive: true })
+  await cp(extracted, join(modules, '@lifedashboard/widget-sdk'), { recursive: true })
   await writeFile(join(dir, 'tsconfig.json'), JSON.stringify({
     compilerOptions: {
       target: 'es2022', module: 'esnext', moduleResolution: 'bundler', strict: true, noEmit: true,

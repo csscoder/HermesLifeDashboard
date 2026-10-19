@@ -23,6 +23,9 @@ it.each([
   'if (!!(navigator.gpu)) start()', 'const ok = navigator.gpu || null',
   "if (ready && ('gpu' in navigator)) { navigator.gpu.requestAdapter() }",
   "ready && ('gpu' in navigator) && navigator.gpu.requestAdapter()",
+  'fetch(`http://localhost:${port}/api`)', 'fetch(`https://api-${env}.example.com`)',
+  "document.createElementNS('http://www.w3.org/2000/svg', 'svg')",
+  "const XLINK = 'http://www.w3.org/1999/xlink'",
 ])('does not flag %s', (code) => expect(scan(code)).toEqual([]))
 
 it.each([
@@ -42,6 +45,17 @@ it('checks URL origins against network', () => {
   expect(scan('fetch("http://localhost:8787/x")')[0]).toMatchObject({ rule: 'network', line: 1,
     message: 'URL origin http://localhost:8787 is not in widget.json "network". Fix: add "http://localhost:8787" to network or call another origin.' })
   expect(scan('fetch(`https://api.example.com/v1`)')).toHaveLength(1)
+  expect(scan("const namespace = 'https://www.w3.org/2000/svg'")).toEqual([
+    expect.objectContaining({ rule: 'network', message: expect.stringContaining('URL origin https://www.w3.org is not in') }),
+  ])
+})
+
+it.each(['/', '?', '#'])('checks a template origin once %s terminates the authority', (delimiter) => {
+  const code = 'fetch(`https://api.example.com' + delimiter + '${id}`)'
+  expect(scan(code)).toEqual([
+    expect.objectContaining({ rule: 'network', message: expect.stringContaining('URL origin https://api.example.com is not in') }),
+  ])
+  expect(scan(code, ['https://api.example.com'])).toEqual([])
 })
 
 it('reports project-relative files and 1-based lines', () => {

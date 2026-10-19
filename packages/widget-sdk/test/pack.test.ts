@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, expect, it } from 'vitest'
@@ -14,12 +15,10 @@ let work: string
 let extracted: string
 let pkg: Record<string, any>
 let files: string[]
-let packed: Awaited<ReturnType<typeof packedSdk>>
 
 beforeAll(async () => {
-  packed = await packedSdk()
-  work = packed.work
-  extracted = packed.extracted
+  work = await mkdtemp(join(tmpdir(), 'ld-widget-consumer-'))
+  extracted = packedSdk()
   pkg = JSON.parse(await readFile(join(extracted, 'package.json'), 'utf8'))
   const entries = await readdir(extracted, { recursive: true, withFileTypes: true })
   files = entries.filter((entry) => entry.isFile())
@@ -27,7 +26,7 @@ beforeAll(async () => {
 }, 180_000)
 
 afterAll(async () => {
-  if (packed) await packed.cleanup()
+  if (work) await rm(work, { recursive: true, force: true })
 })
 
 it('packs the compiled public package without workspace references or sources', async () => {
