@@ -46,6 +46,11 @@ export function createDevApi(deps: { gateway: DevGateway; info: () => DevInfo; l
       if (value !== undefined) res.setHeader('content-type', 'application/json')
       res.end(value === undefined ? undefined : JSON.stringify(value))
     }
+    if ((req.headers.origin !== undefined && req.headers.origin !== `http://${req.headers.host}`)
+      || (req.headers['sec-fetch-site'] !== undefined && req.headers['sec-fetch-site'] !== 'same-origin')) {
+      reply(403)
+      return true
+    }
     let body: unknown
     if (req.method === 'POST') {
       const chunks: Buffer[] = []

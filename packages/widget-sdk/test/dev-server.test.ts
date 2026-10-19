@@ -1,5 +1,5 @@
 import { mkdtemp, readFile } from 'node:fs/promises'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -18,15 +18,49 @@ it('uses the production sandbox with the dev entry, Vite client, probe and WebSo
   expect(html).toContain('src="http://localhost:5273/@ld/runtime/probe.js"')
 })
 
-async function request(api: ReturnType<typeof createDevApi>, path: string, method = 'GET', body = '') {
-  const req = Object.assign(Readable.from([Buffer.from(body)]), { url: path, method }) as IncomingMessage
+async function request(api: ReturnType<typeof createDevApi>, path: string, method = 'GET', body = '', requestHeaders: IncomingHttpHeaders = {}) {
+  const req = Object.assign(Readable.from([Buffer.from(body)]), {
+    url: path, method, headers: { host: 'localhost:5273', ...requestHeaders },
+  }) as IncomingMessage
+  const iterator = vi.spyOn(req, 'iterator')
   let output = ''
   const headers: Record<string, string> = {}
   const res = { statusCode: 200, setHeader: (key: string, value: string) => { headers[key] = value },
     end: (value = '') => { output = value } } as unknown as ServerResponse
   const handled = await api(req, res)
-  return { handled, status: res.statusCode, output, headers }
+  return { handled, status: res.statusCode, output, headers, bodyRead: iterator.mock.calls.length > 0 }
 }
+
+it.each([
+  { origin: 'https://cross-site.example' },
+  { origin: 'null' },
+  { 'sec-fetch-site': 'cross-site' },
+  { 'sec-fetch-site': 'same-site' },
+  { 'sec-fetch-site': 'none' },
+  { origin: 'http://localhost:5273', 'sec-fetch-site': 'cross-site' },
+  { origin: 'https://cross-site.example', 'sec-fetch-site': 'same-origin' },
+])('rejects cross-site API requests before reading the body: %j', async (headers) => {
+  const call = vi.fn().mockResolvedValue({ ok: true })
+  const api = createDevApi({ gateway: { call, reset: vi.fn() }, info: vi.fn(), log: { write: vi.fn() }, reset: vi.fn() })
+  const response = await request(api, '/@ld/api/call', 'POST', JSON.stringify({ op: 'state.get', input: {}, confirm: 'allow' }), headers)
+  expect(response.status).toBe(403)
+  expect(response.handled).toBe(true)
+  expect(response.bodyRead).toBe(false)
+  expect(call).not.toHaveBeenCalled()
+})
+
+it.each([
+  {},
+  { origin: 'http://localhost:5273' },
+  { 'sec-fetch-site': 'same-origin' },
+  { origin: 'http://localhost:5273', 'sec-fetch-site': 'same-origin' },
+])('accepts same-origin API requests and requests without origin headers: %j', async (headers) => {
+  const call = vi.fn().mockResolvedValue({ ok: true })
+  const api = createDevApi({ gateway: { call, reset: vi.fn() }, info: vi.fn(), log: { write: vi.fn() }, reset: vi.fn() })
+  const response = await request(api, '/@ld/api/call', 'POST', JSON.stringify({ op: 'state.get', input: {}, confirm: 'allow' }), headers)
+  expect(response.status).toBe(200)
+  expect(call).toHaveBeenCalledExactlyOnceWith('state.get', {}, 'allow', undefined)
+})
 
 it('routes call, log, info and reset and forwards shell state', async () => {
   const call = vi.fn().mockResolvedValue({ ok: true, value: { data: null, revision: 0 } })
@@ -66,4 +100,15 @@ it('writes one timestamped line per event and escapes CR/LF in message and shell
     /^\d{4}-\d\d-\d\dT[^\n]+Z \[error\] a\\nb\\r\\nc\n\d{4}-\d\d-\d\dT[^\n]+Z \[gateway\] state.get ok \(w=4\\nh=3\)\n$/,
   )
   expect(print.mock.calls).toEqual([['[ld-widget] [error] a\\nb\\r\\nc'], ['[ld-widget] [gateway] state.get ok']])
+})
+
+it('strips terminal control sequences from log messages and shell state', async () => {
+  const print = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const dir = await mkdtemp(join(tmpdir(), 'ld-dev-log-'))
+  const log = createDevLog(dir)
+  log.write('error', '\u001b[31mblocked\u001b[0m', '\u001b[2Jw=4')
+  const line = await readFile(join(dir, '.ld-widget/dev.log'), 'utf8')
+  expect(line).not.toContain('\u001b')
+  expect(line).toMatch(/Z \[error\] blocked \(w=4\)\n$/)
+  expect(print.mock.calls).toEqual([['[ld-widget] [error] blocked']])
 })

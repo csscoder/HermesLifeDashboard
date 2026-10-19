@@ -15,7 +15,7 @@ afterEach(async () => {
 })
 
 it('serves one Vue runtime, sandbox, API and live manifest/secrets with production media rules', async () => {
-  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const print = vi.spyOn(console, 'log').mockImplementation(() => {})
   const dir = await mkdtemp(join(tmpdir(), 'ld-dev-server-'))
   await cp(fixture, dir, { recursive: true })
   await cp(library, join(dir, 'node_modules/fake-vue-lib'), { recursive: true })
@@ -94,6 +94,12 @@ it('serves one Vue runtime, sandbox, API and live manifest/secrets with producti
   expect((await info()).secrets.apiKey).toBe(false)
   expect((await info()).settingsProblems).toEqual([])
   expect((await info()).revision).toBe(revision)
+  const secretLog = await readFile(join(dir, '.ld-widget/dev.log'), 'utf8')
+  const secretConsole = JSON.stringify(print.mock.calls)
+  for (const secret of ['0123456789abcdef', 'short']) {
+    expect(secretLog).not.toContain(secret)
+    expect(secretConsole).not.toContain(secret)
+  }
   await mkdir(join(dir, 'assets'))
   await writeFile(join(dir, 'assets/x.mp4'), 'media')
   await writeFile(join(dir, 'src/index.vue'), '<script setup>import media from "../assets/x.mp4"</script><template><video :src="media" /></template>')
