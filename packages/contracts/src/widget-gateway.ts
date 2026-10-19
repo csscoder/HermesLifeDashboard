@@ -26,6 +26,66 @@ export const RATE_LIMITS: Record<GatewayOp, { max: number; windowMs: number }> =
   'http.send': { max: 60, windowMs: MINUTE },
 }
 
+export type GatewayFailureCode = 'UNKNOWN_OP' | 'PERMISSION_DENIED' | 'INVALID_INPUT' | 'RATE_LIMITED' | 'CONFLICT' | 'UPSTREAM_ERROR' | 'CONFIRMATION_INVALID'
+
+export class GatewayFailure extends Error {
+  readonly code: GatewayFailureCode
+
+  constructor(code: GatewayFailureCode, message: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+export function checkGatewayCall(
+  op: string,
+  input: unknown,
+  grants: ReadonlySet<WidgetPermission>,
+): { ok: true; op: GatewayOp; input: unknown } | { ok: false; code: 'UNKNOWN_OP' | 'PERMISSION_DENIED' | 'INVALID_INPUT'; message: string } {
+  if (!isGatewayOp(op)) return { ok: false, code: 'UNKNOWN_OP', message: `Unknown operation "${op.slice(0, 100)}"` }
+  const { permission } = GATEWAY_OPS[op]
+  if (!grants.has(permission)) return { ok: false, code: 'PERMISSION_DENIED', message: `The widget has no "${permission}" permission` }
+  const parsed = parseGatewayInput(op, input)
+  if (!parsed.ok) return { ok: false, code: 'INVALID_INPUT', message: parsed.error }
+  return { ok: true, op, input: parsed.value }
+}
+
+export function createRateLimiter(now: () => number): (key: string, op: GatewayOp) => boolean {
+  const hits = new Map<string, number[]>()
+  return (key, op) => {
+    const { max, windowMs } = RATE_LIMITS[op]
+    const t = now()
+    const bucket = `${key} ${op}`
+    const recent = (hits.get(bucket) ?? []).filter((at) => t - at < windowMs)
+    if (recent.length >= max) {
+      hits.set(bucket, recent)
+      return false
+    }
+    recent.push(t)
+    hits.set(bucket, recent)
+    return true
+  }
+}
+
+export function widgetFailure(code: string, message: string): { code: WidgetErrorCode; message: string } {
+  switch (code) {
+    case 'CONFLICT':
+      return { code: 'CONFLICT', message: 'The widget state changed since it was read' }
+    case 'RATE_LIMITED':
+      return { code: 'RATE_LIMITED', message: 'Too many calls' }
+    case 'CONFIRMATION_INVALID':
+      return { code: 'DECLINED', message: 'The confirmation expired' }
+    case 'UNKNOWN_OP':
+    case 'PERMISSION_DENIED':
+    case 'INVALID_INPUT':
+      return { code, message }
+    case 'UPSTREAM_ERROR':
+      return { code: 'UNAVAILABLE', message }
+    default:
+      return { code: 'INVALID_INPUT', message }
+  }
+}
+
 /** Permissions with at least one `optional` operation: only these offer a mode. */
 export function confirmablePermissions(): WidgetPermission[] {
   const permissions = Object.values(GATEWAY_OPS).flatMap((spec): WidgetPermission[] => (spec.confirm === 'optional' ? [spec.permission] : []))

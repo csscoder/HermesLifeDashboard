@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   BRIDGE_LIMITS,
+  checkGatewayCall,
+  createRateLimiter,
+  GatewayFailure,
+  RATE_LIMITS,
+  widgetFailure,
   CONFIRMATION_DIALOG_MS,
   CONFIRMATION_TTL_MS,
   confirmablePermissions,
@@ -179,5 +184,88 @@ describe('http inputs', () => {
     const result = op === 'get' ? parseHttpGet(input) : parseHttpSend(input)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toMatch(message)
+  })
+})
+
+describe('widgetFailure', () => {
+  it.each([
+    ['UNKNOWN_OP', 'Unknown operation "nope"', 'UNKNOWN_OP', 'Unknown operation "nope"'],
+    ['PERMISSION_DENIED', 'Permission missing', 'PERMISSION_DENIED', 'Permission missing'],
+    ['INVALID_INPUT', 'Invalid data', 'INVALID_INPUT', 'Invalid data'],
+    ['RATE_LIMITED', 'Too many state.get calls', 'RATE_LIMITED', 'Too many calls'],
+    ['CONFLICT', 'Conflict detail', 'CONFLICT', 'The widget state changed since it was read'],
+    ['UPSTREAM_ERROR', 'The service is unreachable', 'UNAVAILABLE', 'The service is unreachable'],
+    ['CONFIRMATION_INVALID', 'Invalid confirmation', 'DECLINED', 'The confirmation expired'],
+    ['VALIDATION_ERROR', 'Bad value', 'INVALID_INPUT', 'Bad value'],
+    ['NOT_FOUND', 'Missing widget', 'INVALID_INPUT', 'Missing widget'],
+    ['UNRECOGNIZED', 'Unknown code', 'INVALID_INPUT', 'Unknown code'],
+  ])('maps %s', (code, message, expectedCode, expectedMessage) => {
+    expect(widgetFailure(code, message)).toEqual({ code: expectedCode, message: expectedMessage })
+  })
+})
+
+describe('GatewayFailure', () => {
+  it('carries the shared code and message as an Error', () => {
+    const failure = new GatewayFailure('UPSTREAM_ERROR', 'The service is unreachable')
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure.code).toBe('UPSTREAM_ERROR')
+    expect(failure.message).toBe('The service is unreachable')
+  })
+})
+
+describe('checkGatewayCall', () => {
+  it('rejects unknown operations before checking permissions or input', () => {
+    expect(checkGatewayCall('nope', {}, new Set())).toEqual({ ok: false, code: 'UNKNOWN_OP', message: 'Unknown operation "nope"' })
+    const op = 'x'.repeat(101)
+    expect(checkGatewayCall(op, null, new Set())).toEqual({ ok: false, code: 'UNKNOWN_OP', message: `Unknown operation "${op.slice(0, 100)}"` })
+  })
+
+  it('checks permissions before parsing input', () => {
+    for (const input of [{ url: 'https://a.example' }, null]) {
+      expect(checkGatewayCall('http.get', input, new Set(['state']))).toEqual({
+        ok: false, code: 'PERMISSION_DENIED', message: 'The widget has no "network" permission',
+      })
+    }
+  })
+
+  it('rejects state data over 64 KB with the parser message', () => {
+    expect(checkGatewayCall('state.set', { data: 'x'.repeat(65_536), expectedRevision: 0 }, new Set(['state']))).toEqual({
+      ok: false, code: 'INVALID_INPUT', message: 'data must be at most 64 KB as JSON',
+    })
+  })
+
+  it('returns the operation and normalized input', () => {
+    expect(checkGatewayCall('http.get', { url: 'HTTPS://A.EXAMPLE' }, new Set(['network']))).toEqual({
+      ok: true, op: 'http.get', input: { url: 'https://a.example/' },
+    })
+  })
+})
+
+describe('createRateLimiter', () => {
+  it('allows max calls, rejects the next and expires hits at the window boundary', () => {
+    let now = 1_000
+    const allow = createRateLimiter(() => now)
+    const { max, windowMs } = RATE_LIMITS['state.get']
+    for (let i = 0; i < max; i++) expect(allow('widget', 'state.get')).toBe(true)
+    expect(allow('widget', 'state.get')).toBe(false)
+    now += windowMs - 1
+    expect(allow('widget', 'state.get')).toBe(false)
+    now += 1
+    expect(allow('widget', 'state.get')).toBe(true)
+  })
+
+  it('isolates keys and operations and retains a sliding window', () => {
+    let now = 0
+    const allow = createRateLimiter(() => now)
+    const { max, windowMs } = RATE_LIMITS['state.get']
+    expect(allow('a', 'state.get')).toBe(true)
+    now = windowMs / 2
+    for (let i = 1; i < max; i++) expect(allow('a', 'state.get')).toBe(true)
+    expect(allow('a', 'state.get')).toBe(false)
+    expect(allow('b', 'state.get')).toBe(true)
+    expect(allow('a', 'state.set')).toBe(true)
+    now = windowMs
+    expect(allow('a', 'state.get')).toBe(true)
+    expect(allow('a', 'state.get')).toBe(false)
   })
 })

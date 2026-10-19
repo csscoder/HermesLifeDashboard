@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GATEWAY_OPS, RATE_LIMITS } from '../src/widget-gateway.ts'
-import { REDACTED, SECRET_MIN_LENGTH, injectSecret, redactSecrets, secretsOf } from '../src/widget-secrets.ts'
+import { REDACTED, SECRET_MIN_LENGTH, injectSecret, redactSecrets, secretValueError, secretsOf } from '../src/widget-secrets.ts'
 import type { SettingsSchema } from '../src/widget-settings.ts'
 
 const origin = 'https://a.example'
@@ -133,5 +133,32 @@ describe('RATE_LIMITS', () => {
       'http.send': { max: 60, windowMs: 60_000 },
     })
     expect(Object.keys(RATE_LIMITS)).toEqual(Object.keys(GATEWAY_OPS))
+  })
+})
+
+describe('secretValueError', () => {
+  const header = { origin, header: 'Authorization' }
+  const query = { origin, query: 'apikey' }
+
+  it.each([
+    undefined, null, 123, {}, '', 'x'.repeat(15),
+    `${value}\ud800`, `${value}\udc00`, ` ${value}`, `${value} `,
+    `${value}\n`, `${value}\r`, `${value}\t`, `${value}\u0000`, `${value}\u001f`, `${value}\u007f`,
+  ])('rejects invalid value %j with the production message for both bindings', (invalid) => {
+    for (const bind of [header, query]) {
+      expect(secretValueError(invalid, bind)).toBe('The secret must be at least 16 characters without control characters or surrounding spaces')
+    }
+  })
+
+  it.each(['\u0100', 'ключ', '🔑'])('rejects non-Latin-1 header value %s only', (suffix) => {
+    expect(secretValueError(value + suffix, header)).toBe('A header secret may contain only Latin-1 characters')
+    expect(secretValueError(value + suffix, query)).toBeNull()
+  })
+
+  it('accepts the minimum length, internal spaces and Latin-1', () => {
+    for (const valid of [value, `${value} x`, `${value}é`]) {
+      expect(secretValueError(valid, header)).toBeNull()
+      expect(secretValueError(valid, query)).toBeNull()
+    }
   })
 })

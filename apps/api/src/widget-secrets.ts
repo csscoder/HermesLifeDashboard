@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
-import { SECRET_MIN_LENGTH, secretsOf, type BoundSecret } from '@lifedashboard/contracts/widget-secrets'
+import { secretValueError, secretsOf, type BoundSecret } from '@lifedashboard/contracts/widget-secrets'
 import { ApiError, ok } from './errors.ts'
 import { resolveWidget } from './widget-gateway.ts'
 
@@ -34,15 +34,11 @@ export function registerWidgetSecrets(app: FastifyInstance, { db, now }: { db: D
       const { widgetId, key } = request.params
       const secrets = secretsFor(widgetId, key)
       const value = request.body?.value
-      if (typeof value !== 'string' || !value.isWellFormed() || value.length < SECRET_MIN_LENGTH || value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
-        throw new ApiError('VALIDATION_ERROR', 'The secret must be at least 16 characters without control characters or surrounding spaces')
-      }
-      if (secrets.some((secret) => secret.key === key && 'header' in secret.bind) && /[^\u0000-\u00ff]/.test(value)) {
-        throw new ApiError('VALIDATION_ERROR', 'A header secret may contain only Latin-1 characters')
-      }
+      const error = secretValueError(value, secrets.find((secret) => secret.key === key)!.bind)
+      if (error !== null) throw new ApiError('VALIDATION_ERROR', error)
       db.prepare(
         'INSERT INTO widget_secrets (widget_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (widget_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-      ).run(widgetId, key, value, now().toISOString())
+      ).run(widgetId, key, value as string, now().toISOString())
       return ok(request, status(widgetId, secrets))
     },
   )

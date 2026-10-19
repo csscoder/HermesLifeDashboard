@@ -5,20 +5,20 @@ import { findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
 import {
   CONFIRMATION_TTL_MS,
   GATEWAY_OPS,
-  RATE_LIMITS,
-  isGatewayOp,
-  parseGatewayInput,
+  checkGatewayCall,
+  createRateLimiter,
+  GatewayFailure,
   type ConfirmPolicy,
   type GatewayInputs,
   type GatewayOp,
   type HttpOutput,
   type WidgetSessionResponse,
 } from '@lifedashboard/contracts/widget-gateway'
+import { performHttp, type ProxyRequest } from '@lifedashboard/contracts/widget-http'
 import { canonicalJson, type GrantMode, type WidgetPackageManifest, type WidgetPermission } from '@lifedashboard/contracts/widget-package'
 import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
-import { injectSecret, redactSecrets, secretsOf, type BoundSecret } from '@lifedashboard/contracts/widget-secrets'
+import { secretsOf, type BoundSecret } from '@lifedashboard/contracts/widget-secrets'
 import { ApiError, ok } from './errors.ts'
-import { proxyHttp, type ProxyRequest } from './http-proxy.ts'
 import { grantsOf, originsOf } from './widget-packages.ts'
 import { secretValues } from './widget-secrets.ts'
 
@@ -80,7 +80,7 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   db.prepare('DELETE FROM widget_audit WHERE at < ?').run(new Date(now().getTime() - AUDIT_TTL_MS).toISOString())
   // ponytail: sessions and rate counters are in memory; a restart drops them and the host renews the session.
   const sessions = new Map<string, WidgetSession>()
-  const hits = new Map<string, number[]>()
+  const allowCall = createRateLimiter(() => now().getTime())
   const handlers = operationHandlers(db, now)
   const readMode = db.prepare('SELECT mode FROM widget_grants WHERE package_id = ? AND permission = ?')
 
@@ -127,16 +127,7 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
   }
 
   function rateLimit(widgetId: string, op: GatewayOp): void {
-    const { max, windowMs } = RATE_LIMITS[op]
-    const t = now().getTime()
-    const key = `${widgetId} ${op}`
-    const recent = (hits.get(key) ?? []).filter((at) => t - at < windowMs)
-    if (recent.length >= max) {
-      hits.set(key, recent)
-      throw new ApiError('RATE_LIMITED', `Too many ${op} calls`)
-    }
-    recent.push(t)
-    hits.set(key, recent)
+    if (!allowCall(widgetId, op)) throw new ApiError('RATE_LIMITED', `Too many ${op} calls`)
   }
 
   function audit(session: WidgetSession, op: string, outcome: string): void {
@@ -182,30 +173,30 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     let outcome = 'ok'
     let target = ''
     try {
-      if (!isGatewayOp(op)) throw new ApiError('UNKNOWN_OP', `Unknown operation "${op.slice(0, 100)}"`)
-      const { permission, confirm } = GATEWAY_OPS[op]
-      if (!session.grants.has(permission)) throw new ApiError('PERMISSION_DENIED', `The widget has no "${permission}" permission`)
-      const input = parseGatewayInput(op, request.body)
-      if (!input.ok) throw new ApiError('INVALID_INPUT', input.error)
-      target = httpTarget(op, input.value)
+      const call = checkGatewayCall(op, request.body, session.grants)
+      if (!call.ok) throw new ApiError(call.code, call.message)
+      const checkedOp = call.op
+      const { permission, confirm } = GATEWAY_OPS[checkedOp]
+      target = httpTarget(checkedOp, call.input)
       if (needsConfirmation(confirm, grantMode(session, permission))) {
-        confirmCall(session, op, input.value, request.headers['x-widget-confirmation'])
+        confirmCall(session, checkedOp, call.input, request.headers['x-widget-confirmation'])
       } else {
         // An approval repeat spends its id even if the mode flipped to allow mid-dialog.
         if (session.confirmation?.id === request.headers['x-widget-confirmation']) session.confirmation = null
-        rateLimit(session.widgetId, op)
+        rateLimit(session.widgetId, checkedOp)
       }
-      const handler = handlers[op] as (context: GatewayContext, input: unknown) => unknown
+      const handler = handlers[checkedOp] as (context: GatewayContext, input: unknown) => unknown
       // Awaited inside try: an HTTP handler is asynchronous, and catch and audit must see its end.
       const output = await handler(
         { widgetId: session.widgetId, packageId: session.packageId, grants: session.grants, origins: session.origins, secrets: session.secrets },
-        input.value,
+        call.input,
       )
       if (target !== '') outcome = String((output as HttpOutput).status)
       return ok(request, output)
     } catch (error) {
-      outcome = error instanceof ApiError ? error.code : 'INTERNAL_ERROR'
-      throw error
+      const failure = error instanceof GatewayFailure ? new ApiError(error.code, error.message) : error
+      outcome = failure instanceof ApiError ? failure.code : 'INTERNAL_ERROR'
+      throw failure
     } finally {
       audit(session, op, outcome + target)
     }
@@ -258,29 +249,7 @@ function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {
 
   async function http(context: GatewayContext, input: ProxyRequest): Promise<HttpOutput> {
     const values = secretValues(db, context.widgetId)
-    const origin = new URL(input.url).origin
-    if (!context.origins.has(origin)) throw new ApiError('PERMISSION_DENIED', 'The widget may not reach this origin')
-    const bindings = context.secrets.filter(({ bind }) => bind.origin === origin)
-    // Check all values before injection, so a later missing setting wins over a query collision.
-    for (const { key, title } of bindings) {
-      if (!values.has(key)) throw new ApiError('UPSTREAM_ERROR', `Secret «${title}» is not set`)
-    }
-    let request = { url: input.url, headers: { ...input.headers } }
-    for (const { key, bind } of bindings) {
-      const injected = injectSecret(request, bind, values.get(key)!)
-      if ('error' in injected) {
-        const name = 'query' in bind ? bind.query : ''
-        throw new ApiError('INVALID_INPUT', `The URL already contains the secret parameter "${name}"`)
-      }
-      request = injected
-    }
-    const output = await proxyHttp({ ...input, ...request }, context.origins)
-    const redactions = [...values.values()]
-    return {
-      ...output,
-      body: redactSecrets(output.body, redactions),
-      contentType: output.contentType === null ? null : redactSecrets(output.contentType, redactions),
-    }
+    return performHttp(input, { origins: context.origins, secrets: context.secrets, values })
   }
 
   return {

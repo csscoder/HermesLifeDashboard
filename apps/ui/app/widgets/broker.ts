@@ -5,10 +5,10 @@ import {
   parseGatewayInput,
   parseSandboxMessage,
   SDK_VERSION,
+  widgetFailure,
   type GatewayOp,
   type NotificationInput,
   type WidgetContext,
-  type WidgetErrorCode,
 } from '@lifedashboard/contracts/widget-gateway'
 import { WidgetError, type WidgetCall } from '@lifedashboard/widget-sdk'
 import type { api, ApiFailure, ApiResult } from '../api'
@@ -22,25 +22,28 @@ export interface GatewayClient {
   close(): Promise<void>
 }
 
-const GATEWAY_CODES: ReadonlySet<string> = new Set<WidgetErrorCode>(['UNKNOWN_OP', 'PERMISSION_DENIED', 'INVALID_INPUT'])
-
 function toWidgetError(failure: ApiFailure): WidgetError {
+  let mapped: ReturnType<typeof widgetFailure>
   switch (failure.kind) {
     case 'conflict':
-      return new WidgetError('CONFLICT', 'The widget state changed since it was read')
+      mapped = widgetFailure('CONFLICT', '')
+      break
     case 'rate-limited':
-      return new WidgetError('RATE_LIMITED', 'Too many calls')
+      mapped = widgetFailure('RATE_LIMITED', '')
+      break
     case 'invalid':
-      if (failure.code === 'CONFIRMATION_INVALID') return new WidgetError('DECLINED', 'The confirmation expired')
-      return new WidgetError(GATEWAY_CODES.has(failure.code) ? (failure.code as WidgetErrorCode) : 'INVALID_INPUT', failure.message)
+      mapped = widgetFailure(failure.code, failure.message)
+      break
     case 'upstream':
-      return new WidgetError('UNAVAILABLE', failure.message)
+      mapped = widgetFailure('UPSTREAM_ERROR', failure.message)
+      break
     // Only a repeat that carried an id gets here: it is never asked again.
     case 'confirmation-required':
       return new WidgetError('DECLINED', 'The confirmation expired')
     default:
       return new WidgetError('UNAVAILABLE', 'The LifeDashboard API is unavailable')
   }
+  return new WidgetError(mapped.code, mapped.message)
 }
 
 /**

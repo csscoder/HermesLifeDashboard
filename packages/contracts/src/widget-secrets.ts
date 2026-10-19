@@ -9,6 +9,14 @@ export interface BoundSecret {
   bind: SecretBinding
 }
 
+export function secretValueError(value: unknown, bind: SecretBinding): string | null {
+  if (typeof value !== 'string' || !value.isWellFormed() || value.length < SECRET_MIN_LENGTH || value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
+    return 'The secret must be at least 16 characters without control characters or surrounding spaces'
+  }
+  if ('header' in bind && /[^\u0000-\u00ff]/.test(value)) return 'A header secret may contain only Latin-1 characters'
+  return null
+}
+
 export function secretsOf(schema: SettingsSchema | undefined): BoundSecret[] {
   return Object.entries(schema?.properties ?? {}).flatMap(([key, setting]): BoundSecret[] =>
     setting.type === 'secret' ? [{ key, title: setting.title, bind: setting.bind }] : [],
