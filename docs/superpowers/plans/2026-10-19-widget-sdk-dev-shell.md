@@ -24,7 +24,7 @@
   - `dist/sandbox.js` stays where it is;
   - no listening sockets in the Codex sandbox (tests marked *controller-run*);
   - directed error messages.
-- **The dev shell must not re-implement a production rule.** A rule that exists in `apps/api` or `apps/ui` moves to `@lifedashboard/contracts` or `@lifedashboard/widget-sdk`, and both hosts call it. Production behaviour stays byte-for-byte: existing API and UI tests keep passing unchanged, except for import paths.
+- **The dev shell must not re-implement a production rule.** A rule that exists in `apps/api` or `apps/ui` moves to `@lifedashboard/contracts` or `@lifedashboard/widget-sdk`, and both hosts call it. Production behaviour stays byte-for-byte: existing API and UI tests keep passing unchanged, except for import paths and the mechanical `async` adaptation named in Task 1.
 - **Declared dev-only differences** (spec decision 10). These are the only differences the divergence test accepts; it fails on any other:
   1. The runtime `vue.js` is the Vue development build of the app's Vue version (3.5.43).
   2. The sandbox document adds a `<script type="module">` for the Vite client (`/@ld/pkg/@vite/client`).
@@ -32,6 +32,8 @@
   4. `connect-src` adds the HMR WebSocket origin (`ws://<host>`).
   5. Styles reach the frame through Vite's injected `<style>` (already allowed by `style-src 'unsafe-inline'`), not `<link>`.
   6. A second load of the frame (Vite full reload) re-handshakes instead of failing the widget.
+
+  The frame geometry is not a difference: the shell uses the production frame markup and a byte copy of the production frame CSS (Task 4), so padding, border and box-sizing match.
 - **Proven by the 2026-10-19 spike:** HMR works in a `sandbox="allow-scripts"` iframe if:
   - `vue` resolves to the runtime URL from a plugin with `enforce: 'pre'`, which otherwise yields two Vue copies;
   - files under `/@ld/pkg/` and `/@ld/runtime/` send `access-control-allow-origin: *`;
@@ -47,7 +49,8 @@
   The frame's `connect-src` covers only `/@ld/pkg/` and the WebSocket, so a widget cannot call `/@ld/api/` directly, as in production.
 - **Default port:** `5273` with `strictPort`. When it is busy: `Port 5273 is in use. Fix: npx ld-widget dev --port <another port>.`
 - **Dev secrets:** `.env.local` in the project, `LD_SECRET_<settingKey>=<value>`, parsed with `node:util` `parseEnv` and read on every call. A value that fails production validation counts as unset and is logged with the production message. A secret value never appears in the terminal, the log file or the shell.
-- **Dev log:** `.ld-widget/dev.log`. One line per event: `<ISO time> [<kind>] <message>`. The kind is one of `gateway`, `error`, `csp`, `overflow`, `manifest` or `secret`, and a line carries the shell state (`w=4 h=3 theme=builtin:glass frame=framed`) when the event comes from the frame.
+- **Dev log:** `.ld-widget/dev.log`. One line per event: `<ISO time> [<kind>] <message>`. The kind is one of `gateway`, `error`, `csp`, `overflow`, `manifest` or `secret`, and a line carries the shell state (`w=4 h=3 theme=builtin:glass frame=framed`) when the event comes from the frame, gateway calls included. CR and LF inside a message are written as `\r` and `\n`, so one event is always one line.
+- **Rate-limit numbers come from `RATE_LIMITS`**, never from a literal in a test (`state.get` is 120 per minute today).
 
 ## Review Focus
 
@@ -65,7 +68,7 @@
    - the value never appears in `.ld-widget/dev.log`.
    
    Task 5 pins this.
-4. **A Vite full reload of the frame** (an edit to a non-component module, or a syntax error recovered) must re-handshake and keep working, not show «Ошибка виджета». Task 7 pins this through the shell helper test and the controller check.
+4. **A Vite full reload of the frame** (an edit to a non-component module, or a syntax error recovered) must re-handshake and keep working, not show «Ошибка виджета». The hello may arrive before or after the frame's `load` event. Task 7 pins this through the frame-session test and the controller check.
 5. **URL state round-trip:**
    - `?w=99&h=0&theme=nope&frame=x` clamps to manifest `min`/`max` and falls back to the default theme and `framed`;
    - the shell state is reproducible from the URL alone, so an agent's browser tool can open each combination.
@@ -79,7 +82,7 @@
 **Files:**
 - Create: `packages/contracts/src/sandbox-document.ts`, `packages/contracts/test/sandbox-document.test.ts`
 - Modify: `apps/api/src/sandbox.ts` (remove `sandboxDocument`, call the shared one)
-- Test: `apps/api/test/sandbox.test.ts` (unchanged and must pass)
+- Modify: `apps/api/test/sandbox.test.ts`, mechanically only: the test that compares the response with `sandboxDocument(BASE, hash, pkg.manifest).html` now `await`s the shared function with the equivalent `urls` and `styles`. Every HTML, CSP and header assertion stays as it is.
 
 **Interfaces:**
 - Produces:
@@ -112,7 +115,7 @@ Expected: PASS. The API sandbox tests run *controller-run* if the sandbox refuse
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/contracts/src/sandbox-document.ts packages/contracts/test/sandbox-document.test.ts apps/api/src/sandbox.ts
+git add packages/contracts/src/sandbox-document.ts packages/contracts/test/sandbox-document.test.ts apps/api/src/sandbox.ts apps/api/test/sandbox.test.ts
 git commit -m "refactor: share the sandbox document builder through contracts"
 ```
 
@@ -138,7 +141,7 @@ git commit -m "refactor: share the sandbox document builder through contracts"
     - `UPSTREAM_ERROR` → `UNAVAILABLE` with the message.
 - Produces, in `widget-http.ts`:
   - `interface ProxyRequest` (moved).
-  - `proxyHttp(request, origins, timeoutMs?)` (moved). It throws `GatewayFailure` and uses `TextEncoder`/`TextDecoder` instead of `Buffer`.
+  - `proxyHttp(request, origins, timeoutMs?)` (moved). It throws `GatewayFailure` and uses `TextEncoder`/`TextDecoder` instead of `Buffer`. The decoder is `new TextDecoder('utf-8', { ignoreBOM: true })` over the concatenated bytes, so a leading U+FEFF survives exactly as with today's `Buffer.concat(chunks).toString('utf8')`.
   - `performHttp(input: ProxyRequest, context: { origins: ReadonlySet<string>; secrets: readonly BoundSecret[]; values: ReadonlyMap<string, string> }, timeoutMs?: number): Promise<HttpOutput>`. It runs today's `http()` steps in the same order: origin check, missing-secret check, injection, proxy, redaction.
 - Produces, in `widget-secrets.ts`: `secretValueError(value: unknown, bind: SecretBinding): string | null`. It returns the API's current messages verbatim for a value that is not a string, not well-formed, shorter than 16 characters, has surrounding spaces, contains control characters, or (for a header binding) contains non-Latin-1 characters.
 - Consumers:
@@ -150,9 +153,9 @@ git commit -m "refactor: share the sandbox document builder through contracts"
 - `checkGatewayCall('nope', {}, new Set())` gives `{ ok: false, code: 'UNKNOWN_OP', message: 'Unknown operation "nope"' }`.
 - `checkGatewayCall('http.get', { url: 'https://a.example' }, new Set(['state']))` gives `PERMISSION_DENIED` with `The widget has no "network" permission`.
 - A `state.set` over 64 KB gives `INVALID_INPUT` with `data must be at most 64 KB as JSON`.
-- `createRateLimiter`: the 61st `state.get` inside one window is refused, and the call after the window passes (with a fake `now`).
+- `createRateLimiter`: with `max = RATE_LIMITS['state.get'].max`, `max` calls inside one window pass, call `max + 1` is refused, and the call after the window passes (with a fake `now`).
 - `secretValueError` returns each production message.
-- Moved proxy tests run unchanged against the new import. `performHttp` cases: a missing secret gives `GatewayFailure('UPSTREAM_ERROR', 'Secret «Ключ» is not set')` before any fetch, and an echo is redacted. These need a listener: *controller-run*.
+- Moved proxy tests run unchanged against the new import. A new proxy case (*controller-run*) returns a body that starts with U+FEFF and splits a multi-byte character across two chunks; the result equals what `Buffer.concat(chunks).toString('utf8')` gives for the same bytes. `performHttp` cases: a missing secret gives `GatewayFailure('UPSTREAM_ERROR', 'Secret «Ключ» is not set')` before any fetch, and an echo is redacted. These need a listener: *controller-run*.
 
 - [ ] **Step 2: Run the tests and see them fail**
 
@@ -211,14 +214,16 @@ git commit -m "refactor: move the host bridge into the widget SDK for the dev sh
 **Interfaces:**
 - Produces:
   - `extractThemeTokens(css: string): Record<string, string>`. It maps every `--ld-*` declaration in the file to its trimmed value, and the last declaration wins.
-  - `interface DevTheme { id: string; name: string; mode: 'light' | 'dark'; tokens: Record<string, string> }`.
+  - `interface DevTheme { id: string; name: string; mode: 'light' | 'dark'; skin: string; tokens: Record<string, string> }`. `skin` is the theme's own frame skin from `BUILTIN_THEMES` (`themeMeta(id).skin` in the UI); the shell uses it for the framed look.
   - Build output:
     - `dist/dev/themes.json` (`DevTheme[]`, in `BUILTIN_THEMES` order, read from `apps/ui/app/theme/builtin.ts`, with tokens from `apps/ui/app/theme/styles/themes/<id without builtin:>.css`);
     - `dist/dev/vue.js`, a byte copy of `vue/dist/vue.runtime.esm-browser.js` resolved from the SDK;
-    - `dist/dev/probe.js`, a built module.
+    - `dist/dev/probe.js`, a built module;
+    - `dist/dev/frame.css`, a byte copy of `apps/ui/app/theme/styles/frame.css`. If that file depends on rules from another style file (for example the `@layer` order in `layers.css`), copy that file too and name it in the commit message.
 - Probe behaviour:
   - On `securitypolicyviolation`, post `{ t: 'ld:dev', kind: 'csp', message: '<violatedDirective> blocked <blockedURI>' }` to `parent`.
-  - A `ResizeObserver` on `document.documentElement` posts `{ t: 'ld:dev', kind: 'overflow', message: 'content is <scrollW>×<scrollH> px in a <innerW>×<innerH> px frame' }` when the scroll size exceeds the viewport by more than 1 px. It posts once per distinct size.
+  - Overflow: measure `document.documentElement.scrollWidth`/`scrollHeight` against `innerWidth`/`innerHeight` on a `ResizeObserver` callback and also every 500 ms, because content can overflow without the root box resizing (an absolutely positioned child growing). When the scroll size exceeds the viewport by more than 1 px, post `{ t: 'ld:dev', kind: 'overflow', message: 'content is <scrollW>×<scrollH> px in a <innerW>×<innerH> px frame' }`. It posts once per distinct size.
+  - The measuring logic is a pure exported function `overflowReport(scroll: {w,h}, inner: {w,h}, last: string | null): string | null`, so it is unit-tested without a DOM.
 
 - [ ] **Step 1: Write the failing test**
 - `extractThemeTokens` on a sample with two declarations of one token gives the last value.
@@ -227,6 +232,8 @@ git commit -m "refactor: move the host bridge into the widget SDK for the dev sh
 - No value contains `var(`.
 - The first comment of `dist/dev/vue.js` names `v3.5.43`, which equals `apps/ui/package.json` `dependencies.vue`.
 - `dist/dev/probe.js` exists and imports nothing.
+- `dist/dev/frame.css` is byte-equal to `apps/ui/app/theme/styles/frame.css`.
+- `overflowReport` returns a message for a 1-px-plus overflow, `null` within 1 px, and `null` for the same size reported twice.
 
 - [ ] **Step 2: Run the test and see it fail**
 
@@ -238,7 +245,7 @@ Expected: FAIL.
 - [ ] **Step 4: Run the tests and see them pass**
 
 Run: `pnpm -C packages/widget-sdk build && pnpm -C packages/widget-sdk test`
-Expected: PASS. Also extend `pack.test.ts` from plan 2a so that `dist/dev/themes.json`, `dist/dev/vue.js` and `dist/dev/probe.js` are in the tarball.
+Expected: PASS. Also extend `pack.test.ts` from plan 2a so that `dist/dev/themes.json`, `dist/dev/vue.js`, `dist/dev/probe.js` and `dist/dev/frame.css` are in the tarball.
 
 - [ ] **Step 5: Commit**
 
@@ -257,8 +264,8 @@ git commit -m "build(widget-sdk): ship theme tokens, the dev Vue runtime and the
 - Produces:
   - `type ConfirmMode = 'allow' | 'decline'`
   - `type DevCallResult = { ok: true; value: unknown } | { ok: false; code: WidgetErrorCode; message: string }`
-  - `interface DevGateway { call(op: string, input: unknown, confirm: ConfirmMode): Promise<DevCallResult>; reset(): void }`. `reset` clears state and rate counters.
-  - `createDevGateway(deps: { manifest: () => WidgetPackageManifest; secrets: () => ReadonlyMap<string, string>; log: (kind: 'gateway', message: string) => void; now?: () => number }): DevGateway`
+  - `interface DevGateway { call(op: string, input: unknown, confirm: ConfirmMode, shell?: string): Promise<DevCallResult>; reset(): void }`. `reset` clears state and rate counters. `shell` is the caller's `describeShell` string and is passed to the log unchanged.
+  - `createDevGateway(deps: { manifest: () => WidgetPackageManifest; secrets: () => ReadonlyMap<string, string>; log: (kind: 'gateway', message: string, shell?: string) => void; now?: () => number }): DevGateway`
   - `readDevSecrets(dir: string, manifest: WidgetPackageManifest, log: (kind: 'secret', message: string) => void): Map<string, string>`. It reads `.env.local` with `parseEnv`, keeps `LD_SECRET_<key>` for the manifest's secret settings, and drops a value for which `secretValueError` returns a message. It logs `<key>: <message>` and never the value.
 - Pipeline, in order:
   1. `checkGatewayCall`, with grants equal to the manifest permissions.
@@ -269,11 +276,12 @@ git commit -m "build(widget-sdk): ship theme tokens, the dev Vue runtime and the
      - `notifications.send` returns `{ ok: true }`;
      - `http.*` calls `performHttp` with `origins` equal to the manifest `network`, the manifest secrets, and the current values.
   5. Map each `GatewayFailure` through `widgetFailure`.
-- Every call logs one `gateway` line: `<op> <ok|CODE>`, plus ` <METHOD> <origin> <status>` for HTTP. It never logs a body, path, query or secret.
+- Every call logs exactly one `gateway` line: `<op> <ok|CODE>`, plus ` <METHOD> <origin> <status>` for HTTP, with the caller's `shell` string. It never logs a body, path, query or secret.
 
 - [ ] **Step 1: Write the failing tests**
 - `state.set` with a stale revision gives `CONFLICT`.
-- An unknown op, a missing permission, an over-64 KB input and the 61st `state.get` each give the code and message of the shared functions.
+- An unknown op, a missing permission, an over-64 KB input and `state.get` call `RATE_LIMITS['state.get'].max + 1` each give the code and message of the shared functions.
+- A call with `shell = 'w=4 h=3 theme=builtin:glass frame=framed'` produces exactly one log call, and that call carries the same `shell` string.
 - `notifications.send` in `decline` mode gives `DECLINED`; in `allow` mode, `{ ok: true }`.
 - `readDevSecrets` keeps a 16-character `LD_SECRET_apiKey`. It drops a 10-character one and logs `apiKey: The secret must be at least 16 characters without control characters or surrounding spaces`. It ignores keys that are not secret settings.
 - *Controller-run*, with a loopback echo server: a header secret is injected and the echoed value comes back as `[REDACTED]`. Without the secret, the call gives `UNAVAILABLE` and `Secret «Ключ» is not set`. The collected log lines never contain the value.
@@ -300,8 +308,8 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
 ### Task 6: Dev server and `ld-widget dev`
 
 **Files:**
-- Create: `packages/widget-sdk/src/dev/server.ts`, `packages/widget-sdk/src/dev/log.ts`, `packages/widget-sdk/test/dev-server.test.ts`, `packages/widget-sdk/test/dev-server.listen.test.ts` (*controller-run*), `packages/widget-sdk/test/fixtures/vue-lib/` (a project whose `node_modules/fake-vue-lib/index.js` does `import { h } from 'vue'`)
-- Modify: `packages/widget-sdk/src/cli.ts`, `packages/create-widget/template/package.json` (`"dev": "ld-widget dev"`), `packages/create-widget/template/AGENTS.md` (add `npx ld-widget dev` before `check` in the workflow)
+- Create: `packages/widget-sdk/src/dev/server.ts`, `packages/widget-sdk/src/dev/log.ts`, `packages/widget-sdk/test/dev-server.test.ts`, `packages/widget-sdk/test/dev-server.listen.test.ts` (*controller-run*), `packages/widget-sdk/test/fixtures/vue-lib/` (a widget project whose component imports `fake-vue-lib`) and `packages/widget-sdk/test/fixtures/fake-vue-lib/` (`package.json` plus `index.js` doing `import { h } from 'vue'`). `.gitignore` excludes every `node_modules/`, so the library lives outside it; the listen test copies the `vue-lib` project to a temp dir and creates `node_modules/fake-vue-lib` there as a copy of the library fixture.
+- Modify: `packages/widget-sdk/src/build.ts` (export `widgetVitePlugins()`, used by `buildWidget`), `packages/widget-sdk/src/cli.ts`, `packages/create-widget/template/package.json` (`"dev": "ld-widget dev"`), `packages/create-widget/template/AGENTS.md` (add `npx ld-widget dev` before `check` in the workflow)
 
 **Interfaces:**
 - Consumes:
@@ -317,14 +325,14 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
     - `entry` = `packageDir + 'src/index.vue'`;
     - `styles` = `[]`;
     - `extras` = `{ scripts: [packageDir + '@vite/client', runtime + 'probe.js'], connectSrc: [wsOrigin] }`.
-  - `createDevLog(dir: string): { write(kind: DevLogKind, message: string, shell?: string): void }`. It prints `[ld-widget] [<kind>] <message>` and appends `<ISO> [<kind>] <message>[ (<shell>)]` to `.ld-widget/dev.log`. `type DevLogKind = 'gateway' | 'error' | 'csp' | 'overflow' | 'manifest' | 'secret'`.
+  - `createDevLog(dir: string): { write(kind: DevLogKind, message: string, shell?: string): void }`. It prints `[ld-widget] [<kind>] <message>` and appends `<ISO> [<kind>] <message>[ (<shell>)]` to `.ld-widget/dev.log`, after replacing CR with `\r` and LF with `\n` in `message`. `type DevLogKind = 'gateway' | 'error' | 'csp' | 'overflow' | 'manifest' | 'secret'`.
   - `createDevApi(deps: { gateway: DevGateway; info: () => DevInfo; log: DevLog; reset: () => void }): (req: IncomingMessage, res: ServerResponse) => Promise<boolean>`. It returns `false` when the path is not under `/@ld/api/`, and it is testable with fake `req`/`res`. Routes:
-    - `POST call` takes `{ op, input, confirm }` and returns a `DevCallResult`;
+    - `POST call` takes `{ op, input, confirm, shell }` and returns a `DevCallResult`; `shell` goes to `gateway.call`;
     - `POST log` takes `{ kind, message, shell }` and returns 204;
     - `GET info` returns a `DevInfo`;
     - `POST reset` returns 204;
     - a body over 256 KB gets 413.
-  - `interface DevInfo { revision: number; manifest: WidgetPackageManifest; themes: DevTheme[]; secrets: Record<string, boolean>; settingsProblems: string[] }`
+  - `interface DevInfo { revision: number; manifest: WidgetPackageManifest; themes: DevTheme[]; secrets: Record<string, boolean>; settingsProblems: string[] }`. `secrets` is computed from `.env.local` on every `info` request, independently of `revision`.
   - `startDevServer(dir: string, options?: { port?: number }): Promise<{ url: string; close(): Promise<void> }>`
 - `widgetVitePlugins(): Plugin[]`, exported from `build.ts`. It returns `[mediaImportGuard(), vue({ template: { transformAssetUrls: false } })]`. `buildWidget` uses it (plus `stripRegionMarkers()`, which is build-only), and so does the dev server. Dev must reject what the build rejects.
 - Vite config:
@@ -339,7 +347,8 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
   - `/@ld/sandbox` with the CSP header;
   - the runtime files from `dist/dev/vue.js`, `dist/sandbox.js` and `dist/dev/probe.js`;
   - the dev API.
-- `widget.json` is watched. A valid change runs `writeConfigDeclaration` and bumps `revision`. An invalid one logs `manifest` and keeps the last good manifest. An invalid manifest at start rejects `startDevServer` with `Invalid widget.json: <error>`.
+- `startDevServer` runs `writeConfigDeclaration` once at start. `widget.json` is watched. A valid change runs `writeConfigDeclaration` and bumps `revision`. An invalid one logs `manifest` and keeps the last good manifest and declaration. An invalid manifest at start rejects `startDevServer` with `Invalid widget.json: <error>`.
+- Vite diagnostics reach the log: `customLogger` wraps Vite's logger so every `error` (transform and HMR errors included) is also written as kind `error` with Vite's message. These are the errors Vite shows in its overlay; they do not throw inside the frame.
 - CLI `ld-widget dev [dir] [--port <n>]` prints:
   - `Dev shell: <url>`;
   - `Log: .ld-widget/dev.log`;
@@ -352,17 +361,22 @@ git commit -m "feat(widget-sdk): add a dev gateway that runs the production gate
 `dev-server.test.ts` (no listening):
 - `devSandboxDocument('http://localhost:5273', 'ws://localhost:5273')` gives a CSP containing `connect-src http://localhost:5273/@ld/pkg/ data: blob: ws://localhost:5273`.
 - The HTML imports `http://localhost:5273/@ld/pkg/src/index.vue` as `@lifedashboard/widget-entry`.
-- `createDevApi` with a stub gateway answers `call`, `log`, `info` and `reset`. It returns `false` for `/x`, and 413 for a 300 KB body.
-- `createDevLog` writes the file line format.
+- `createDevApi` with a stub gateway answers `call`, `log`, `info` and `reset`. `call` passes its `shell` to the gateway. It returns `false` for `/x`, and 413 for a 300 KB body.
+- `createDevLog` writes the file line format; a message `a\nb\r\nc` stays on one line as `a\\nb\\r\\nc`.
 
-`dev-server.listen.test.ts` (*controller-run*) starts the server on the `vue-lib` fixture with port 0 → `strictPort` off. Then:
+`dev-server.listen.test.ts` (*controller-run*) starts the server on a temp copy of the `vue-lib` fixture (with `node_modules/fake-vue-lib` created as described under Files) with port 0 → `strictPort` off. Then:
+- `widget-env.d.ts` exists right after start.
 - `GET /@ld/pkg/src/index.vue` imports `http://localhost:<port>/@ld/runtime/vue.js`.
 - Following every import from that module and from the optimized `fake-vue-lib`, no URL contains `vue.runtime.esm-bundler`.
 - `GET /@ld/sandbox` has a `content-security-policy` header.
 - `GET /@ld/runtime/vue.js` is 200.
 - `POST /@ld/api/call` for `state.get` gives `{ ok: true, value: { data: null, revision: 0 } }`.
-- Writing an invalid `widget.json` adds a `[manifest]` line to `.ld-widget/dev.log`, and the server still answers.
-- A component that imports `../assets/x.mp4` fails to transform with `reference media by URL: assets/x.mp4`, as in `buildWidget`.
+- Manifest sequence valid → invalid → valid, polling `GET /@ld/api/info` after each write:
+  1. a valid edit adds a `city` string setting, changes `sizing.max` and adds a `network` origin: `revision` grows, `info.manifest` shows all three, and `widget-env.d.ts` gains `city: string`;
+  2. an invalid edit adds a `[manifest]` line to `.ld-widget/dev.log`; `revision`, `info.manifest` and `widget-env.d.ts` stay as after step 1, and the server still answers;
+  3. a second valid edit applies again and `revision` grows.
+- Writing `LD_SECRET_<key>` to `.env.local` and then removing it flips `info.secrets[<key>]` true and back to false without any `widget.json` change and without a restart.
+- A component that imports `../assets/x.mp4` fails to transform with `reference media by URL: assets/x.mp4`, as in `buildWidget`, and that message appears as an `[error]` line in `.ld-widget/dev.log`.
 
 - [ ] **Step 2: Run the tests and see them fail**
 
@@ -379,7 +393,7 @@ Expected: PASS. The listen test runs *controller-run*.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/widget-sdk/src/dev packages/widget-sdk/src/cli.ts packages/widget-sdk/test packages/create-widget/template
+git add packages/widget-sdk/src/dev packages/widget-sdk/src/build.ts packages/widget-sdk/src/cli.ts packages/widget-sdk/test packages/create-widget/template
 git commit -m "feat(widget-sdk): add ld-widget dev with the production sandbox and hot reload"
 ```
 
@@ -402,24 +416,28 @@ git commit -m "feat(widget-sdk): add ld-widget dev with the production sandbox a
   - `serializeShellState(state: ShellState): string`, giving `?w=…&h=…&theme=…&frame=…&confirm=…`.
   - `describeShell(state: ShellState): string`, giving `w=4 h=3 theme=builtin:glass frame=framed`.
   - `frameSizePx(state: ShellState, cellPx: number): { width: number; height: number }`, with gap 8 px: `n * cell + (n - 1) * 8`.
-  - `shellContext(state: ShellState, theme: DevTheme, settings: SettingsSchema | undefined, rawConfig: Record<string, unknown>, secretsSet: ReadonlySet<string>): WidgetContext`. `rootFontSize` is 16, `locale` is `navigator.language` (passed in), and `visible` is true.
+  - `shellContext(state: ShellState, theme: DevTheme, settings: SettingsSchema | undefined, rawConfig: Record<string, unknown>, secretsSet: ReadonlySet<string>, locale: string): WidgetContext`. `rootFontSize` is 16, `locale` is the argument (the shell passes `navigator.language`), and `visible` is true.
+  - `createFrameSession(open: () => { close(): void }): { hello(): void; dispose(): void }`. Every `hello()` closes the previous session, if any, and calls `open()` for a new one; `dispose()` closes the current one. It does not depend on the frame's `load` event.
+  - `secretsChanged(a: Record<string, boolean>, b: Record<string, boolean>): boolean`.
 - Shell behaviour:
   - A toolbar with `w`/`h` inputs limited to the manifest, a theme select, a framed/frameless toggle, a confirm `allow`/`decline` select, and «Сбросить состояние».
   - The frame:
-    - is sized by `frameSizePx`, with the cell taken from the board formula `(contentWidth − 23 × 8 px) / 24`;
-    - shows a card look when framed (radius, `--ld-surface-1`, border from tokens) and none when frameless;
-    - sets the tokens as CSS variables on the frame box.
+    - uses the production frame markup from `apps/ui/app/widgets/WidgetFrame.vue` (`.widget` › `.widget__wrapper` › `.widget__box` › `.widget__body` › iframe) with the classes `widget--theme-<id>` and `widget--skin-<skin>`, where framed uses the theme's own skin and frameless uses `bare`, styled by `dist/dev/frame.css` (Task 4). So `--ld-widget-padding`, border and box-sizing are the production ones;
+    - is sized by `frameSizePx` on the outer `.widget` box, with the cell taken from the board formula `(contentWidth − 23 × 8 px) / 24`;
+    - sets the theme tokens as CSS variables on the `.widget` box.
   - A settings panel:
     - one control per plain setting, validated with `isValidSettingValue`;
     - raw values kept in the shell's own `localStorage` under `ld-dev-config:<id>`;
     - each secret shown as «задан»/«не задан» with the hint `LD_SECRET_<key> в .env.local`.
   - A log panel lists gateway results and reports. Notifications show as toasts.
   - Every state change replaces the URL (`history.replaceState`), pushes a context patch over the bridge, and reports nothing.
-  - Polling `info` every 2 s applies a changed `revision`: it reloads the frame and rebuilds the settings.
+  - Polling `info` every 2 s:
+    - a changed `revision` reloads the frame and rebuilds the settings;
+    - a changed `secrets` map (`secretsChanged`), with or without a new `revision`, updates the settings panel and pushes a context patch with the new `config` over the bridge.
 - Frame lifecycle:
-  - The frame is `<iframe sandbox="allow-scripts" src="/@ld/sandbox">`. On each `load`, the shell re-registers for the hello: this is declared difference 6.
-  - On hello, it opens a `MessageChannel`, sends `ld:init` with `shellContext`, and calls `createBridge(port, …)` with:
-    - `call` → `fetch('/@ld/api/call')`, throwing `new WidgetError(code, message)` on `ok: false`;
+  - The frame is `<iframe sandbox="allow-scripts" src="/@ld/sandbox">`. The shell adds one `message` listener on `window` before it sets the iframe `src`, and keeps it for the page's life. It accepts `ld:hello` only when `event.source === iframe.contentWindow`, and feeds it to `createFrameSession`. A hello that arrives before or after `load`, and every later hello after a Vite full reload, gets a fresh session: this is declared difference 6.
+  - A session opens a `MessageChannel`, sends `ld:init` with `shellContext`, and calls `createBridge(port, …)` with:
+    - `call` → `fetch('/@ld/api/call', { op, input, confirm, shell: describeShell(state) })`, throwing `new WidgetError(code, message)` on `ok: false`;
     - `onError` → report kind `error`;
     - `onClose` → report kind `error` with `bridge closed`.
   - `ld:dev` messages from the frame window report their kind.
@@ -429,7 +447,9 @@ git commit -m "feat(widget-sdk): add ld-widget dev with the production sandbox a
 - `parseShellState('?w=99&h=0&theme=nope&frame=x&confirm=y', counter, ['builtin:glass', 'builtin:paper'])` gives `{ w: 4, h: 1, theme: 'builtin:glass', frame: 'framed', confirm: 'allow' }`.
 - `serializeShellState` round-trips.
 - `frameSizePx({ w: 3, h: 2, … }, 40)` is `{ width: 136, height: 88 }`.
-- `shellContext` gives `sizeClass` `s` for 2×3. It gives `frame` from the state, the theme tokens, and `config` from `normalizeConfig`, so a secret key becomes a boolean.
+- `shellContext` gives `sizeClass` `s` for 2×3. It gives `frame` from the state, the theme tokens, `locale` from its argument (`'ru-RU'`), and `config` from `normalizeConfig`, so a secret key becomes a boolean that follows `secretsSet` (unset → set → cleared).
+- `createFrameSession`: two `hello()` calls open two sessions and close the first; `dispose()` closes the second. The test fires hello once without any load event and once after a simulated reload, and each time a session is open.
+- `secretsChanged({ apiKey: false }, { apiKey: true })` is true, and equal maps give false.
 
 - [ ] **Step 2: Run the test and see it fail**
 
@@ -468,12 +488,13 @@ The test fails on any difference not declared:
 2. `dist/dev/vue.js` names the same Vue version as the file the API serves, `require.resolve('vue/package.json')` from `apps/api`.
 3. `themes.json` covers `BUILTIN_THEMES`, and every theme has all `REQUIRED_TOKENS`.
 4. `DEV_SANDBOX_DIFFERENCES` has exactly six entries, with ids `vue-dev-build`, `vite-client`, `probe`, `hmr-websocket`, `styles-via-vite`, `frame-reload`.
-5. For a table of inputs, the dev gateway result equals `widgetFailure` applied to the shared check:
+5. For a table of call inputs, the dev gateway result equals `widgetFailure` applied to `checkGatewayCall` with the manifest permissions:
    - unknown op;
    - missing permission;
    - widget-supplied `authorization` header;
-   - `state.set` over 64 KB;
-   - `http.get` to an origin outside `network`.
+   - `state.set` over 64 KB.
+6. For `http.get` to an origin outside `network` (which `checkGatewayCall` accepts), the dev gateway result equals `widgetFailure` applied to the `GatewayFailure` that `performHttp` throws for the same input and the same `origins`. `performHttp` rejects it before any fetch, so no listener is needed.
+7. `dist/dev/frame.css` is byte-equal to `apps/ui/app/theme/styles/frame.css`.
 
 - [ ] **Step 2: Run it**
 
@@ -486,12 +507,17 @@ Run: `pnpm -C examples/widgets/hello exec ld-widget dev`. Then:
 1. Open the shell. The widget renders.
 2. Change `w`/`h` to the manifest limits, each of the three themes, and frameless. The URL and the frame follow.
 3. Edit the template text in `src/index.vue`. The frame updates without losing component state.
-4. Add `fetch('https://example.com')` temporarily. `.ld-widget/dev.log` gets a `[csp]` or `[gateway]` line, then revert.
-5. Shrink to `min`. An `[overflow]` line appears if content overflows.
-6. Set confirm to `decline` and trigger a notification. The widget gets `DECLINED`.
-7. With a temporary secret fixture widget against a loopback echo server:
-   - without `.env.local`, the call gives `UNAVAILABLE`;
-   - with `LD_SECRET_apiKey` set, the response shows `[REDACTED]`;
+4. Edit a non-component module the widget imports, so Vite does a full reload. The widget renders again without «Ошибка виджета». Then put a syntax error into `src/index.vue`: an `[error]` line with Vite's message appears in `.ld-widget/dev.log`. Fix it: the widget renders again.
+5. Add `fetch('https://example.com')` temporarily. `.ld-widget/dev.log` gets a `[csp]` or `[gateway]` line, then revert.
+6. Shrink to `min`. An `[overflow]` line appears if content overflows.
+7. At the same `w`/`h` and theme, read the iframe's `clientWidth`×`clientHeight` in the dev shell and in the running dashboard (`pnpm dev`, the same widget placed at that size). They match.
+8. With confirm `allow`, trigger a notification: a toast shows its title. Set confirm to `decline` and trigger it again: the widget gets `DECLINED`. Each call's `[gateway]` line carries the shell state.
+9. With a temporary fixture widget that has a plain `city` setting and a secret `apiKey` setting, against a loopback echo server:
+   - change `city` in the settings panel: the widget's `context.config.city` changes, and the value is still there after a page reload;
+   - enter a value the setting rejects: it is not applied;
+   - without `.env.local`, the HTTP call gives `UNAVAILABLE` and the panel shows «не задан»;
+   - add `LD_SECRET_apiKey` without touching `widget.json`: within a few seconds the panel shows «задан» and `context.config.apiKey` becomes `true`; the response shows `[REDACTED]`;
+   - remove it again: the panel and `context.config.apiKey` go back to unset;
    - `grep` of `.ld-widget/dev.log` for the value finds nothing.
 
 Record the results in the ledger.
