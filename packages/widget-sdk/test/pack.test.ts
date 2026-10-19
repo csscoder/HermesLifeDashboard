@@ -45,6 +45,10 @@ it('packs the compiled public package without workspace references or sources', 
   for (const file of ['themes.json', 'vue.js', 'probe.js', 'frame.css']) {
     expect(files).toContain(`dist/dev/${file}`)
   }
+  expect(files).toContain('dist/shell/index.html')
+  expect(files).toContain('dist/shell/frame.css')
+  expect(await readFile(join(extracted, 'dist/shell/frame.css')))
+    .toEqual(await readFile(join(extracted, 'dist/dev/frame.css')))
   expect(files).toContain('dist/types/widget-sdk/src/index.d.ts')
   expect(files.some((file) => file.startsWith('src/') || file.startsWith('test/'))).toBe(false)
   expect((await readFile(join(extracted, 'dist/cli.js'), 'utf8')).split('\n')[0]).toBe('#!/usr/bin/env node')

@@ -4,8 +4,10 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'vite'
+import vue from '@vitejs/plugin-vue'
 import { rewriteDeclarations } from './rewrite-declarations.ts'
 import { extractCssBlock, extractThemeTokens, type DevTheme } from '../src/dev/themes.ts'
+import { DEV_PATHS } from '../src/dev/server.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
@@ -90,3 +92,13 @@ if (sandboxStyle === undefined) {
 }
 frameRules.push(extractCssBlock(sandboxStyle, '.sandbox'), extractCssBlock(sandboxStyle, '.sandbox__frame'))
 await writeFile(join(devDir, 'frame.css'), frameRules.join('\n\n') + '\n')
+
+await build({
+  root: join(root, 'shell'),
+  configFile: false,
+  base: '/@ld/shell/',
+  plugins: [vue()],
+  define: { DEV_PATHS: JSON.stringify(DEV_PATHS) },
+  build: { outDir: join(root, 'dist/shell'), emptyOutDir: false },
+})
+await copyFile(join(devDir, 'frame.css'), join(root, 'dist/shell/frame.css'))
