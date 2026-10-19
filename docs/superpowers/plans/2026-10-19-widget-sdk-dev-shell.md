@@ -33,7 +33,7 @@
   5. Styles reach the frame through Vite's injected `<style>` (already allowed by `style-src 'unsafe-inline'`), not `<link>`.
   6. A second load of the frame (Vite full reload) re-handshakes instead of failing the widget.
 
-  The frame geometry is not a difference: the shell uses the production frame markup and a byte copy of the production frame CSS (Task 4), so padding, border and box-sizing match.
+  The frame geometry is not a difference: the shell uses the production frame markup and verbatim copies of the production geometry rules (reset, frame, skins and iframe fill; Task 4), so padding, border and box-sizing match.
 - **Proven by the 2026-10-19 spike:** HMR works in a `sandbox="allow-scripts"` iframe if:
   - `vue` resolves to the runtime URL from a plugin with `enforce: 'pre'`, which otherwise yields two Vue copies;
   - files under `/@ld/pkg/` and `/@ld/runtime/` send `access-control-allow-origin: *`;
@@ -219,7 +219,13 @@ git commit -m "refactor: move the host bridge into the widget SDK for the dev sh
     - `dist/dev/themes.json` (`DevTheme[]`, in `BUILTIN_THEMES` order, read from `apps/ui/app/theme/builtin.ts`, with tokens from `apps/ui/app/theme/styles/themes/<id without builtin:>.css`);
     - `dist/dev/vue.js`, a byte copy of `vue/dist/vue.runtime.esm-browser.js` resolved from the SDK;
     - `dist/dev/probe.js`, a built module;
-    - `dist/dev/frame.css`, a byte copy of `apps/ui/app/theme/styles/frame.css`. If that file depends on rules from another style file (for example the `@layer` order in `layers.css`), copy that file too and name it in the commit message.
+    - `dist/dev/frame.css`: the production rules that decide the frame geometry, each copied verbatim (no re-written CSS), in this order:
+      1. the `@layer ld.reset { … }` block from `apps/ui/app/theme/styles/layers.css` (`box-sizing: border-box`, `border: 0 solid`), preceded by that file's `@layer` order statement if it has one; the rest of `layers.css` (its `@import`s) is not copied;
+      2. `apps/ui/app/theme/styles/frame.css`;
+      3. `apps/ui/app/theme/styles/skins/bare.css`, `glass.css`, `paper.css` and `solid.css`;
+      4. the `.sandbox` and `.sandbox__frame` rules from the `<style scoped>` block of `apps/ui/app/widgets/SandboxWidget.vue` (iframe fills its box, `border: 0`), with the scoped selectors kept as plain class selectors. The shell wraps the iframe in `<div class="sandbox">` and gives it `class="sandbox__frame"`.
+      
+      `extractCssBlock(css: string, selectorOrAtRule: string): string` returns one top-level block verbatim and throws when it is missing, so a renamed production rule fails the build instead of silently dropping out.
 - Probe behaviour:
   - On `securitypolicyviolation`, post `{ t: 'ld:dev', kind: 'csp', message: '<violatedDirective> blocked <blockedURI>' }` to `parent`.
   - Overflow: measure `document.documentElement.scrollWidth`/`scrollHeight` against `innerWidth`/`innerHeight` on a `ResizeObserver` callback and also every 500 ms, because content can overflow without the root box resizing (an absolutely positioned child growing). When the scroll size exceeds the viewport by more than 1 px, post `{ t: 'ld:dev', kind: 'overflow', message: 'content is <scrollW>×<scrollH> px in a <innerW>×<innerH> px frame' }`. It posts once per distinct size.
@@ -232,7 +238,8 @@ git commit -m "refactor: move the host bridge into the widget SDK for the dev sh
 - No value contains `var(`.
 - The first comment of `dist/dev/vue.js` names `v3.5.43`, which equals `apps/ui/package.json` `dependencies.vue`.
 - `dist/dev/probe.js` exists and imports nothing.
-- `dist/dev/frame.css` is byte-equal to `apps/ui/app/theme/styles/frame.css`.
+- `dist/dev/frame.css` contains, verbatim, the `ld.reset` block of `layers.css`, the whole of `frame.css` and of the four skin files, and the `.sandbox`/`.sandbox__frame` rules of `SandboxWidget.vue`.
+- `extractCssBlock` throws for a selector that is not in the input.
 - `overflowReport` returns a message for a 1-px-plus overflow, `null` within 1 px, and `null` for the same size reported twice.
 
 - [ ] **Step 2: Run the test and see it fail**
@@ -422,7 +429,7 @@ git commit -m "feat(widget-sdk): add ld-widget dev with the production sandbox a
 - Shell behaviour:
   - A toolbar with `w`/`h` inputs limited to the manifest, a theme select, a framed/frameless toggle, a confirm `allow`/`decline` select, and «Сбросить состояние».
   - The frame:
-    - uses the production frame markup from `apps/ui/app/widgets/WidgetFrame.vue` (`.widget` › `.widget__wrapper` › `.widget__box` › `.widget__body` › iframe) with the classes `widget--theme-<id>` and `widget--skin-<skin>`, where framed uses the theme's own skin and frameless uses `bare`, styled by `dist/dev/frame.css` (Task 4). So `--ld-widget-padding`, border and box-sizing are the production ones;
+    - uses the production frame markup from `apps/ui/app/widgets/WidgetFrame.vue` and `SandboxWidget.vue` (`.widget` › `.widget__wrapper` › `.widget__box` › `.widget__body` › `.sandbox` › `iframe.sandbox__frame`) with the classes `widget--theme-<id>` and `widget--skin-<skin>`, where framed uses the theme's own skin and frameless uses `bare`, styled by `dist/dev/frame.css` (Task 4). So `--ld-widget-padding`, border and box-sizing are the production ones;
     - is sized by `frameSizePx` on the outer `.widget` box, with the cell taken from the board formula `(contentWidth − 23 × 8 px) / 24`;
     - sets the theme tokens as CSS variables on the `.widget` box.
   - A settings panel:
@@ -494,7 +501,7 @@ The test fails on any difference not declared:
    - widget-supplied `authorization` header;
    - `state.set` over 64 KB.
 6. For `http.get` to an origin outside `network` (which `checkGatewayCall` accepts), the dev gateway result equals `widgetFailure` applied to the `GatewayFailure` that `performHttp` throws for the same input and the same `origins`. `performHttp` rejects it before any fetch, so no listener is needed.
-7. `dist/dev/frame.css` is byte-equal to `apps/ui/app/theme/styles/frame.css`.
+7. `dist/dev/frame.css` contains every geometry source listed in Task 4 verbatim, read from `apps/ui` at test time.
 
 - [ ] **Step 2: Run it**
 
@@ -509,8 +516,8 @@ Run: `pnpm -C examples/widgets/hello exec ld-widget dev`. Then:
 3. Edit the template text in `src/index.vue`. The frame updates without losing component state.
 4. Edit a non-component module the widget imports, so Vite does a full reload. The widget renders again without «Ошибка виджета». Then put a syntax error into `src/index.vue`: an `[error]` line with Vite's message appears in `.ld-widget/dev.log`. Fix it: the widget renders again.
 5. Add `fetch('https://example.com')` temporarily. `.ld-widget/dev.log` gets a `[csp]` or `[gateway]` line, then revert.
-6. Shrink to `min`. An `[overflow]` line appears if content overflows.
-7. At the same `w`/`h` and theme, read the iframe's `clientWidth`×`clientHeight` in the dev shell and in the running dashboard (`pnpm dev`, the same widget placed at that size). They match.
+6. Shrink to `min`. An `[overflow]` line appears if content overflows. Then, at a fixed frame size, add temporarily an absolutely positioned child whose width grows by 50 px every second from a `setInterval`. A new `[overflow]` line appears without any frame resize (the periodic measurement), then revert.
+7. At the same `w`/`h`, cell width, theme and frame mode, read the iframe's `clientWidth`×`clientHeight` in the dev shell and in the running dashboard (`pnpm dev`, the same widget placed at that size). They match, framed and frameless.
 8. With confirm `allow`, trigger a notification: a toast shows its title. Set confirm to `decline` and trigger it again: the widget gets `DECLINED`. Each call's `[gateway]` line carries the shell state.
 9. With a temporary fixture widget that has a plain `city` setting and a secret `apiKey` setting, against a loopback echo server:
    - change `city` in the settings panel: the widget's `context.config.city` changes, and the value is still there after a page reload;
