@@ -1,0 +1,33 @@
+export function overflowReport(
+  scroll: { w: number; h: number },
+  inner: { w: number; h: number },
+  last: string | null,
+): string | null {
+  if (scroll.w <= inner.w + 1 && scroll.h <= inner.h + 1) return null
+  const message = `content is ${scroll.w}×${scroll.h} px in a ${inner.w}×${inner.h} px frame`
+  return message === last ? null : message
+}
+
+if (typeof window !== 'undefined') {
+  const post = (kind: 'csp' | 'overflow', message: string) => {
+    window.parent.postMessage({ t: 'ld:dev', kind, message }, '*')
+  }
+  document.addEventListener('securitypolicyviolation', (event) => {
+    post('csp', `${event.violatedDirective} blocked ${event.blockedURI}`)
+  })
+  let last: string | null = null
+  const measure = () => {
+    const root = document.documentElement
+    const message = overflowReport(
+      { w: root.scrollWidth, h: root.scrollHeight },
+      { w: window.innerWidth, h: window.innerHeight },
+      last,
+    )
+    if (message !== null) {
+      last = message
+      post('overflow', message)
+    }
+  }
+  new ResizeObserver(measure).observe(document.documentElement)
+  setInterval(measure, 500)
+}
