@@ -4,6 +4,8 @@ import type { GatewayInputs, GatewayOp, GatewayOutputs, HttpOutput, HttpSendInpu
 /** One gateway call: resolves with the operation output or rejects with a WidgetError. */
 export type WidgetCall = (op: string, input: unknown) => Promise<unknown>
 
+export interface WidgetConfig {}
+
 export class WidgetError extends Error {
   readonly code: WidgetErrorCode
 
@@ -19,7 +21,7 @@ export interface Widget {
    * Reactive, read-only context owned by the host; secret config values are set/unset booleans.
    * Requires no permission; has no operation limits and never rejects.
    */
-  readonly context: Readonly<WidgetContext>
+  readonly context: Readonly<Omit<WidgetContext, 'config'> & { config: Readonly<WidgetConfig> }>
   /**
    * Instance-local persistence; requires `state`. See get/set for limits and WidgetError codes.
    */
@@ -105,7 +107,7 @@ export const WIDGET_KEY: InjectionKey<Widget> = Symbol('lifedashboard.widget')
 /** The same Widget over any transport: the in-process broker client or the sandbox port. */
 export function createWidget(call: WidgetCall, context: WidgetContext): Widget {
   return {
-    context: readonly(context) as Readonly<WidgetContext>,
+    context: readonly(context) as Widget['context'],
     state: {
       get: async <T>() => (await call('state.get', {})) as { data: T | null; revision: number },
       set: async (data, expectedRevision) => (await call('state.set', { data, expectedRevision })) as StateSetOutput,

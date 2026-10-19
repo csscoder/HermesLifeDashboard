@@ -6,6 +6,7 @@ import vue from '@vitejs/plugin-vue'
 import { build, type Plugin } from 'vite'
 import { SDK_TARGET_LEVEL } from '@lifedashboard/contracts/widget-gateway'
 import { ASSET_TYPES, fileExtension, parseWidgetFolder } from '@lifedashboard/contracts/widget-package'
+import { writeConfigDeclaration } from './config-declaration.ts'
 
 const AUDIO_VIDEO = new Set(['mp4', 'webm', 'mp3', 'ogg', 'oga', 'opus', 'wav', 'm4a', 'aac', 'flac'])
 const MEDIA_INLINE_LIMIT = 102_400
@@ -76,6 +77,7 @@ async function listFolder(dir: string): Promise<{ path: string; size: number }[]
  */
 export async function buildWidget(dir: string, { source = true }: { source?: boolean } = {}): Promise<string> {
   const root = resolve(dir)
+  await writeConfigDeclaration(root)
   const raw = JSON.parse(await readFile(join(root, 'widget.json'), 'utf8')) as Record<string, unknown>
   const { format: _format, ...fields } = raw
   const manifest: Record<string, unknown> = { format: 2, ...fields, sdk: SDK_TARGET_LEVEL }

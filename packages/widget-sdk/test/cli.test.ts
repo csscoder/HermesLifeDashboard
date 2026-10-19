@@ -26,6 +26,6 @@ it.each([false, true])('builds with --no-source=%s and lists sources only when i
   expect(result.status).toBe(0)
   expect(result.stderr).toBe('')
   const lines = [`Built ${join(dir, 'dist', 'dev.test.counter-1.0.0')}`]
-  if (!noSource) lines.push('source/: 2 files', '  src/index.vue', '  widget.json')
+  if (!noSource) lines.push('source/: 3 files', '  src/index.vue', '  widget-env.d.ts', '  widget.json')
   expect(result.stdout).toBe(`${lines.join('\n')}\n`)
 }, 30_000)

@@ -31,7 +31,7 @@ describe('buildWidget', () => {
     const dir = await copyOf('counter')
     const target = await buildWidget(dir)
     expect(target).toBe(join(dir, 'dist', 'dev.test.counter-1.0.0'))
-    expect(await filesOf(target)).toEqual(['index.js', 'source/src/index.vue', 'source/widget.json', 'style.css', 'widget.json'])
+    expect(await filesOf(target)).toEqual(['index.js', 'source/src/index.vue', 'source/widget-env.d.ts', 'source/widget.json', 'style.css', 'widget.json'])
     expect(JSON.parse(await readFile(join(target, 'widget.json'), 'utf8')).format).toBe(2)
     expect(await readFile(join(target, 'index.js'), 'utf8')).toMatch(/from\s*["']@lifedashboard\/widget-sdk["']/)
   }, 30_000)
@@ -76,7 +76,7 @@ describe('buildWidget', () => {
       await writeFile(join(dir, path), body)
     }
     const source = (await filesOf(await buildWidget(dir))).filter((file) => file.startsWith('source/'))
-    expect(source).toEqual(['source/src/index.vue', 'source/widget.json'])
+    expect(source).toEqual(['source/src/index.vue', 'source/widget-env.d.ts', 'source/widget.json'])
   }, 30_000)
 
   it('keeps extra source files but drops project notes and secrets from source/', async () => {
@@ -86,7 +86,7 @@ describe('buildWidget', () => {
       await writeFile(join(dir, path), body)
     }
     const source = (await filesOf(await buildWidget(dir))).filter((file) => file.startsWith('source/'))
-    expect(source).toEqual(['source/src/extra.ts', 'source/src/index.vue', 'source/widget.json'])
+    expect(source).toEqual(['source/src/extra.ts', 'source/src/index.vue', 'source/widget-env.d.ts', 'source/widget.json'])
   }, 30_000)
 
   it('omits source/ with source: false', async () => {
@@ -165,7 +165,7 @@ describe('buildWidget', () => {
     const dir = await copyOf('counter')
     await symlink(tmpdir(), join(dir, 'node_modules'))
     const source = (await filesOf(await buildWidget(dir))).filter((file) => file.startsWith('source/'))
-    expect(source).toEqual(['source/src/index.vue', 'source/widget.json'])
+    expect(source).toEqual(['source/src/index.vue', 'source/widget-env.d.ts', 'source/widget.json'])
   }, 30_000)
 })
 
