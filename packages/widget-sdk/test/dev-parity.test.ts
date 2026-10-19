@@ -10,6 +10,8 @@ import { performHttp } from '@lifedashboard/contracts/widget-http'
 import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import { secretsOf } from '@lifedashboard/contracts/widget-secrets'
 import { describe, expect, it, vi } from 'vitest'
+import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../../../apps/api/src/migrations.ts'
+import { call, installPackage, pair, testApp, widgetPackage } from '../../../apps/api/test/helpers.ts'
 import { REQUIRED_TOKENS } from '../../../apps/ui/app/theme/contract.ts'
 import { createDevGateway } from '../src/dev/gateway.ts'
 import { DEV_SANDBOX_DIFFERENCES, devSandboxDocument } from '../src/dev/server.ts'
@@ -110,15 +112,41 @@ describe('dev gateway rules', () => {
   })
 
   // Production issues the confirmation (and spends the limit) before the user answers, so a declined
-  // call costs capacity; once spent, the next request is RATE_LIMITED and the broker maps it with widgetFailure.
+  // call costs capacity. The production side runs the real gateway in-process; the broker maps its
+  // RATE_LIMITED answer with widgetFailure.
   it('answers a declined notification after the limit as production does', async () => {
-    const current = manifest(['notifications'])
-    const dev = gateway(current)
+    const op = 'notifications.send'
     const input = { title: 'x', body: '' }
+    const dev = gateway(manifest(['notifications']))
     const declined = { ok: false, code: 'DECLINED', message: 'The user declined the call' }
-    for (let i = 0; i < RATE_LIMITS['notifications.send'].max; i++) {
-      expect(await dev.call('notifications.send', input, 'decline')).toEqual(declined)
+    const t = await testApp()
+    try {
+      const cookie = await pair(t)
+      await installPackage(t, cookie, widgetPackage((p) => { p.manifest.permissions = ['state', 'notifications'] }))
+      const widgetId = '00000000-0000-4000-8000-0000000000a1'
+      const screen = {
+        id: SEED_SCREEN_ID,
+        rows: 12,
+        instances: [{ id: widgetId, source: { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' }, configVersion: 1, config: {} }],
+        layout: [{ instanceId: widgetId, x: 0, y: 0, w: 3, h: 3 }],
+      }
+      const board = { method: 'PUT', url: `/api/v1/rooms/${SEED_ROOM_ID}/board`, cookie, payload: { expectedRevision: 1, screens: [screen] } } as const
+      expect((await call(t.app, board)).statusCode).toBe(200)
+      const opened = await call(t.app, { method: 'POST', url: '/api/v1/widget-sessions', cookie, payload: { widgetId } })
+      const headers = { 'x-widget-session': opened.json().data.widgetSession }
+      const issue = () => call(t.app, { method: 'POST', url: `/api/v1/widget-gateway/${op}`, cookie, payload: input, headers })
+      for (let i = 0; i < RATE_LIMITS[op].max; i++) {
+        const issued = await issue()
+        expect([issued.statusCode, issued.json().error.code]).toEqual([428, 'CONFIRMATION_REQUIRED'])
+        const url = `/api/v1/widget-gateway/confirmations/${issued.json().error.confirmationId}`
+        expect((await call(t.app, { method: 'DELETE', url, cookie, payload: {}, headers })).statusCode).toBe(200)
+        expect(await dev.call(op, input, 'decline')).toEqual(declined)
+      }
+      const prod = (await issue()).json().error
+      expect(prod.code).toBe('RATE_LIMITED')
+      expect(await dev.call(op, input, 'decline')).toEqual({ ok: false, ...widgetFailure(prod.code, prod.message) })
+    } finally {
+      await t.close()
     }
-    expect(await dev.call('notifications.send', input, 'decline')).toEqual({ ok: false, ...widgetFailure('RATE_LIMITED', '') })
   })
 })
