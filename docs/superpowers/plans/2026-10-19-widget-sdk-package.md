@@ -355,7 +355,7 @@ Scan rules work on `ts.createSourceFile` nodes, never on raw text:
 
 A *gpu test* is an expression that is `navigator.gpu` or `'gpu' in navigator`, optionally under `!`/`!!` or parentheses. `navigator.gpu` counts as guarded in any of these cases, decided by walking the node's ancestors:
 - the node's parent access or call uses `?.`;
-- the node is inside the condition of an `if`, a ternary, or the left operand of `&&`;
+- the node is itself a gpu test (the whole `navigator.gpu` expression, optionally under `!`/`!!` or parentheses, is the condition of an `if`, a ternary, or an operand of `&&`/`||`). An access such as `navigator.gpu.requestAdapter()` inside a condition is not a gpu test;
 - the node is inside the `then` branch of an `if`, the `whenTrue` branch of a ternary, or the right operand of `&&`, whose condition is (or is an `&&` chain containing) a gpu test without `!`.
 
 A gpu test elsewhere in the file guards nothing.
@@ -365,7 +365,7 @@ Not a value use:
 - a declaration name;
 - the name in `x.<name>` when `x` is not `window`, `globalThis` or `self`.
 
-Media rules work on the template AST from `vue/compiler-sfc` (`parse(text).descriptor.template.ast`; `vue` is already a peer and template devDependency). For each `<video>` and `<audio>` element, collect the static URLs of its own `src` attribute and of its `<source src>` children; bound attributes (`:src`) are not checked. Report at the element's line in the `.vue` file:
+Media rules work on the template AST from `vue/compiler-sfc` (`parse(text).descriptor.template.ast`; `vue` is already a peer and template devDependency). For each `<video>` and `<audio>` element, collect the static URLs it actually plays: its own `src` attribute when present (the browser then ignores `<source>` children), otherwise the `src` of its `<source>` children. Bound attributes (`:src`) are not checked. Report at the element's line in the `.vue` file:
 - A `<video>` with an `.mp4` URL and no `.webm` URL gives `<file>:<line> <video> has no WebM source. Fix: add assets/<base>.webm (VP9 + Opus) as the first <source> of this <video>.`
 - An `<audio>` with an `.mp3`, `.m4a`, `.aac`, `.wav` or `.flac` URL and no `.ogg`, `.oga`, `.opus` or `.webm` URL gives `<file>:<line> <audio> has no Opus source. Fix: add an .ogg or .opus file (Opus) as the first <source> of this <audio>.`
 
@@ -394,6 +394,7 @@ it.each([
 it.each([
   "if ('gpu' in navigator) {}\nnavigator.gpu.requestAdapter()",
   "if (!('gpu' in navigator)) { navigator.gpu.requestAdapter() }",
+  'if (navigator.gpu.requestAdapter()) {}', 'navigator.gpu.requestAdapter() && start()',
 ])('flags an unguarded navigator.gpu next to an unrelated test: %s', (code) => expect(scan(code)).toHaveLength(1))
 
 it('gives the notify fix with the real signature', () =>
@@ -412,10 +413,11 @@ In `check.test.ts`, the shared fixture setup copies `counter` and symlinks `node
 - A `.vue` file with `localStorage` on script line 3 reports the correct file-level `line`.
 - A `<video src="assets/bg.mp4">` gives a `media` problem even when `assets/bg.webm` exists. A `<video>` with `<source src="assets/clip.webm">` and `<source src="assets/clip-h264.mp4">` passes.
 - An `<audio src="assets/a.mp3">` gives a `media` problem.
+- `<video src="assets/bg.mp4"><source src="assets/bg.webm"></video>` and `<audio src="assets/a.mp3"><source src="assets/a.ogg"></audio>` each give a `media` problem: the own `src` wins over the children.
 - A project without the symlinks (the default `deps`, no `node_modules`) gives exactly one `types` problem with the install command. This is the only fixture without the tools.
-- The CLI run `node src/cli.ts check .` with `cwd` = a clean fixture exits 0 and prints `check: OK` (relative path).
+- *Relative path (CLI):* reuse the integration project below, without the type error. Run `node <absolute path to packages/widget-sdk/src/cli.ts> check .` with `cwd` = that project. It exits 0 and prints `check: OK`.
 - The project lives in a temp dir named `Мои виджеты/часы` (with a space).
-- *Integration:* a project with `node_modules` symlinks to the workspace `typescript`, `vue-tsc` and `vue`, plus the **packed** SDK. Use the extracted tarball, via a `packedSdk()` helper shared with `pack.test.ts` in `test/packed.ts`. The workspace source uses `.ts` specifiers, which a consumer tsconfig rejects with TS5097; this was checked on 2026-10-19. `src/index.vue` contains `const n: number = 'x'`. The result is one `types` problem with `file: 'src/index.vue'` and a line number.
+- *Integration:* a copy of `counter` plus a `tsconfig.json` with the template's content (Task 5's table), with `node_modules` symlinks to the workspace `typescript`, `vue-tsc` and `vue`, plus the **packed** SDK. Use the extracted tarball, via a `packedSdk()` helper shared with `pack.test.ts` in `test/packed.ts`. The workspace source uses `.ts` specifiers, which a consumer tsconfig rejects with TS5097; this was checked on 2026-10-19. `src/index.vue` contains `const n: number = 'x'`. The result is one `types` problem with `file: 'src/index.vue'` and a line number.
 
 - [ ] **Step 2: Run the tests and see them fail**
 
