@@ -68,7 +68,7 @@ describe('buildWidget', () => {
     expect(await readFile(join(await buildWidget(dir), 'index.js'), 'utf8')).toContain('assets/bg.mp4')
   }, 30_000)
 
-  it('drops .env*, .git, .DS_Store, node_modules and dist from source/ but keeps other dot files', async () => {
+  it('copies only allow-listed files into source/', async () => {
     const dir = await copyOf('counter')
     const files: [string, string][] = [['.env', 'SECRET=1'], ['.env.local', 'SECRET=2'], ['.git/HEAD', 'x'], ['.DS_Store', 'x'], ['node_modules/x/index.js', 'x'], ['src/node_modules/y.js', 'x'], ['dist/old.txt', 'x'], ['.npmrc', 'x'], ['src/.data.json', '{}']]
     for (const [path, body] of files) {
@@ -76,7 +76,17 @@ describe('buildWidget', () => {
       await writeFile(join(dir, path), body)
     }
     const source = (await filesOf(await buildWidget(dir))).filter((file) => file.startsWith('source/'))
-    expect(source).toEqual(['source/.npmrc', 'source/src/.data.json', 'source/src/index.vue', 'source/widget.json'])
+    expect(source).toEqual(['source/src/index.vue', 'source/widget.json'])
+  }, 30_000)
+
+  it('keeps extra source files but drops project notes and secrets from source/', async () => {
+    const dir = await copyOf('counter')
+    const files: [string, string][] = [['.npmrc', 'x'], ['notes.md', 'notes'], ['src/.env', 'SECRET=1'], ['src/extra.ts', 'export {}']]
+    for (const [path, body] of files) {
+      await writeFile(join(dir, path), body)
+    }
+    const source = (await filesOf(await buildWidget(dir))).filter((file) => file.startsWith('source/'))
+    expect(source).toEqual(['source/src/extra.ts', 'source/src/index.vue', 'source/widget.json'])
   }, 30_000)
 
   it('omits source/ with source: false', async () => {
@@ -161,17 +171,14 @@ describe('buildWidget', () => {
 
 describe('keepInSource', () => {
   it.each([
-    ['src/index.vue', true],
-    ['.npmrc', true],
-    ['node_modules', false],
-    ['src/node_modules', false],
-    ['dist', false],
-    ['src/dist', true],
-    ['assets', false],
-    ['.git', false],
-    ['.env.production', false],
-    ['src/.DS_Store', false],
-  ])('%s → %s', (path, kept) => {
-    expect(keepInSource(path)).toBe(kept)
-  })
+    ['', true], ['widget.json', true], ['package.json', true], ['package-lock.json', true], ['pnpm-lock.yaml', true],
+    ['yarn.lock', true], ['tsconfig.json', true], ['tsconfig.app.json', true], ['AGENTS.md', true], ['CLAUDE.md', true],
+    ['README.md', true], ['README', true], ['widget-env.d.ts', true], ['src', true], ['src/index.vue', true],
+    [join('src', 'deep', 'a.ts'), true], ['test', true], [join('test', 'a.test.ts'), true],
+    ['.npmrc', false], ['.env', false], ['.env.local', false], ['.gitignore', false], ['.ld-widget', false],
+    ['node_modules', false], ['dist', false], ['assets', false], ['notes.md', false], ['secrets.json', false],
+    ['scripts', false], ['vite.config.ts', false], [join('src', '.secret'), false], [join('src', '.hidden', 'a.ts'), false],
+    [join('test', '.env'), false], [join('src', '.DS_Store'), false], [join('src', 'node_modules'), false],
+    [join('test', 'node_modules', 'x.js'), false],
+  ])('keepInSource(%j) is %s', (path, kept) => expect(keepInSource(path)).toBe(kept))
 })

@@ -14,9 +14,12 @@ const MEDIA_INLINE_LIMIT = 102_400
 export function keepInSource(path: string): boolean {
   if (path === '') return true
   const segments = path.split(sep)
-  const name = segments.at(-1)!
-  if (segments.length === 1 && (name === 'dist' || name === 'assets')) return false
-  return name !== 'node_modules' && name !== '.git' && name !== '.DS_Store' && !name.startsWith('.env')
+  if (segments.some((segment) => segment.startsWith('.') || segment === 'node_modules')) return false
+  const name = segments[0]!
+  if (name === 'src' || name === 'test') return true
+  if (segments.length !== 1) return false
+  return ['widget.json', 'package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'widget-env.d.ts', 'AGENTS.md', 'CLAUDE.md'].includes(name)
+    || /^tsconfig.*\.json$/.test(name) || /^README/.test(name)
 }
 
 // Vite library mode inlines imported assets as data: URLs; media-src does not allow data:.
