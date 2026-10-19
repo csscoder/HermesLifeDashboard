@@ -85,3 +85,12 @@ export function themeClass(id: string): string {
   if (id.startsWith('user:')) return `u-${id.slice('user:'.length)}`
   throw new Error(`Unknown theme id format: ${id}`)
 }
+
+export const LOG_ENTRY_LIMIT = 200
+export const LOG_MESSAGE_LIMIT = 500
+
+/** The shell's on-screen log: newest LOG_ENTRY_LIMIT entries, each message cut to LOG_MESSAGE_LIMIT characters. The dev log file keeps the full text. */
+export function appendLogEntry<T extends { message: string }>(entries: readonly T[], entry: T): T[] {
+  const message = entry.message.length > LOG_MESSAGE_LIMIT ? `${entry.message.slice(0, LOG_MESSAGE_LIMIT - 1)}…` : entry.message
+  return [...entries, { ...entry, message }].slice(-LOG_ENTRY_LIMIT)
+}

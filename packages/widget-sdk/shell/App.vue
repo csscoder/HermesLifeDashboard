@@ -5,7 +5,7 @@ import { plainConfig } from '@lifedashboard/contracts/widget-settings'
 import { createBridge, createHandshakes, type Bridge } from '../src/host.ts'
 import { WidgetError } from '../src/widget.ts'
 import {
-  createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
+  appendLogEntry, createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
   serializeShellState, shellContext, themeClass, type ShellState,
 } from '../src/dev/shell-state.ts'
 import type { DevInfo } from '../src/dev/server.ts'
@@ -50,7 +50,7 @@ const frameStyle = computed(() => {
 const themeClassName = computed(() => themeClass(theme.value?.id ?? ''))
 
 function append(kind: DevLogKind, message: string) {
-  entries.value.push({ id: ++sequence, time: new Date().toISOString(), kind, message, shell: state.value ? describeShell(state.value) : '' })
+  entries.value = appendLogEntry(entries.value, { id: ++sequence, time: new Date().toISOString(), kind, message, shell: state.value ? describeShell(state.value) : '' })
 }
 
 async function api(route: string, body?: unknown) {

@@ -4,7 +4,7 @@ import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-pack
 import type { PlainSetting, SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import type { DevTheme } from '../src/dev/themes.ts'
 import {
-  createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
+  appendLogEntry, LOG_ENTRY_LIMIT, LOG_MESSAGE_LIMIT, createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
   serializeShellState, shellContext, themeClass, type ShellState,
 } from '../src/dev/shell-state.ts'
 
@@ -118,4 +118,17 @@ it('uses the production settings-form helpers from contracts', async () => {
     .toEqual([{ ok: true, value: 3 }, { ok: false }, { ok: false }, { ok: false }])
   expect(shared.parseFieldInput(schema.properties.on as PlainSetting, true)).toEqual({ ok: true, value: true })
   expect(shared.plainConfig(schema, { title: 't', key: 's', unknown: 1, count: 2 })).toEqual({ title: 't', count: 2 })
+})
+
+it('keeps the newest log entries and truncates long messages with an ellipsis', () => {
+  let entries: { id: number; message: string }[] = []
+  for (let id = 1; id <= LOG_ENTRY_LIMIT + 5; id++) entries = appendLogEntry(entries, { id, message: `m${id}` })
+  expect(entries).toHaveLength(LOG_ENTRY_LIMIT)
+  expect(entries[0]!.id).toBe(6)
+  expect(entries.at(-1)!.id).toBe(LOG_ENTRY_LIMIT + 5)
+  const exact = 'x'.repeat(LOG_MESSAGE_LIMIT)
+  expect(appendLogEntry([], { id: 1, message: exact })[0]!.message).toBe(exact)
+  const cut = appendLogEntry([], { id: 1, message: 'y'.repeat(100_000) })[0]!.message
+  expect(cut).toHaveLength(LOG_MESSAGE_LIMIT)
+  expect(cut.endsWith('…')).toBe(true)
 })
