@@ -136,9 +136,13 @@ export async function startDevServer(dir: string, options: { port?: number } = {
   const port = options.port ?? 5273
   let origin = `http://localhost:${port}`
   const viteLogger = createLogger()
+  // Vite's request-time error path logs an error and then sends it to the client in the same tick, so that send is not logged again.
+  let loggedInTick = false
   const customLogger = { ...viteLogger, error: (...args: Parameters<typeof viteLogger.error>) => {
     log.write('error', args[0])
     viteLogger.error(...args)
+    loggedInTick = true
+    queueMicrotask(() => { loggedInTick = false })
   } }
   let pendingManifest = Promise.resolve()
   const ldDevPlugin: Plugin = {
@@ -148,6 +152,16 @@ export async function startDevServer(dir: string, options: { port?: number } = {
       if (id === '@lifedashboard/widget-sdk') return { id: origin + DEV_PATHS.runtime + 'sdk.js', external: true }
     },
     configureServer(server) {
+      // A live (HMR) error, such as a Vue SFC syntax error, reaches only the browser overlay; Vite does not log it.
+      const hot = server.environments.client.hot
+      const send = hot.send as (...args: unknown[]) => void
+      hot.send = ((...args: unknown[]) => {
+        const [payload] = args
+        if (typeof payload === 'object' && payload !== null && (payload as { type?: unknown }).type === 'error' && !loggedInTick) {
+          log.write('error', (payload as { err: { message: string } }).err.message)
+        }
+        send.apply(hot, args)
+      }) as typeof hot.send
       const manifestPath = join(root, 'widget.json')
       server.watcher.add(manifestPath)
       server.watcher.on('all', (event, path) => {

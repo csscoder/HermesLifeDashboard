@@ -115,3 +115,42 @@ it('rejects an invalid initial manifest before listening', async () => {
   await writeFile(join(dir, 'widget.json'), '{')
   await expect(startDevServer(dir, { port: 0 })).rejects.toThrow('Invalid widget.json:')
 })
+
+async function errorLines(dir: string): Promise<string[]> {
+  const text = await readFile(join(dir, '.ld-widget/dev.log'), 'utf8').catch(() => '')
+  return text.split('\n').filter((line) => line.includes('[error]'))
+}
+
+it('logs a request-time transform error exactly once', async () => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const dir = await mkdtemp(join(tmpdir(), 'ld-dev-request-error-'))
+  await cp(fixture, dir, { recursive: true })
+  await cp(library, join(dir, 'node_modules/fake-vue-lib'), { recursive: true })
+  await writeFile(join(dir, 'src/util.ts'), 'export const n: number = (\n')
+  const server = await startDevServer(dir, { port: 0 })
+  servers.push(server)
+  expect((await fetch(new URL('/@ld/pkg/src/util.ts', server.url))).status).toBe(500)
+  await expect.poll(() => errorLines(dir)).toHaveLength(1)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(await errorLines(dir)).toHaveLength(1)
+}, 30_000)
+
+it('logs a live HMR syntax error once, keeps serving and applies the next valid edit', async () => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const dir = await mkdtemp(join(tmpdir(), 'ld-dev-hmr-error-'))
+  await cp(fixture, dir, { recursive: true })
+  await cp(library, join(dir, 'node_modules/fake-vue-lib'), { recursive: true })
+  const source = await readFile(join(dir, 'src/index.vue'), 'utf8')
+  const server = await startDevServer(dir, { port: 0 })
+  servers.push(server)
+  const module = () => fetch(new URL('/@ld/pkg/src/index.vue', server.url)).then((response) => response.text())
+  await module()
+  await writeFile(join(dir, 'src/index.vue'), source.replace('const count = ref(0)', 'const count = ref(0'))
+  await expect.poll(() => errorLines(dir)).toHaveLength(1)
+  expect((await errorLines(dir))[0]).toContain('[vue/compiler-sfc] Unexpected token')
+  expect((await fetch(new URL('/@ld/api/info', server.url))).status).toBe(200)
+  await writeFile(join(dir, 'src/index.vue'), source.replace('const count = ref(0)', 'const count = ref(7)'))
+  await expect.poll(module).toContain('ref(7)')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(await errorLines(dir)).toHaveLength(1)
+}, 30_000)
