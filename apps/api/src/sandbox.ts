@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
+import { sandboxDocument } from '@lifedashboard/contracts/sandbox-document'
 import { classifyPath, fileExtension, SERVED_TYPES, type WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import { allowedHosts } from './auth.ts'
 import type { ApiConfig } from './config.ts'
@@ -25,49 +25,6 @@ const RUNTIME_FILES = new Map<string, () => string>([
 export interface SandboxDeps {
   db: DatabaseSync
   config: Pick<ApiConfig, 'port' | 'uiOrigins' | 'dataDir' | 'runtimeDir'>
-}
-
-/**
- * The document of one package version. `base` is built from a validated Host, the hash is hex and
- * file names match the package pattern, so nothing here needs HTML escaping. No instance or user
- * data: config, theme and size arrive over the port.
- */
-export function sandboxDocument(base: string, hash: string, manifest: WidgetPackageManifest): { html: string; csp: string } {
-  const runtime = `${base}/sandbox/runtime/`
-  const packageDir = `${base}/sandbox/packages/${hash}/`
-  const importMap = JSON.stringify({
-    imports: {
-      vue: `${runtime}vue.js`,
-      '@lifedashboard/widget-sdk': `${runtime}sdk.js`,
-      '@lifedashboard/widget-entry': `${packageDir}${manifest.entry}`,
-    },
-  })
-  const links = manifest.styles.map((name) => `  <link rel="stylesheet" href="${packageDir}${name}">\n`).join('')
-  const html =
-    '<!doctype html>\n<html>\n<head>\n' +
-    // Relative URLs (assets/…) must resolve against the API origin, not the proxying UI origin.
-    `  <base href="${packageDir}">\n` +
-    '  <meta charset="utf-8">\n' +
-    `  <script type="importmap">${importMap}</script>\n` +
-    links +
-    `  <script type="module" src="${runtime}sdk.js"></script>\n` +
-    '</head>\n<body><div id="app"></div></body>\n</html>\n'
-  // Explicit URLs, not 'self': engines treat 'self' differently in opaque-origin documents.
-  const csp = [
-    "default-src 'none'",
-    `script-src ${runtime} ${packageDir} 'sha256-${createHash('sha256').update(importMap).digest('base64')}' 'wasm-unsafe-eval'`,
-    `style-src ${packageDir} 'unsafe-inline'`,
-    `img-src ${packageDir} data: blob:`,
-    `media-src ${packageDir} blob:`,
-    `font-src ${packageDir} data:`,
-    `connect-src ${packageDir} data: blob:`,
-    'worker-src blob:',
-    "frame-src 'none'",
-    "object-src 'none'",
-    `base-uri ${packageDir}`,
-    "form-action 'none'",
-  ].join('; ')
-  return { html, csp }
 }
 
 /** A single `bytes=` range; null means «send the whole file» (absent, malformed or multi-range). */
@@ -131,7 +88,13 @@ export function registerSandbox(app: FastifyInstance, { db, config }: SandboxDep
 
   app.get<{ Params: { hash: string } }>('/sandbox/packages/:hash/', async (request, reply) => {
     const { manifest } = findVersion(request.params.hash)
-    const { html, csp } = sandboxDocument(`${request.protocol}://${request.headers.host}`, request.params.hash, manifest)
+    const base = `${request.protocol}://${request.headers.host}`
+    const packageDir = `${base}/sandbox/packages/${request.params.hash}/`
+    const { html, csp } = await sandboxDocument({
+      runtime: `${base}/sandbox/runtime/`,
+      packageDir,
+      entry: `${packageDir}${manifest.entry}`,
+    }, manifest.styles)
     return reply.header('cache-control', IMMUTABLE).header('content-security-policy', csp).type('text/html; charset=utf-8').send(html)
   })
 

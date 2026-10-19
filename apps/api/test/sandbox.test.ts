@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { sandboxDocument } from '../src/sandbox.ts'
+import { sandboxDocument } from '@lifedashboard/contracts/sandbox-document'
 import { call, HOST, installPackage, pair, testApp, widgetPackage, type TestApp } from './helpers.ts'
 
 const BASE = `http://${HOST}`
@@ -88,7 +88,11 @@ describe('GET /sandbox/packages/:hash/', () => {
 
   it('contains no instance or user data', async () => {
     const response = await call(t.app, { url: `/sandbox/packages/${hash}/` })
-    expect(response.body).toBe(sandboxDocument(BASE, hash, pkg.manifest).html)
+    expect(response.body).toBe((await sandboxDocument({
+      runtime: `${BASE}/sandbox/runtime/`,
+      packageDir: `${BASE}/sandbox/packages/${hash}/`,
+      entry: `${BASE}/sandbox/packages/${hash}/${pkg.manifest.entry}`,
+    }, pkg.manifest.styles)).html)
     expect(response.body).not.toContain(cookie.split('=')[1]!)
     expect(response.headers['set-cookie']).toBeUndefined()
   })
