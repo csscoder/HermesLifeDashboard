@@ -4,6 +4,11 @@ import type { GatewayInputs, GatewayOp, GatewayOutputs, HttpOutput, HttpSendInpu
 /** One gateway call: resolves with the operation output or rejects with a WidgetError. */
 export type WidgetCall = (op: string, input: unknown) => Promise<unknown>
 
+/**
+ * Generated per project from widget.json settings into widget-env.d.ts by ld-widget check/build
+ * (and ld-widget dev later). Each setting becomes a typed read-only field of widget.context.config.
+ * A secret setting is a boolean indicating whether it is set; the widget never receives its value.
+ */
 export interface WidgetConfig {}
 
 export class WidgetError extends Error {

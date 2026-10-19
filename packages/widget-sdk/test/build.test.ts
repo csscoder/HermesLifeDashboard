@@ -79,6 +79,17 @@ describe('buildWidget', () => {
     expect(source).toEqual(['source/src/index.vue', 'source/widget-env.d.ts', 'source/widget.json'])
   }, 30_000)
 
+  it('does not inline secrets from .env.local into built code', async () => {
+    const dir = await copyOf('counter')
+    await writeFile(join(dir, '.env.local'), 'VITE_SECRET=sk-live-123456789\n')
+    const entry = join(dir, 'src/index.vue')
+    const source = await readFile(entry, 'utf8')
+    await writeFile(entry, source.replace('const count = ref(0)', 'const count = ref(0)\nconst secret = (import.meta as any).env.VITE_SECRET')
+      .replace('{{ count }}', '{{ secret }} · {{ count }}'))
+    const target = await buildWidget(dir)
+    expect(await readFile(join(target, 'index.js'), 'utf8')).not.toContain('sk-live-123456789')
+  }, 30_000)
+
   it('keeps extra source files but drops project notes and secrets from source/', async () => {
     const dir = await copyOf('counter')
     const files: [string, string][] = [['.npmrc', 'x'], ['notes.md', 'notes'], ['src/.env', 'SECRET=1'], ['src/extra.ts', 'export {}']]

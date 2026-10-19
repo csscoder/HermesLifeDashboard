@@ -72,7 +72,9 @@ describe('createWidgetProject', () => {
     expect(component).toContain('var(--ld-')
     const instructions = await readFile(join(project, 'AGENTS.md'), 'utf8')
     for (const rule of [
-      'node_modules/@lifedashboard/widget-sdk/dist/types', 'widget.state', 'network',
+      'node_modules/@lifedashboard/widget-sdk/dist/types', 'widget.state',
+      'External HTTP must use widget.http.get/send', 'the `network` permission', 'the origin listed in `network`',
+      'fetch/XHR/WebSocket can reach only the widget\'s own files',
       'WebM/Opus', 'assets/', 'npx ld-widget check', 'npx ld-widget build',
       'dist/<id>-<version>/', 'Виджеты → Выбрать папку',
     ]) expect(instructions).toContain(rule)

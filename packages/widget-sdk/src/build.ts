@@ -75,7 +75,7 @@ async function listFolder(dir: string): Promise<{ path: string; size: number }[]
  * Builds `<dir>/src/index.vue` with `<dir>/widget.json` into the folder `<dir>/dist/<id>-<version>/`
  * (code, `assets/`, `source/` unless `source: false`) and returns its path.
  */
-export async function buildWidget(dir: string, { source = true }: { source?: boolean } = {}): Promise<string> {
+export async function buildWidget(dir: string, { source = true, quiet = false }: { source?: boolean; quiet?: boolean } = {}): Promise<string> {
   const root = resolve(dir)
   await writeConfigDeclaration(root)
   const raw = JSON.parse(await readFile(join(root, 'widget.json'), 'utf8')) as Record<string, unknown>
@@ -91,7 +91,8 @@ export async function buildWidget(dir: string, { source = true }: { source?: boo
     await build({
       root,
       configFile: false,
-      logLevel: 'warn',
+      envDir: false,
+      logLevel: quiet ? 'silent' : 'warn',
       // transformAssetUrls off: `src="assets/bg.mp4"` must stay a URL, not become an import.
       plugins: [mediaImportGuard(), vue({ template: { transformAssetUrls: false } }), stripRegionMarkers()],
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },

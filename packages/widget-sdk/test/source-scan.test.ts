@@ -43,7 +43,7 @@ it('gives the notify fix with the real signature', () =>
 it('checks URL origins against network', () => {
   expect(scan('fetch(`https://api.example.com/v1/${id}`)', ['https://api.example.com'])).toEqual([])
   expect(scan('fetch("http://localhost:8787/x")')[0]).toMatchObject({ rule: 'network', line: 1,
-    message: 'URL origin http://localhost:8787 is not in widget.json "network". Fix: add "http://localhost:8787" to network or call another origin.' })
+    message: 'URL origin http://localhost:8787 is not in widget.json "network". Fix: add "http://localhost:8787" to network and "network" to permissions, and call it with widget.http.get/send.' })
   expect(scan('fetch(`https://api.example.com/v1`)')).toHaveLength(1)
   expect(scan("const namespace = 'https://www.w3.org/2000/svg'")).toEqual([
     expect.objectContaining({ rule: 'network', message: expect.stringContaining('URL origin https://www.w3.org is not in') }),

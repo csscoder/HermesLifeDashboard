@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -70,6 +70,53 @@ it('returns only a manifest problem before generating or scanning anything', asy
   expect(result.ok).toBe(false)
   expect(result.problems).toEqual([{ rule: 'manifest', message: expect.stringContaining('title') }])
   expect(JSON.parse(await readFile(join(dir, '.ld-widget/check.json'), 'utf8'))).toEqual(result)
+})
+
+it('reports a nonexistent project without creating any files', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ld-widget-missing-'))
+  dirs.push(parent)
+  const dir = join(parent, 'typo')
+  expect(await checkWidget(dir, deps)).toEqual({ ok: false, problems: [{
+    rule: 'manifest',
+    message: `Project folder ${dir} does not exist. Fix: run check inside the widget project or pass its path.`,
+  }] })
+  expect(await readdir(parent)).toEqual([])
+})
+
+it('reports one actionable build problem for a missing src/index.vue', async () => {
+  const dir = await project()
+  await rm(join(dir, 'src/index.vue'))
+  const result = await checkWidget(dir, deps)
+  expect(result).toEqual({ ok: false, problems: [{
+    rule: 'build',
+    message: 'src/index.vue is missing: the widget entry must be src/index.vue. Fix: create src/index.vue (one Vue component) and import other files from it.',
+  }] })
+  expect(JSON.parse(await readFile(join(dir, '.ld-widget/check.json'), 'utf8'))).toEqual(result)
+})
+
+it('strips terminal control sequences from every final problem message', async () => {
+  const dir = await project()
+  const result = await checkWidget(dir, { typecheck: async () => [{
+    rule: 'types', file: 'src/index.vue', line: 1, message: '\u001b[31mtype failure\u001b[0m',
+  }] })
+  expect(result).toEqual({ ok: false, problems: [{
+    rule: 'types', file: 'src/index.vue', line: 1, message: 'type failure',
+  }] })
+  const saved = JSON.parse(await readFile(join(dir, '.ld-widget/check.json'), 'utf8'))
+  expect(saved).toEqual(result)
+  for (const problem of saved.problems) expect(problem.message).not.toContain('\u001b')
+})
+
+it('saves build diagnostics without ANSI escape codes', async () => {
+  const dir = await project()
+  const path = join(dir, 'src/index.vue')
+  await writeFile(path, (await readFile(path, 'utf8')).replace("import { ref } from 'vue'", "import { ref } from 'vue'\nimport './missing.ts'"))
+  const result = await checkWidget(dir, deps)
+  expect(result.ok).toBe(false)
+  expect(result.problems).toEqual([{ rule: 'build', message: expect.stringContaining('missing.ts') }])
+  const saved = JSON.parse(await readFile(join(dir, '.ld-widget/check.json'), 'utf8'))
+  expect(saved).toEqual(result)
+  for (const problem of saved.problems) expect(problem.message).not.toContain('\u001b')
 })
 
 it('adds the Vue script block offset to source lines', async () => {
@@ -147,8 +194,12 @@ it('reports exactly one actionable problem when the tools are missing', async ()
   }] })
 }, 60_000)
 
-it('reports a real vue-tsc error against the packed SDK', async () => {
+it('reports a real vue-tsc error with file and line even when tsconfig enables pretty output', async () => {
   const dir = await integrationProject()
+  const tsconfigPath = join(dir, 'tsconfig.json')
+  const tsconfig = JSON.parse(await readFile(tsconfigPath, 'utf8'))
+  tsconfig.compilerOptions.pretty = true
+  await writeFile(tsconfigPath, JSON.stringify(tsconfig))
   const path = join(dir, 'src/index.vue')
   await writeFile(path, (await readFile(path, 'utf8')).replace('const count = ref(0)', "const count = ref(0)\nconst n: number = 'x'"))
   const result = await checkWidget(dir)
@@ -156,6 +207,23 @@ it('reports a real vue-tsc error against the packed SDK', async () => {
   expect(result.problems).toEqual([{
     rule: 'types', file: 'src/index.vue', line: 7, message: "Type 'string' is not assignable to type 'number'.",
   }])
+  const saved = JSON.parse(await readFile(join(dir, '.ld-widget/check.json'), 'utf8'))
+  expect(saved).toEqual(result)
+  for (const problem of saved.problems) expect(problem.message).not.toContain('\u001b')
+}, 60_000)
+
+it('keeps Vite build failure logging off CLI stderr', async () => {
+  const dir = await integrationProject()
+  const path = join(dir, 'src/index.vue')
+  await writeFile(path, (await readFile(path, 'utf8')).replace("import { ref } from 'vue'", "import { ref } from 'vue'\nimport './missing.ts'"))
+  const checked = spawnSync(process.execPath, [join(root, 'src/cli.ts'), 'check', '.'], {
+    cwd: dir, encoding: 'utf8', timeout: 60_000,
+  })
+  expect(checked.error).toBeUndefined()
+  expect(checked.status).toBe(1)
+  expect(checked.stdout).toContain('✗ [build] ')
+  expect.soft(checked.stderr).toBe('')
+  expect.soft(checked.stdout).not.toContain('\u001b')
 }, 60_000)
 
 it('checks a relative CLI directory in a path with spaces and Cyrillic', async () => {

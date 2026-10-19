@@ -93,7 +93,7 @@ export function scanSource(file: string, text: string, network: readonly string[
       let origin: string | undefined
       try { origin = new URL(node.text).origin } catch { /* Not a complete static URL. */ }
       if (origin !== undefined && !network.includes(origin)) {
-        report(node, 'network', `URL origin ${origin} is not in widget.json "network". Fix: add "${origin}" to network or call another origin.`)
+        report(node, 'network', `URL origin ${origin} is not in widget.json "network". Fix: add "${origin}" to network and "network" to permissions, and call it with widget.http.get/send.`)
       }
     }
     ts.forEachChild(node, visit)

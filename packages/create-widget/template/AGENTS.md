@@ -4,7 +4,8 @@ This project is a Vue widget for LifeDashboard. Edit `src/index.vue` and configu
 The API reference is the JSDoc in `node_modules/@lifedashboard/widget-sdk/dist/types`, available after `npm install`.
 
 - Do not use browser storage. Use `widget.state` for persistent state and declare the `state` permission in `widget.json`.
-- Request only origins listed in `network` in `widget.json`.
+- External HTTP must use widget.http.get/send, with the `network` permission and the origin listed in `network` in `widget.json`.
+- fetch/XHR/WebSocket can reach only the widget's own files.
 - Store media as WebM/Opus in `assets/`; create that directory when adding media.
 - Style the widget with LifeDashboard `var(--ld-…)` theme tokens.
 

@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, join, relative, resolve, sep } from 'node:path'
-import { promisify } from 'node:util'
+import { promisify, stripVTControlCharacters } from 'node:util'
 import type * as TS from 'typescript'
 import { parse } from 'vue/compiler-sfc'
 import { SDK_TARGET_LEVEL } from '@lifedashboard/contracts/widget-gateway'
@@ -53,7 +54,7 @@ function scanMedia(file: string, ast: TemplateRoot): Problem[] {
 
 async function typecheck(root: string, executable: string): Promise<Problem[]> {
   try {
-    await promisify(execFile)(process.execPath, [executable, '--noEmit', '-p', 'tsconfig.json'], { cwd: root })
+    await promisify(execFile)(process.execPath, [executable, '--noEmit', '--pretty', 'false', '-p', 'tsconfig.json'], { cwd: root })
     return []
   } catch (error) {
     const failure = error as Error & { stdout?: string; stderr?: string }
@@ -73,12 +74,21 @@ async function typecheck(root: string, executable: string): Promise<Problem[]> {
 
 export async function checkWidget(dir: string, deps: { typecheck?: (dir: string) => Promise<Problem[]> } = {}): Promise<{ ok: boolean; problems: Problem[] }> {
   const root = resolve(dir)
+  const projectExists = existsSync(root)
   const problems: Problem[] = []
   async function finish() {
-    const result = { ok: problems.length === 0, problems }
-    await mkdir(join(root, '.ld-widget'), { recursive: true })
-    await writeFile(join(root, '.ld-widget/check.json'), `${JSON.stringify(result, null, 2)}\n`)
+    const result = { ok: problems.length === 0, problems: problems.map((problem) => ({
+      ...problem, message: stripVTControlCharacters(problem.message),
+    })) }
+    if (projectExists) {
+      await mkdir(join(root, '.ld-widget'), { recursive: true })
+      await writeFile(join(root, '.ld-widget/check.json'), `${JSON.stringify(result, null, 2)}\n`)
+    }
     return result
+  }
+  if (!projectExists) {
+    problems.push({ rule: 'manifest', message: `Project folder ${dir} does not exist. Fix: run check inside the widget project or pass its path.` })
+    return finish()
   }
   let manifest: ReturnType<typeof parseWidgetManifest>
   try {
@@ -128,10 +138,14 @@ export async function checkWidget(dir: string, deps: { typecheck?: (dir: string)
     if (descriptor?.template?.ast) problems.push(...scanMedia(file, descriptor.template.ast))
   }
   if (ts && vueTsc) problems.push(...await (deps.typecheck ? deps.typecheck(root) : typecheck(root, vueTsc)))
-  try {
-    await buildWidget(root)
-  } catch (error) {
-    problems.push({ rule: 'build', message: error instanceof Error ? error.message : String(error) })
+  if (!existsSync(join(root, 'src/index.vue'))) {
+    problems.push({ rule: 'build', message: 'src/index.vue is missing: the widget entry must be src/index.vue. Fix: create src/index.vue (one Vue component) and import other files from it.' })
+  } else {
+    try {
+      await buildWidget(root, { quiet: true })
+    } catch (error) {
+      problems.push({ rule: 'build', message: error instanceof Error ? error.message : String(error) })
+    }
   }
   return finish()
 }
