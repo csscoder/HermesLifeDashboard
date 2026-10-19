@@ -1,0 +1,22 @@
+{
+  "name": "@lifedashboard/create-widget",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "files": ["dist", "template"],
+  "bin": {
+    "create-widget": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@lifedashboard/contracts": "workspace:*",
+    "@types/node": "24.19.1",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "__NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "ld-widget check",
+    "build": "ld-widget build"
+  },
+  "devDependencies": {
+    "@lifedashboard/widget-sdk": "__SDK__",
+    "vue": "3.5.43",
+    "typescript": "6.0.3",
+    "vue-tsc": "3.3.12"
+  }
+}

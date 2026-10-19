@@ -1,0 +1,15 @@
+{
+  "id": "dev.local.__NAME__",
+  "version": "0.1.0",
+  "title": "__NAME__",
+  "author": "Автор",
+  "sdk": 2,
+  "entry": "index.js",
+  "styles": ["style.css"],
+  "sizing": {
+    "default": { "w": 4, "h": 4 },
+    "min": { "w": 2, "h": 2 },
+    "max": { "w": 12, "h": 12 }
+  },
+  "permissions": []
+}
