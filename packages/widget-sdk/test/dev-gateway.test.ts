@@ -1,4 +1,4 @@
-import { mkdtempSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -201,6 +201,19 @@ describe('readDevSecrets', () => {
     expect(log).toHaveBeenCalledTimes(4)
   })
 
+  it('treats an unreadable file as no secrets and logs the read error once', () => {
+    const { dir, file, log } = fixture()
+    mkdirSync(file)
+    const seen = new Map<string, string>()
+    for (let i = 0; i < 3; i++) expect(readDevSecrets(dir, manifest(), log, seen)).toEqual(new Map())
+    expect(log).toHaveBeenCalledExactlyOnceWith('secret', expect.stringContaining('EISDIR'))
+    expect(log.mock.calls[0]![1]).not.toContain(dir)
+    rmSync(file, { recursive: true })
+    writeFileSync(file, `LD_SECRET_apiKey=${secret}\n`)
+    expect(readDevSecrets(dir, manifest(), log, seen)).toEqual(new Map([['apiKey', secret]]))
+    expect(seen.size).toBe(0)
+  })
+
   it('treats a missing file as no secrets without logging and clears stale seen entries', () => {
     const { dir, file, log } = fixture()
     const seen = new Map([['apiKey', secretError], ['removed', secretError]])
@@ -215,7 +228,7 @@ describe('readDevSecrets', () => {
     expect(log).toHaveBeenCalledTimes(1)
   })
 
-  it('clears problems when a setting stops being a secret and propagates non-missing read errors', () => {
+  it('clears problems when a setting stops being a secret', () => {
     const { dir, file, log } = fixture()
     writeFileSync(file, `LD_SECRET_apiKey=${shortSecret}\n`)
     const seen = new Map([['apiKey', secretError]])
@@ -223,8 +236,6 @@ describe('readDevSecrets', () => {
     delete current.settings
     expect(readDevSecrets(dir, current, log, seen)).toEqual(new Map())
     expect(seen.size).toBe(0)
-    writeFileSync(join(dir, 'not-a-directory'), '')
-    expect(() => readDevSecrets(join(dir, 'not-a-directory'), manifest(), log)).toThrow()
     expect(log).not.toHaveBeenCalled()
   })
 })
