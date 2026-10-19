@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { GRID_COLS } from '@lifedashboard/contracts/grid'
+import { plainConfig } from '@lifedashboard/contracts/widget-settings'
 import { createBridge, createHandshakes, type Bridge } from '../src/host.ts'
 import { WidgetError } from '../src/widget.ts'
 import {
@@ -125,9 +126,7 @@ function loadConfig(current: DevInfo) {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(`ld-dev-config:${current.manifest.id}`) ?? '{}')
     const raw = typeof saved === 'object' && saved !== null && !Array.isArray(saved) ? saved as Record<string, unknown> : {}
-    rawConfig.value = Object.fromEntries(Object.entries(current.manifest.settings?.properties ?? {})
-      .filter(([key, setting]) => setting.type !== 'secret' && Object.hasOwn(raw, key))
-      .map(([key]) => [key, raw[key]]))
+    rawConfig.value = current.manifest.settings ? plainConfig(current.manifest.settings, raw) : {}
   } catch {
     rawConfig.value = {}
     report('error', 'Cannot read saved settings. Fix: clear this shell origin\'s ld-dev-config entry and allow localStorage.')

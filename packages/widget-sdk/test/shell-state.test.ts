@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, it, vi } from 'vitest'
 import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
-import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
+import type { PlainSetting, SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import type { DevTheme } from '../src/dev/themes.ts'
 import {
   createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
@@ -94,4 +94,28 @@ it('detects secret changes, including removed and added keys regardless of order
   expect(secretsChanged({ a: true, b: false }, { b: false, a: true })).toBe(false)
   expect(secretsChanged({ apiKey: false }, {})).toBe(true)
   expect(secretsChanged({}, { apiKey: false })).toBe(true)
+})
+
+it('uses the production settings-form helpers from contracts', async () => {
+  const [shared, production] = await Promise.all([
+    import('@lifedashboard/contracts/widget-settings'),
+    import(new URL('../../../apps/ui/app/board/config-form.ts', import.meta.url).href),
+  ])
+  expect(production.controlFor).toBe(shared.controlFor)
+  expect(production.parseFieldInput).toBe(shared.parseFieldInput)
+  expect(production.plainConfig).toBe(shared.plainConfig)
+  const schema: SettingsSchema = { type: 'object', properties: {
+    title: { type: 'string', title: 'Title', default: '' },
+    mode: { type: 'string', title: 'Mode', default: 'a', enum: ['a', 'b'] },
+    count: { type: 'integer', title: 'Count', default: 1, minimum: 0, maximum: 9 },
+    on: { type: 'boolean', title: 'On', default: false },
+    key: { type: 'secret', title: 'Key', bind: { origin: 'https://service.example', header: 'Authorization' } },
+  } }
+  const controls = Object.values(schema.properties).map(shared.controlFor)
+  expect(controls).toEqual(['text', 'select', 'number', 'checkbox', 'secret'])
+  const plain = schema.properties.count as PlainSetting
+  expect([['3'], [' '], ['10'], ['x']].map(([raw]) => shared.parseFieldInput(plain, raw!)))
+    .toEqual([{ ok: true, value: 3 }, { ok: false }, { ok: false }, { ok: false }])
+  expect(shared.parseFieldInput(schema.properties.on as PlainSetting, true)).toEqual({ ok: true, value: true })
+  expect(shared.plainConfig(schema, { title: 't', key: 's', unknown: 1, count: 2 })).toEqual({ title: 't', count: 2 })
 })
