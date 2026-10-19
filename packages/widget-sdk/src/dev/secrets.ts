@@ -16,12 +16,12 @@ export function readDevSecrets(
   try {
     contents = readFileSync(join(dir, '.env.local'), 'utf8')
   } catch (error) {
-    // Any read error means no secrets. The reserved key ".env.local" (never a setting key) dedupes the log line across polls.
-    const message = (error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : `.env.local: ${(error as Error).message}`
+    // Any read error means no secrets. The reserved key ".env.local" (never a setting key) dedupes the log line across polls; the shell prefixes it with the key.
+    const message = (error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : (error as Error).message
     const previous = seen.get(READ_ERROR_KEY)
     seen.clear()
     if (message !== undefined) {
-      if (previous !== message) log('secret', message)
+      if (previous !== message) log('secret', `${READ_ERROR_KEY}: ${message}`)
       seen.set(READ_ERROR_KEY, message)
     }
     return new Map()

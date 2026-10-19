@@ -206,7 +206,9 @@ describe('readDevSecrets', () => {
     mkdirSync(file)
     const seen = new Map<string, string>()
     for (let i = 0; i < 3; i++) expect(readDevSecrets(dir, manifest(), log, seen)).toEqual(new Map())
-    expect(log).toHaveBeenCalledExactlyOnceWith('secret', expect.stringContaining('EISDIR'))
+    expect(log).toHaveBeenCalledExactlyOnceWith('secret', expect.stringMatching(/^\.env\.local: EISDIR/))
+    // The shell renders `${key}: ${message}`, so the stored message must not repeat the file name.
+    expect(seen.get('.env.local')).toMatch(/^EISDIR/)
     expect(log.mock.calls[0]![1]).not.toContain(dir)
     rmSync(file, { recursive: true })
     writeFileSync(file, `LD_SECRET_apiKey=${secret}\n`)
