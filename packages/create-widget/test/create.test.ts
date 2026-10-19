@@ -39,7 +39,7 @@ describe('createWidgetProject', () => {
     ])
     expect(await json(join(project, 'package.json'))).toEqual({
       name: 'clock', private: true, type: 'module',
-      scripts: { check: 'ld-widget check', build: 'ld-widget build' },
+      scripts: { check: 'ld-widget check', build: 'ld-widget build', dev: 'ld-widget dev' },
       devDependencies: {
         '@lifedashboard/widget-sdk': '0.1.0', vue: '3.5.43',
         typescript: '6.0.3', 'vue-tsc': '3.3.12',
@@ -75,7 +75,7 @@ describe('createWidgetProject', () => {
       'node_modules/@lifedashboard/widget-sdk/dist/types', 'widget.state',
       'External HTTP must use widget.http.get/send', 'the `network` permission', 'the origin listed in `network`',
       'fetch/XHR/WebSocket can reach only the widget\'s own files',
-      'WebM/Opus', 'assets/', 'npx ld-widget check', 'npx ld-widget build',
+      'WebM/Opus', 'assets/', 'npx ld-widget dev', 'npx ld-widget check', 'npx ld-widget build',
       'dist/<id>-<version>/', 'Виджеты → Выбрать папку',
     ]) expect(instructions).toContain(rule)
   })

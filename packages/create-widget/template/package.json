@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "check": "ld-widget check",
-    "build": "ld-widget build"
+    "build": "ld-widget build",
+    "dev": "ld-widget dev"
   },
   "devDependencies": {
     "@lifedashboard/widget-sdk": "__SDK__",

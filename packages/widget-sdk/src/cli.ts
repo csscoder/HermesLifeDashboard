@@ -1,11 +1,42 @@
 #!/usr/bin/env node
-import { readdir } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { readFile, readdir } from 'node:fs/promises'
+import { join, relative, resolve, sep } from 'node:path'
 import { buildWidget } from './build.ts'
 import { checkWidget } from './check.ts'
+import { startDevServer } from './dev/server.ts'
 
-const usage = 'Usage: ld-widget <build|check> [dir] [options]'
+const usage = 'Usage: ld-widget <build|check|dev> [dir] [options]'
 const commands: Record<string, (args: string[]) => Promise<number>> = {
+  async dev(args) {
+    let dir: string | undefined
+    let port: number | undefined
+    for (let index = 0; index < args.length; index++) {
+      const arg = args[index]!
+      if (arg === '--port' && port === undefined) {
+        const value = args[++index]
+        if (value === undefined || !/^\d+$/.test(value) || Number(value) > 65535) {
+          console.error(usage)
+          return 2
+        }
+        port = Number(value)
+      } else if (!arg.startsWith('-') && dir === undefined) dir = arg
+      else { console.error(usage); return 2 }
+    }
+    const root = resolve(dir ?? process.cwd())
+    const server = await startDevServer(root, { port })
+    try {
+      console.log(`Dev shell: ${server.url}`)
+      console.log('Log: .ld-widget/dev.log')
+      const manifest = JSON.parse(await readFile(join(root, 'widget.json'), 'utf8')) as { settings?: { properties?: Record<string, { type: string }> } }
+      if (Object.values(manifest.settings?.properties ?? {}).some((setting) => setting.type === 'secret')) {
+        console.log('Secrets: .env.local (LD_SECRET_<key>=…)')
+      }
+      await new Promise<void>((resolve) => { process.once('SIGINT', resolve) })
+    } finally {
+      await server.close()
+    }
+    return 0
+  },
   async check(args) {
     if (args.length > 1 || args.some((arg) => arg.startsWith('--'))) {
       console.error(usage)

@@ -40,6 +40,10 @@ function mediaImportGuard(): Plugin {
   }
 }
 
+export function widgetVitePlugins(): Plugin[] {
+  return [mediaImportGuard(), vue({ template: { transformAssetUrls: false } })]
+}
+
 // Rolldown's `//#region <path>` markers embed the build directory, which would make the same sources build to different
 // code. Stripped in renderChunk, before chunk hashes are computed, so file names and imports stay path-independent too.
 function stripRegionMarkers(): Plugin {
@@ -94,7 +98,7 @@ export async function buildWidget(dir: string, { source = true, quiet = false }:
       envDir: false,
       logLevel: quiet ? 'silent' : 'warn',
       // transformAssetUrls off: `src="assets/bg.mp4"` must stay a URL, not become an import.
-      plugins: [mediaImportGuard(), vue({ template: { transformAssetUrls: false } }), stripRegionMarkers()],
+      plugins: [...widgetVitePlugins(), stripRegionMarkers()],
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },
       build: {
         outDir: stage,

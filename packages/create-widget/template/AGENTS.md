@@ -9,5 +9,5 @@ The API reference is the JSDoc in `node_modules/@lifedashboard/widget-sdk/dist/t
 - Store media as WebM/Opus in `assets/`; create that directory when adding media.
 - Style the widget with LifeDashboard `var(--ld-…)` theme tokens.
 
-Run `npx ld-widget check`, then `npx ld-widget build`.
+Run `npx ld-widget dev` to preview with hot reload, then `npx ld-widget check`, then `npx ld-widget build`.
 Give the user `dist/<id>-<version>/` to import via «Виджеты → Выбрать папку».
