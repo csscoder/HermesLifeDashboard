@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "paths": {
+      "@lifedashboard/contracts/*": ["../contracts/src/*.ts"]
+    },
+    "rootDir": "..",
+    "outDir": "dist/types"
+  },
+  "include": ["src/index.ts", "src/env.d.ts"]
+}
