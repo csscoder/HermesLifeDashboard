@@ -31,14 +31,15 @@ function run(command: string, args: string[], cwd: string) {
 describe('createWidgetProject', () => {
   it('creates exactly the project files, with the specified manifest and dependencies', async () => {
     const parentDir = await temporaryDirectory()
-    const project = await createWidgetProject({ name: 'clock', parentDir })
-    expect(project).toBe(join(parentDir, 'clock'))
+    const result = await createWidgetProject({ title: 'Мои суперчасы', parentDir })
+    const project = join(parentDir, 'lifedashboard-moi-superchasy')
+    expect(result).toEqual({ dir: project, slug: 'moi-superchasy' })
     expect(await files(project)).toEqual([
       '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'package.json', 'src/index.vue',
       'tsconfig.json', 'widget-env.d.ts', 'widget.json',
     ])
     expect(await json(join(project, 'package.json'))).toEqual({
-      name: 'clock', private: true, type: 'module',
+      name: 'moi-superchasy', private: true, type: 'module',
       scripts: { check: 'ld-widget check', build: 'ld-widget build', dev: 'ld-widget dev' },
       devDependencies: {
         '@lifedashboard/widget-sdk': '0.1.0', vue: '3.5.43',
@@ -47,7 +48,7 @@ describe('createWidgetProject', () => {
     })
     const manifest = await json(join(project, 'widget.json'))
     expect(manifest).toEqual({
-      id: 'dev.local.clock', version: '0.1.0', title: 'clock', author: 'Автор',
+      id: 'dev.local.moi-superchasy', version: '0.1.0', title: 'Мои суперчасы', author: 'Автор',
       sdk: 3, entry: 'index.js', styles: ['style.css'],
       sizing: { default: { w: 4, h: 4 }, min: { w: 2, h: 2 }, max: { w: 12, h: 12 } },
       permissions: [],
@@ -89,11 +90,49 @@ describe('createWidgetProject', () => {
     expect(template.devDependencies['vue-tsc']).toBe(ui.devDependencies['vue-tsc'])
   })
 
-  it.each(['', 'Clock', '1clock', 'my_clock', '../clock', 'a/b', 'a'.repeat(51)])(
-    'rejects invalid name %j without creating files', async (name) => {
+  it('uses an explicit slug instead of deriving one from the title', async () => {
+    const parentDir = await temporaryDirectory()
+    const result = await createWidgetProject({ title: 'Мои суперчасы', slug: 'my-clock', parentDir })
+    expect(result).toEqual({ dir: join(parentDir, 'lifedashboard-my-clock'), slug: 'my-clock' })
+    const manifest = await json(join(result.dir, 'widget.json'))
+    expect(manifest.id).toBe('dev.local.my-clock')
+    expect(manifest.title).toBe('Мои суперчасы')
+    expect((await json(join(result.dir, 'package.json'))).name).toBe('my-clock')
+  })
+
+  it.each(['a'.repeat(60), 'Clock "pro" \\ v2', 'Clock __SDK__ __SLUG__'])(
+    'keeps title %j exactly in widget.json and passes the manifest parser', async (title) => {
       const parentDir = await temporaryDirectory()
-      await expect(createWidgetProject({ name, parentDir })).rejects.toThrow(
-        `Invalid name "${name}". Fix: use lowercase letters, digits and dashes, starting with a letter.`,
+      const { dir } = await createWidgetProject({ title, parentDir })
+      const manifest = await json(join(dir, 'widget.json'))
+      expect(manifest.title).toBe(title)
+      expect(parseWidgetManifest({ format: 2, ...manifest }).ok).toBe(true)
+    },
+  )
+
+  it.each(['', 'a'.repeat(61), 'bad\u0007title'])(
+    'rejects invalid title %j without creating files', async (title) => {
+      const parentDir = await temporaryDirectory()
+      await expect(createWidgetProject({ title, parentDir })).rejects.toThrow(
+        `Invalid title "${title}". Fix: use 1–60 characters without control characters.`,
+      )
+      expect(await readdir(parentDir)).toEqual([])
+    },
+  )
+
+  it('rejects a title with no Latin name and no slug, without creating files', async () => {
+    const parentDir = await temporaryDirectory()
+    await expect(createWidgetProject({ title: '時計', parentDir })).rejects.toThrow(
+      'Cannot derive a Latin name from "時計". Fix: give one with --slug, for example --slug my-clock.',
+    )
+    expect(await readdir(parentDir)).toEqual([])
+  })
+
+  it.each(['Clock', '1clock', 'a'.repeat(51)])(
+    'rejects invalid slug %j without creating files', async (slug) => {
+      const parentDir = await temporaryDirectory()
+      await expect(createWidgetProject({ title: 'Clock', slug, parentDir })).rejects.toThrow(
+        `Invalid slug "${slug}". Fix: use lowercase letters, digits and dashes, starting with a letter.`,
       )
       expect(await readdir(parentDir)).toEqual([])
     },
@@ -101,23 +140,24 @@ describe('createWidgetProject', () => {
 
   it('refuses a non-empty folder and preserves its contents', async () => {
     const parentDir = await temporaryDirectory()
-    const project = join(parentDir, 'clock')
+    const project = join(parentDir, 'lifedashboard-clock')
     await mkdir(project)
     await writeFile(join(project, 'keep.txt'), 'keep')
-    await expect(createWidgetProject({ name: 'clock', parentDir })).rejects.toThrow(
-      'Folder clock already exists and is not empty. Fix: choose another name or remove the folder.',
+    await expect(createWidgetProject({ title: 'Clock', parentDir })).rejects.toThrow(
+      'Folder lifedashboard-clock already exists and is not empty. Fix: choose another title or --slug, or remove the folder.',
     )
     expect(await files(project)).toEqual(['keep.txt'])
     expect(await readFile(join(project, 'keep.txt'), 'utf8')).toBe('keep')
   })
 
-  it('accepts an empty folder, a 50-character name and a Unicode parent path', async () => {
+  it('accepts an empty folder, a 50-character slug and a Unicode parent path', async () => {
     const parentDir = join(await temporaryDirectory(), 'Мои виджеты')
-    const name = `a${'0-'.repeat(24)}z`
-    await mkdir(join(parentDir, name), { recursive: true })
-    const project = await createWidgetProject({ name, parentDir, sdk: '0.2.0' })
-    expect(project).toBe(join(parentDir, name))
-    expect((await json(join(project, 'package.json'))).devDependencies['@lifedashboard/widget-sdk'])
+    const slug = `a${'0-'.repeat(24)}z`
+    const folder = join(parentDir, `lifedashboard-${slug}`)
+    await mkdir(folder, { recursive: true })
+    const result = await createWidgetProject({ title: 'Clock', slug, parentDir, sdk: '0.2.0' })
+    expect(result).toEqual({ dir: folder, slug })
+    expect((await json(join(result.dir, 'package.json'))).devDependencies['@lifedashboard/widget-sdk'])
       .toBe('0.2.0')
   })
 })

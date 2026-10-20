@@ -1,5 +1,5 @@
 {
-  "name": "__NAME__",
+  "name": "__SLUG__",
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,7 +1,7 @@
 {
-  "id": "dev.local.__NAME__",
+  "id": "dev.local.__SLUG__",
   "version": "0.1.0",
-  "title": "__NAME__",
+  "title": "__TITLE__",
   "author": "Автор",
   "sdk": 3,
   "entry": "index.js",

@@ -2,20 +2,31 @@ import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
+import { isPlainText } from '@lifedashboard/contracts/parse'
+import { SLUG_PATTERN, slugFromTitle } from './slug.ts'
 
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
 
 export async function createWidgetProject(options: {
-  name: string
+  title: string
+  slug?: string
   parentDir: string
   sdk?: string
-}): Promise<string> {
-  const { name, parentDir, sdk } = options
-  if (!/^[a-z][a-z0-9-]{0,49}$/.test(name)) {
-    throw new Error(`Invalid name "${name}". Fix: use lowercase letters, digits and dashes, starting with a letter.`)
+}): Promise<{ dir: string; slug: string }> {
+  const { title, parentDir, sdk } = options
+  if (!isPlainText(title)) {
+    throw new Error(`Invalid title "${title}". Fix: use 1–60 characters without control characters.`)
   }
-  const projectDir = resolve(parentDir, name)
+  const slug = options.slug ?? slugFromTitle(title)
+  if (slug === null) {
+    throw new Error(`Cannot derive a Latin name from "${title}". Fix: give one with --slug, for example --slug my-clock.`)
+  }
+  if (!SLUG_PATTERN.test(slug)) {
+    throw new Error(`Invalid slug "${slug}". Fix: use lowercase letters, digits and dashes, starting with a letter.`)
+  }
+  const folder = `lifedashboard-${slug}`
+  const projectDir = resolve(parentDir, folder)
   try {
     let entries: string[] = []
     try {
@@ -24,7 +35,7 @@ export async function createWidgetProject(options: {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     if (entries.length > 0) {
-      throw new Error(`Folder ${name} already exists and is not empty. Fix: choose another name or remove the folder.`)
+      throw new Error(`Folder ${folder} already exists and is not empty. Fix: choose another title or --slug, or remove the folder.`)
     }
     const specifier = sdkSpecifier(sdk, version, parentDir)
     await mkdir(projectDir, { recursive: true })
@@ -35,18 +46,24 @@ export async function createWidgetProject(options: {
       })
     }
     await rename(join(projectDir, 'gitignore'), join(projectDir, '.gitignore'))
+    // One pass: a value that contains a marker is never substituted again.
+    const escaped: Record<'TITLE' | 'SLUG' | 'SDK', string> = {
+      TITLE: jsonString(title), SLUG: jsonString(slug), SDK: jsonString(specifier),
+    }
     for (const file of ['widget.json', 'package.json']) {
       const path = join(projectDir, file)
       const template = await readFile(path, 'utf8')
-      const content = template.replaceAll('__NAME__', name)
-        .replaceAll('__SDK__', () => JSON.stringify(specifier).slice(1, -1))
-      await writeFile(path, content)
+      await writeFile(path, template.replace(/__(TITLE|SLUG|SDK)__/g, (_, key: keyof typeof escaped) => escaped[key]))
     }
-    return projectDir
+    return { dir: projectDir, slug }
   } catch (error) {
     if (error instanceof Error && error.message.includes('Fix:')) throw error
-    throw new Error(`Could not create ${name}: ${error instanceof Error ? error.message : String(error)}. Fix: choose a writable parent directory and an empty target folder.`)
+    throw new Error(`Could not create ${folder}: ${error instanceof Error ? error.message : String(error)}. Fix: choose a writable parent directory and an empty target folder.`)
   }
+}
+
+function jsonString(value: string): string {
+  return JSON.stringify(value).slice(1, -1)
 }
 
 export function sdkSpecifier(sdk: string | undefined, ownVersion: string, cwd: string): string {

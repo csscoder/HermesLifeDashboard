@@ -13,7 +13,7 @@ try {
     }
   })()
   const name = args.positionals[0]!
-  await createWidgetProject({ name, parentDir: process.cwd(), sdk: args.values.sdk })
+  await createWidgetProject({ title: name, slug: name, parentDir: process.cwd(), sdk: args.values.sdk })
   console.log(`Created ${name}/\nNext:\n  cd ${name}\n  npm install\n  npx ld-widget check\nRead AGENTS.md before writing code.`)
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
