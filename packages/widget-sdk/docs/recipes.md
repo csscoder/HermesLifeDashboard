@@ -48,6 +48,7 @@ onBeforeUnmount(stop)
   height: 50%;
   margin: 0 auto;
   background: var(--ld-text-primary);
+  transform-origin: 50% 100%;
 }
 </style>
 ```
