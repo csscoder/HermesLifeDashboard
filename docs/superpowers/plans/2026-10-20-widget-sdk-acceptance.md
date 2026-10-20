@@ -103,7 +103,9 @@ Run: `node $ROOT/tools/run-agent.check.mjs`. Expected: FAIL before `run-agent.mj
 - `Bash` `cat node_modules/@lifedashboard/widget-sdk/package.json` → flagged;
 - Codex shell `sed -n 1,40p /Volumes/ExtendSSD/AI_Projects/31_HermesLifeDashboard/README.md` → flagged;
 - `Read` of `<runDir>/src/index.vue` → not flagged and not outside;
-- `Bash` `cat ~/.npmrc` → in `outside`, not flagged.
+- `Bash` `cat ~/.npmrc` → in `outside`, not flagged;
+- `Bash` `node -e "require('fs').readFileSync('node_modules/@lifedashboard/widget-sdk/dist/index.js','utf8')"` with tool result `HIDDEN-OUTPUT-1` → `calls` contains it with `output` equal to `HIDDEN-OUTPUT-1`;
+- `calls.length` equals the number of tool calls and commands in each fixture, and every entry's `output` equals its fixture result, including calls that are neither flagged nor outside.
 
 - [ ] **Step 2: Run it to see it fail**
 
@@ -246,8 +248,9 @@ For each `$ROOT/deliverables/<id>/<dirname>/`, use «Виджеты → Выбр
 Right after each placement, before touching any frame setting, read the instance's saved `appearance` through `GET /api/v1/rooms/<roomId>/board` and take a screenshot.
 
 Sizes (clock and decorative): check every integer pair `w × h` with `min.w ≤ w ≤ max.w` and `min.h ≤ h ≤ max.h` from the deliverable's `widget.json`. Run it as a loop:
-- set the instance's size by saving the board through `PUT /api/v1/rooms/<roomId>/board`, using the request shape in `packages/contracts/src/board.ts`, and keep the instance's other fields unchanged;
-- wait for the widget to render, then take a screenshot clipped to the instance's rectangle, saved as `$ROOT/evidence/<id>-size-<w>x<h>.png`;
+- set the instance's size by saving the board through `PUT /api/v1/rooms/<roomId>/board`. Use the request shape in `packages/contracts/src/board.ts` and the `revision` from the previous response, and keep the instance's other fields unchanged;
+- reload the Orca tab (`orca reload`): the open board does not poll and does not pick up a PUT by itself. Then check with `orca eval` that the instance's rendered rectangle spans `w` columns and `h` rows. Retake a size whose check fails; never screenshot one;
+- take a screenshot clipped to the instance's rectangle and save it as `$ROOT/evidence/<id>-size-<w>x<h>.png`;
 - after the loop, build one contact sheet per widget with `montage` (ImageMagick, already installed at `/opt/homebrew/bin/montage`), labelled by size, in `$ROOT/evidence/<id>-sizes.png`, and judge each cell.
 
 Restore the original size afterwards. A size the agent excluded through its manifest range is not tested.
@@ -259,19 +262,23 @@ Restore the original size afterwards. A size the agent excluded through its mani
   - colors change after switching between two built-in themes;
   - the time matches local time;
   - the hands move between two screenshots 60 s apart;
-  - the five sizes render correctly.
+  - every allowed size renders correctly (the full loop in Step 3).
 - **Counter:**
   - plus and minus change the value;
   - the value survives a reload of the Orca tab;
   - a new title set in the settings screen is shown.
 - **Decorative:**
   - two screenshots 2 s apart differ;
-  - it fills its rectangle at the five sizes;
+  - it fills its rectangle at every allowed size (the full loop in Step 3);
   - it changes with the theme.
 - **HTTP:**
   - it shows EUR, GBP and JPY rates;
-  - it refreshes: keep the widget on screen for at least 21 minutes. The desktop API logs every request in `~/Library/Application Support/LifeDashboard Desktop/logs/api.log`. Count the widget gateway requests from that instance there: at least three requests, spaced about 10 minutes apart, pass;
-  - failure state: switch the Orca tab offline (`orca set offline --state on`). The widget's next request then fails without any change to the deliverable or the system. Trigger the request with a tab reload or by waiting one interval, screenshot the widget, and check that it shows a readable error. Then run `orca set offline --state off` and check that the widget recovers. Record which trigger was used.
+  - it refreshes: keep the widget on screen for at least 21 minutes. Then query the desktop database:
+
+    `sqlite3 "$HOME/Library/Application Support/LifeDashboard Desktop/lifedashboard.db" "SELECT at, op, outcome FROM widget_audit WHERE widget_id = '<instance id>' AND op LIKE 'http.%' AND at >= '<placement time>' ORDER BY at"`
+
+    It passes with at least three successful requests about 10 minutes apart. `api.log` cannot tell instances apart, so it is not used;
+  - failure state: once the widget has loaded and shown data, switch the Orca tab offline (`orca set offline --state on`). Do not reload: a reload would make the whole dashboard unavailable instead of failing the widget's request. Wait for the widget's next interval with its iframe still alive, screenshot it, and check that it shows a readable error. Then run `orca set offline --state off` and check at the following interval that the widget recovers.
 - **Secret:**
   - with the echo server running and no secret set, it shows the unavailable case readably;
   - after entering the secret from `$ROOT/secret.txt` in its settings screen, `$ROOT/logs/echo.jsonl` gets a line whose `x-api-key` equals the secret;
