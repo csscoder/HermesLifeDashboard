@@ -69,6 +69,7 @@ The initial SDK lives at [`packages/widget-sdk`](packages/widget-sdk). It curren
 | `widget.call(op, input)` | Typed low-level gateway call, kept for sdk 1 widgets. |
 | `ld-widget check [dir]` | Check a widget project and write diagnostics to `.ld-widget/check.json`. |
 | `ld-widget build [dir] [--no-source]` | Build a widget project into an installable folder `dist/<id>-<version>/`. |
+| `create-widget [title] [--slug <slug>] [--sdk <spec>] [--no-install]` | Create `lifedashboard-<slug>/` from the widget template, with `AGENTS.md` and the widget skill for Claude Code and Codex, then install dependencies. `--sdk` sets the SDK source: a version, a folder, or a `.tgz` tarball. |
 
 **Gateway operations:** `state.get`, `state.set`, `notifications.send`, `http.get` and `http.send`. HTTP goes through the LifeDashboard API to the exact origins a widget lists in `widget.json` `network` (together with the `network` permission) and the user approves at install; a new version with a new origin lists it for review at install, like a new permission. Redirects are not followed, no cookies are sent, the request body is at most 64 KB, the response at most 100 KB, and the upstream timeout is 4 s. The API injects a widget's secret settings only into requests to their bound origin; exact and URL-encoded copies are redacted from responses. LifeDashboard data sources, local device actions and Hermes are planned; they are not available through the SDK today.
 
@@ -76,13 +77,13 @@ A widget project contains at least:
 
 ```text
 my-widget/
-├── widget.json       # ID, version, author, sizing, permissions, entry, styles
+├── widget.json       # ID, version, author, sizing, permissions, entry, styles, frame
 ├── package.json
 └── src/
     └── index.vue     # Vue single-file component
 ```
 
-`ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, an allow-list of project files: `widget.json`, `package.json`, lock files (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), `tsconfig*.json`, `widget-env.d.ts`, `AGENTS.md`, `CLAUDE.md`, `README*`, `src/` and `test/`. Dotfiles at any depth and `node_modules/` are excluded. The build prints the included source files. `--no-source` leaves `source/` out.
+`widget.json` may set `"frame": "framed"` (default) or `"frameless"`; `frame` needs `"sdk": 3`. `ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`, `"sdk": 3`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, an allow-list of project files: `widget.json`, `package.json`, lock files (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), `tsconfig*.json`, `widget-env.d.ts`, `AGENTS.md`, `CLAUDE.md`, `README*`, `src/` and `test/`. Dotfiles at any depth and `node_modules/` are excluded. The build prints the included source files. `--no-source` leaves `source/` out.
 
 Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Template `src` attributes are never bundled (`transformAssetUrls: false`), so an image used as `<img src="./x.png">` must live in `assets/` and be referenced by URL. Workers start from a `blob:` URL. A widget loads files only from its own folder; network requests go through `http.get` and `http.send`.
 
@@ -127,11 +128,28 @@ Install the built widget folder
 Add it to your dashboard
 ```
 
-Today, a coding agent can work from this repository's SDK and example widget. Dedicated starter templates, self-contained SDK documentation, local preview tooling, and AI-friendly development instructions are on the roadmap.
+Today, a coding agent can work from this repository's SDK and example widget. For a new widget, start from the create tool:
 
-Example prompt for a coding agent:
+```bash
+npm create @lifedashboard/widget "<title>"
+```
 
-> Create a LifeDashboard widget using `packages/widget-sdk` and `examples/widgets/hello` as references. Build a responsive analog clock with a transparent background and subtle animations. Respect `widget.context.size`, `sizeClass`, theme tokens, and visibility. Provide `widget.json`, a Vue component, and a buildable widget folder. Do not use unavailable gateway operations.
+1. Open the created `lifedashboard-<slug>/` folder in Claude Code or Codex. The project's `AGENTS.md` tells the agent how to build the widget.
+2. Describe the widget in one sentence, for example: "A responsive analog clock with a transparent background and subtle animations." The agent builds it into `dist/<id>-<version>/`.
+3. Import that folder through **«Виджеты» → «Выбрать папку»**, then place the widget with **«Добавить виджет…»**.
+
+The SDK reference is [`packages/widget-sdk/docs/index.md`](packages/widget-sdk/docs/index.md). The `npm create` command works after `@lifedashboard/create-widget` is published; before that, use the contributor steps below.
+
+**Contributors:** before publishing, pack both packages, then run the create tool from the tarballs in an empty temporary directory:
+
+```bash
+pnpm -C packages/widget-sdk pack
+pnpm -C packages/create-widget pack
+tar -xzf <create-widget tarball>
+node <unpacked create-widget>/dist/cli.js "<title>" --sdk <sdk tarball>
+```
+
+`pnpm pack` prints the `.tgz` paths (add `--pack-destination <dir>` to write them elsewhere). Use absolute paths for both tarballs. `<unpacked create-widget>` is the `package/` folder that `tar` creates. `<title>` is any widget title. Add `--no-install` to skip the dependency install.
 
 The goal is to make custom widgets possible **without changing or rebuilding LifeDashboard itself**.
 
