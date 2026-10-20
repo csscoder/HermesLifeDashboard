@@ -109,6 +109,12 @@ describe('page content', () => {
     for (const page of PAGES.filter((name) => name !== 'index.md')) expect(index).toContain(`(${page})`)
   })
 
+  it('settings.md says a plain setting must declare default and a secret setting has none', async () => {
+    const settings = (await freshDocs()).get('settings.md')!
+    expect(settings).toContain('must declare `default`')
+    expect(settings).toContain('A `secret` setting has no `default`')
+  })
+
   it('no page names the platform, its agents or its sources', async () => {
     for (const content of (await freshDocs()).values()) {
       for (const word of ['Hermes', 'MCP', 'apps/', 'packages/contracts']) expect(content).not.toContain(word)

@@ -28,7 +28,7 @@ Limits:
 - `enum`: 1 to 50 distinct strings, on a `string` setting only.
 - `maxLength`: 1 to 1000, on a `string` setting only. A string setting without `maxLength` is capped at 1000 characters.
 - `minimum` and `maximum`: finite numbers, on `number` and `integer` settings only. `minimum` must not exceed `maximum`.
-- `default`: must satisfy the setting's own type and constraints.
+- `default`: a plain setting must declare `default`, and it must satisfy the setting's own type and constraints. A `secret` setting has no `default`.
 
 Types: `string`, `number`, `integer`, `boolean` and `secret`.
 
