@@ -1,8 +1,27 @@
-import { normalizeAppearance, type ScreenBoard, type WidgetAppearance, type WidgetPlacement } from '@lifedashboard/contracts/board'
+import {
+  BARE_THEME_ID,
+  normalizeAppearance,
+  type ScreenBoard,
+  type WidgetAppearance,
+  type WidgetInstance,
+  type WidgetPlacement,
+  type WidgetSource,
+} from '@lifedashboard/contracts/board'
 import { ROWS, type Rect } from '@lifedashboard/contracts/grid'
 
 /** Board interaction mode: display only, the builder draft, or editing the placed widgets. */
 export type BoardMode = 'view' | 'build' | 'edit'
+
+/** The board with a new widget last in both lists. A `frameless` package widget starts with the bare theme (spec 2026-10-20). */
+export function addInstance(doc: ScreenBoard, id: string, source: WidgetSource, rect: Rect, frame: 'framed' | 'frameless' | undefined): ScreenBoard {
+  const appearance = frame === 'frameless' ? normalizeAppearance({ themeId: BARE_THEME_ID, shadow: null }) : undefined
+  const instance: WidgetInstance = { id, source: { ...source }, configVersion: 1, config: {}, ...(appearance ? { appearance } : {}) }
+  return {
+    ...doc,
+    instances: [...doc.instances, instance],
+    layout: [...doc.layout, { instanceId: id, x: rect.x, y: rect.y, w: rect.w, h: rect.h }],
+  }
+}
 
 export function setPlacement(doc: ScreenBoard, id: string, rect: Rect): ScreenBoard {
   // Only the rect fields are copied: callers may pass a placement or a rect with extra keys.

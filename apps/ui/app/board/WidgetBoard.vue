@@ -7,7 +7,7 @@ import { resolveWidgetLook } from '../theme/resolve'
 import { describeSource } from '../widgets/catalog'
 import { useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
+import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
 import { useActiveRect } from './use-active-rect'
@@ -287,11 +287,7 @@ function confirmBuild() {
   const rect = activeRect.value
   if (!rect) return
   const id = crypto.randomUUID()
-  void save({
-    ...doc.value,
-    instances: [...doc.value.instances, { id, source: { ...props.draftSource }, configVersion: 1, config: {} }],
-    layout: [...doc.value.layout, { instanceId: id, ...rect }],
-  })
+  void save(addInstance(doc.value, id, props.draftSource, rect, describeSource(props.draftSource)?.frame))
 }
 
 function confirmEdit() {

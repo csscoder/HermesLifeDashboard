@@ -67,6 +67,19 @@ describe('catalog', () => {
     expect(describeSource({ kind: 'builtin', type: 'nope' }, [])).toBeNull()
   })
 
+  it('reports the frame a package version declares, and no frame key when it declares none', () => {
+    const framelessManifest = { ...manifest('2.0.0', 'Часы 2'), sdk: 3 as const, frame: 'frameless' as const }
+    const frameless: InstalledPackage = { ...clock, versions: [{ ...clock.versions[0]!, manifest: framelessManifest }, clock.versions[1]!] }
+    expect(describeSource({ kind: 'package', packageId: 'dev.a.clock', version: '2.0.0' }, [frameless])).toEqual({
+      title: 'Часы 2',
+      sizing: clock.versions[0]!.manifest.sizing,
+      hash: 'h2',
+      frame: 'frameless',
+    })
+    expect(describeSource({ kind: 'package', packageId: 'dev.a.clock', version: '1.0.0' }, [clock])).not.toHaveProperty('frame')
+    expect(describeSource({ kind: 'builtin', type: 'placeholder' }, [])).not.toHaveProperty('frame')
+  })
+
   it('offers built-ins and the newest version of each package', () => {
     expect(pickerEntries([clock])).toEqual([
       { key: 'builtin:placeholder', title: 'Заглушка', source: { kind: 'builtin', type: 'placeholder' } },

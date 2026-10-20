@@ -24,6 +24,8 @@ export interface SourceInfo {
   // The sandbox document of a package version; null for built-in widgets.
   hash: string | null
   settings?: SettingsSchema
+  // Set only when the package version's manifest declares it; absent means framed.
+  frame?: 'framed' | 'frameless'
 }
 
 export interface PickerEntry {
@@ -58,7 +60,15 @@ export function describeSource(source: WidgetSource, packages: readonly Installe
     return manifest ? { title: manifest.title, sizing: manifest.sizing, hash: null } : null
   }
   const version = packages.find((pkg) => pkg.id === source.packageId)?.versions.find((item) => item.version === source.version)
-  return version ? { title: version.manifest.title, sizing: version.manifest.sizing, hash: version.hash, settings: version.manifest.settings } : null
+  if (!version) return null
+  const { frame } = version.manifest
+  return {
+    title: version.manifest.title,
+    sizing: version.manifest.sizing,
+    hash: version.hash,
+    settings: version.manifest.settings,
+    ...(frame ? { frame } : {}),
+  }
 }
 
 /** «Добавить виджет»: built-in widgets, then the newest installed version of each package. */

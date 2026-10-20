@@ -1,6 +1,6 @@
 import { DEFAULT_SHADOW, parseScreenBoard, type ScreenBoard, type WidgetAppearance } from '@lifedashboard/contracts/board'
 import { describe, expect, it } from 'vitest'
-import { focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows } from '../app/board/edit-session'
+import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows } from '../app/board/edit-session'
 
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
@@ -166,5 +166,28 @@ describe('setAppearance', () => {
     const next = setAppearance(board, A, { themeId: null, shadow: DEFAULT_SHADOW })
     const parsed = parseScreenBoard(JSON.parse(JSON.stringify(next)))
     expect(parsed.ok && isSameBoard(parsed.value, next)).toBe(true)
+  })
+})
+
+describe('addInstance', () => {
+  const NEW = '00000000-0000-4000-8000-00000000000d'
+  const source = { kind: 'package', packageId: 'dev.a.clock', version: '1.0.0' } as const
+  const rect = { x: 2, y: 4, w: 2, h: 2 }
+
+  it('places a frameless widget last with the bare theme and no shadow, without mutating its input', () => {
+    const before = structuredClone(board)
+    const next = addInstance(board, NEW, source, rect, 'frameless')
+    expect(next.instances.at(-1)).toStrictEqual({ id: NEW, source, configVersion: 1, config: {}, appearance: { themeId: 'builtin:bare', shadow: null } })
+    expect(next.layout.at(-1)).toStrictEqual({ instanceId: NEW, ...rect })
+    expect(next.instances.slice(0, 3)).toEqual(board.instances)
+    expect(parseScreenBoard(JSON.parse(JSON.stringify(next)))).toEqual({ ok: true, value: next })
+    expect(board).toEqual(before)
+  })
+
+  it.each([['framed' as const], [undefined]])('adds no appearance key for frame %s', (frame) => {
+    const next = addInstance(board, NEW, source, rect, frame)
+    expect(next.instances.at(-1)).not.toHaveProperty('appearance')
+    expect(next.instances.at(-1)).toStrictEqual({ id: NEW, source, configVersion: 1, config: {} })
+    expect(next.layout.at(-1)).toStrictEqual({ instanceId: NEW, ...rect })
   })
 })
