@@ -46,6 +46,11 @@ export async function createWidgetProject(options: {
       })
     }
     await rename(join(projectDir, 'gitignore'), join(projectDir, '.gitignore'))
+    // Regular-file copies, one per agent: Claude Code and Codex each read their own skill folder.
+    const skillDir = new URL('../skill/lifedashboard-widget/', import.meta.url)
+    for (const target of ['.claude/skills/lifedashboard-widget', '.agents/skills/lifedashboard-widget']) {
+      await cp(skillDir, join(projectDir, target), { recursive: true, force: false, errorOnExist: true })
+    }
     // One pass: a value that contains a marker is never substituted again.
     const escaped: Record<'TITLE' | 'SLUG' | 'SDK', string> = {
       TITLE: jsonString(title), SLUG: jsonString(slug), SDK: jsonString(specifier),

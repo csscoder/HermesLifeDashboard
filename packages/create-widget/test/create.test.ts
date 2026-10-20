@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +36,7 @@ describe('createWidgetProject', () => {
     const project = join(parentDir, 'lifedashboard-moi-superchasy')
     expect(result).toEqual({ dir: project, slug: 'moi-superchasy' })
     expect(await files(project)).toEqual([
+      '.agents/skills/lifedashboard-widget/SKILL.md', '.claude/skills/lifedashboard-widget/SKILL.md',
       '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'package.json', 'src/index.vue',
       'tsconfig.json', 'widget-env.d.ts', 'widget.json',
     ])
@@ -74,12 +75,32 @@ describe('createWidgetProject', () => {
     expect(component).toContain('var(--ld-')
     const instructions = await readFile(join(project, 'AGENTS.md'), 'utf8')
     for (const rule of [
-      'node_modules/@lifedashboard/widget-sdk/dist/types', 'widget.state',
-      'External HTTP must use widget.http.get/send', 'the `network` permission', 'the origin listed in `network`',
-      'fetch/XHR/WebSocket can reach only the widget\'s own files',
-      'WebM/Opus', 'assets/', 'npx ld-widget dev', 'npx ld-widget check', 'npx ld-widget build',
-      'dist/<id>-<version>/', 'Виджеты → Выбрать папку',
+      'node_modules/@lifedashboard/widget-sdk/docs/index.md', 'widget.state', 'widget.http.get', 'widget.http.send',
+      'network', 'WebM', 'Opus', 'assets/', 'var(--ld-', 'context.size', 'sizeClass', 'context.frame',
+      'context.visible', '"frame": "frameless"', 'npx ld-widget dev', 'npx ld-widget check', 'npx ld-widget build',
+      '.ld-widget/dev.log', 'dist/<id>-<version>/', 'Виджеты → Выбрать папку',
     ]) expect(instructions).toContain(rule)
+    expect(instructions).not.toContain('dist/types')
+    expect(instructions).not.toMatch(/Hermes|MCP/)
+    expect(instructions.trimEnd().split('\n').length).toBeLessThanOrEqual(60)
+  })
+
+  it('installs the widget skill as regular files for Claude Code and Codex', async () => {
+    const { dir } = await createWidgetProject({ title: 'Clock', parentDir: await temporaryDirectory() })
+    const expected = await readFile(join(packageDir, 'skill/lifedashboard-widget/SKILL.md'), 'utf8')
+    for (const target of ['.claude', '.agents']) {
+      const path = join(dir, target, 'skills/lifedashboard-widget/SKILL.md')
+      const stat = await lstat(path)
+      expect(stat.isSymbolicLink()).toBe(false)
+      expect(stat.isFile()).toBe(true)
+      expect(await readFile(path, 'utf8')).toBe(expected)
+    }
+  })
+
+  it('ships a SKILL.md whose frontmatter names the skill and closes', async () => {
+    const skill = await readFile(join(packageDir, 'skill/lifedashboard-widget/SKILL.md'), 'utf8')
+    expect(skill.startsWith('---\nname: lifedashboard-widget\ndescription: ')).toBe(true)
+    expect(skill.split('\n').indexOf('---', 1)).toBeGreaterThan(2)
   })
 
   it('keeps template tool versions aligned with the workspace', async () => {
@@ -226,10 +247,11 @@ describe('packs and runs a standalone CLI', () => {
     const manifest = await json(join(packed, 'package.json'))
     expect(manifest.bin).toEqual({ 'create-widget': './dist/cli.js' })
     expect(manifest).not.toHaveProperty('private')
-    expect(manifest.files).toEqual(['dist', 'template'])
+    expect(manifest.files).toEqual(['dist', 'template', 'skill'])
     const packedFiles = await files(packed)
     expect(packedFiles).toContain('dist/cli.js')
     expect(packedFiles).toContain('template/gitignore')
+    expect(packedFiles).toContain('skill/lifedashboard-widget/SKILL.md')
     const source = await readFile(cli, 'utf8')
     expect(source).toMatch(/^#!\/usr\/bin\/env node\n/)
     expect(source).not.toMatch(/(?:from|import|require)\s*\(?\s*['"]@lifedashboard\/contracts/)
@@ -252,7 +274,7 @@ describe('packs and runs a standalone CLI', () => {
     ].join('\n'))
     const project = join(cwd, 'lifedashboard-moi-chasy')
     expect(await readFile(log, 'utf8')).toBe(`${await realpath(project)}\ninstall\n`)
-    expect(await files(project)).toHaveLength(8)
+    expect(await files(project)).toHaveLength(10)
     expect((await json(join(project, 'package.json'))).devDependencies['@lifedashboard/widget-sdk'])
       .toBe(`file:${sdkTarball}`)
   })
