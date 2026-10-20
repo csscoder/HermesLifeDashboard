@@ -321,22 +321,24 @@ export interface WidgetContext {
   visible: boolean
 }
 
-export type WidgetErrorCode =
-  | 'SESSION_EXPIRED'
-  | 'UNKNOWN_OP'
-  | 'PERMISSION_DENIED'
-  | 'INVALID_INPUT'
-  | 'RATE_LIMITED'
-  | 'CONFLICT'
-  | 'TIMEOUT'
-  | 'BRIDGE_CLOSED'
-  | 'UNAVAILABLE'
-  | 'DECLINED'
+export const WIDGET_ERROR_CODES = [
+  'SESSION_EXPIRED',
+  'UNKNOWN_OP',
+  'PERMISSION_DENIED',
+  'INVALID_INPUT',
+  'RATE_LIMITED',
+  'CONFLICT',
+  'TIMEOUT',
+  'BRIDGE_CLOSED',
+  'UNAVAILABLE',
+  'DECLINED',
+] as const
+export type WidgetErrorCode = (typeof WIDGET_ERROR_CODES)[number]
 
 export const SDK_VERSION = 1
-export const SDK_LEVELS = [1, 2] as const
+export const SDK_LEVELS = [1, 2, 3] as const
 export type SdkLevel = (typeof SDK_LEVELS)[number]
-export const SDK_TARGET_LEVEL: SdkLevel = 2
+export const SDK_TARGET_LEVEL: SdkLevel = 3
 
 export interface HelloMessage {
   t: 'ld:hello'

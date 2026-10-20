@@ -17,7 +17,17 @@ import {
   parseHttpSend,
   parseSandboxMessage,
   sizeClass,
+  WIDGET_ERROR_CODES,
 } from '../src/widget-gateway.ts'
+
+describe('WIDGET_ERROR_CODES', () => {
+  it('lists the runtime error codes in order', () => {
+    expect(WIDGET_ERROR_CODES).toEqual([
+      'SESSION_EXPIRED', 'UNKNOWN_OP', 'PERMISSION_DENIED', 'INVALID_INPUT', 'RATE_LIMITED',
+      'CONFLICT', 'TIMEOUT', 'BRIDGE_CLOSED', 'UNAVAILABLE', 'DECLINED',
+    ])
+  })
+})
 
 // JSON of 'x'.repeat(n) is n + 2 bytes (the quotes).
 const exactly64k = 'x'.repeat(65_534)

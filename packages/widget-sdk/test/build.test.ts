@@ -36,13 +36,13 @@ describe('buildWidget', () => {
     expect(await readFile(join(target, 'index.js'), 'utf8')).toMatch(/from\s*["']@lifedashboard\/widget-sdk["']/)
   }, 30_000)
 
-  it('builds sdk 1 sources at sdk 2 without changing the copied source manifest', async () => {
+  it('builds sdk 1 sources at sdk 3 without changing the copied source manifest', async () => {
     const dir = await copyOf('counter')
     const source = await readFile(join(dir, 'widget.json'), 'utf8')
     const manifest = JSON.parse(source)
     expect(manifest.sdk).toBe(1)
     const target = await buildWidget(dir)
-    expect(JSON.parse(await readFile(join(target, 'widget.json'), 'utf8'))).toEqual({ ...manifest, format: 2, sdk: 2 })
+    expect(JSON.parse(await readFile(join(target, 'widget.json'), 'utf8'))).toEqual({ ...manifest, format: 2, sdk: 3 })
     expect(await readFile(join(target, 'source', 'widget.json'), 'utf8')).toBe(source)
     expect(await readFile(join(dir, 'widget.json'), 'utf8')).toBe(source)
   }, 30_000)

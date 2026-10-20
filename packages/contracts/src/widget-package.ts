@@ -92,9 +92,12 @@ const SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/
 const ID_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/
 const VERSION_PATTERN = /^\d+\.\d+\.\d+$/
 
-const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions', 'network', 'settings']
+const MANIFEST_KEYS = ['id', 'version', 'title', 'author', 'sdk', 'entry', 'styles', 'sizing', 'permissions', 'network', 'settings', 'frame']
 const SIZING_KEYS = ['default', 'min', 'max']
 const SIZE_KEYS = ['w', 'h']
+
+// Spec 2026-10-20: `framed` (default) draws the host frame around the widget; `frameless` does not. Needs sdk 3.
+export type WidgetFrame = 'framed' | 'frameless'
 
 export interface WidgetPackageManifest {
   id: string
@@ -110,6 +113,8 @@ export interface WidgetPackageManifest {
   // versions are read back without re-validation and lack it; absent means no origins.
   network?: string[]
   settings?: SettingsSchema
+  // Absent means `framed`; the key is left out so manifests without it keep their canonical JSON.
+  frame?: WidgetFrame
 }
 
 /** `POST /widget-uploads` (hash null) and `POST /widget-uploads/:id/install` answer with this. */
@@ -204,14 +209,7 @@ function parsePermissions(raw: unknown): WidgetPermission[] | null {
 
 function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
   if (!isRecord(raw)) return fail('manifest must be an object')
-  const extra = unknownKey(raw, MANIFEST_KEYS)
-  if (extra !== undefined) return fail(`manifest: unknown field "${extra}"`)
-  if (!isPackageId(raw.id)) {
-    return fail('manifest.id must match ^[a-z0-9]+(\\.[a-z0-9-]+)+$ and be at most 100 characters')
-  }
-  if (!isPackageVersion(raw.version)) return fail('manifest.version must be MAJOR.MINOR.PATCH')
-  if (!isPlainText(raw.title)) return fail('manifest.title must be 1–60 characters of plain text')
-  if (!isPlainText(raw.author)) return fail('manifest.author must be 1–60 characters of plain text')
+  // sdk first: a newer manifest may carry fields this version does not know yet.
   const sdk = raw.sdk
   if (typeof sdk !== 'number' || !Number.isInteger(sdk)) return fail('manifest.sdk must be an integer level')
   if (!(SDK_LEVELS as readonly number[]).includes(sdk)) {
@@ -220,6 +218,14 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
     }
     return fail('manifest.sdk must be an integer level')
   }
+  const extra = unknownKey(raw, MANIFEST_KEYS)
+  if (extra !== undefined) return fail(`manifest: unknown field "${extra}"`)
+  if (!isPackageId(raw.id)) {
+    return fail('manifest.id must match ^[a-z0-9]+(\\.[a-z0-9-]+)+$ and be at most 100 characters')
+  }
+  if (!isPackageVersion(raw.version)) return fail('manifest.version must be MAJOR.MINOR.PATCH')
+  if (!isPlainText(raw.title)) return fail('manifest.title must be 1–60 characters of plain text')
+  if (!isPlainText(raw.author)) return fail('manifest.author must be 1–60 characters of plain text')
   if (Object.hasOwn(raw, 'settings') && sdk === 1) return fail('manifest.settings needs sdk 2')
   if (typeof raw.entry !== 'string') return fail('manifest.entry must name a .js file in files')
   if (!Array.isArray(raw.styles) || !raw.styles.every((item) => typeof item === 'string')) {
@@ -250,6 +256,11 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
     if (!parsed.ok) return parsed
     settings = parsed.value
   }
+  if (raw.frame !== undefined && sdk < 3) return fail('manifest.frame needs sdk 3')
+  if (raw.frame !== undefined && raw.frame !== 'framed' && raw.frame !== 'frameless') {
+    return fail('manifest.frame must be "framed" or "frameless"')
+  }
+  const frame = raw.frame as WidgetFrame | undefined
   return {
     ok: true,
     value: {
@@ -265,6 +276,7 @@ function parseManifest(raw: unknown): ParseResult<WidgetPackageManifest> {
       // Left out when absent, so a manifest without network keeps its canonical JSON and package hash.
       ...(network === undefined ? {} : { network }),
       ...(settings === undefined ? {} : { settings }),
+      ...(frame === undefined ? {} : { frame }),
     },
   }
 }

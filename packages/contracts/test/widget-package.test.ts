@@ -55,8 +55,39 @@ describe('manifest field rules', () => {
   })
 
   it('rejects a newer sdk level with an update hint', () => {
+    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 4 }))
+    expect(result).toEqual({ ok: false, error: 'manifest.sdk 4 needs a newer LifeDashboard (this one supports 1–3)' })
+  })
+
+  it('checks sdk before unknown fields', () => {
+    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 4; m.future = 1 }))
+    expect(result).toEqual({ ok: false, error: 'manifest.sdk 4 needs a newer LifeDashboard (this one supports 1–3)' })
+  })
+
+  it('accepts frame at sdk 3 and keeps it', () => {
+    for (const frame of ['frameless', 'framed']) {
+      const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 3; m.frame = frame }))
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.value.frame).toBe(frame)
+    }
+  })
+
+  it('omits frame when absent', () => {
     const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 3 }))
-    expect(result).toEqual({ ok: false, error: 'manifest.sdk 3 needs a newer LifeDashboard (this one supports 1–2)' })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect('frame' in result.value).toBe(false)
+  })
+
+  it('rejects frame below sdk 3', () => {
+    expect(parseWidgetManifest(mutatedManifest((m) => { m.sdk = 2; m.frame = 'frameless' }))).toEqual({
+      ok: false, error: 'manifest.frame needs sdk 3',
+    })
+  })
+
+  it.each(['none', true])('rejects an invalid frame %s at sdk 3', (frame) => {
+    expect(parseWidgetManifest(mutatedManifest((m) => { m.sdk = 3; m.frame = frame }))).toEqual({
+      ok: false, error: 'manifest.frame must be "framed" or "frameless"',
+    })
   })
 
   it('rejects a non-integer sdk', () => {
