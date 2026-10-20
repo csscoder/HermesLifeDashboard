@@ -286,7 +286,7 @@ The build is ad-hoc signed and not notarized; it is meant for the machine that b
 The roadmap describes intended directions rather than release promises or delivery dates.
 
 1. **Widget experience:** polish the board editor, broaden the built-in library, improve animations and appearance controls, and support static/animated backgrounds.
-2. **Widget SDK developer experience:** stable versioned contracts, starter projects, documentation tailored to human and AI developers, preview tooling, and richer asset support.
+2. **Widget SDK developer experience:** stable versioned contracts and richer asset support.
 3. **Workspace organization:** multiple editable rooms/screens, presets, portable layouts, and import/export of configurations.
 4. **Widget ecosystem:** practical and decorative widget collections, themed packs, easier package discovery and updates, and optional independently sold premium packs.
 5. **Data and AI integrations:** permission-controlled data sources, external service access, device integrations, and Hermes sessions/conversations and AI-powered widgets.
