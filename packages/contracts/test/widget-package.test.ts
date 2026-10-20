@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { isPlainText, PLAIN_TEXT_MAX } from '../src/parse.ts'
 import {
   canonicalJson,
   classifyPath,
   compareVersions,
   isNetworkOrigin,
   isPackageId,
+  PACKAGE_LIMITS,
   parseWidgetFolder,
   parseWidgetManifest,
   SERVED_TYPES,
@@ -380,5 +382,14 @@ describe('manifest network', () => {
     expect(isNetworkOrigin('http://localhost:80')).toBe(false)
     expect(isNetworkOrigin('http://127.0.0.1:8787@evil.example')).toBe(false)
     expect(isNetworkOrigin(null)).toBe(false)
+  })
+})
+
+describe('plain-text limit', () => {
+  it('takes PACKAGE_LIMITS.maxTextLength from PLAIN_TEXT_MAX, the limit isPlainText enforces', () => {
+    expect(PLAIN_TEXT_MAX).toBe(60)
+    expect(PACKAGE_LIMITS.maxTextLength).toBe(PLAIN_TEXT_MAX)
+    expect(isPlainText('x'.repeat(PLAIN_TEXT_MAX))).toBe(true)
+    expect(isPlainText('x'.repeat(PLAIN_TEXT_MAX + 1))).toBe(false)
   })
 })

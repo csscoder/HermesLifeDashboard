@@ -1,5 +1,5 @@
 import { GRID_COLS, ROWS, type Size, type WidgetSizing } from './grid.ts'
-import { fail, isPlainText, isRecord, unknownKey, type ParseResult } from './parse.ts'
+import { fail, isPlainText, isRecord, PLAIN_TEXT_MAX, unknownKey, type ParseResult } from './parse.ts'
 import { SDK_LEVELS, type SdkLevel } from './widget-gateway.ts'
 import { parseSettingsSchema, type SettingsSchema } from './widget-settings.ts'
 import type { BoundSecret } from './widget-secrets.ts'
@@ -21,7 +21,7 @@ export const PACKAGE_LIMITS = {
   maxFiles: 2000,
   maxPathLength: 200,
   maxIdLength: 100,
-  maxTextLength: 60,
+  maxTextLength: PLAIN_TEXT_MAX,
 } as const
 
 export const NETWORK_ORIGINS_MAX = 16
