@@ -237,7 +237,7 @@ Append one line to `$ROOT/logs/runs.jsonl` with these fields:
 
 - [ ] **Step 1: Record the main screen before placing anything**
 
-Save `GET /api/v1/rooms/<roomId>/board` to `$ROOT/evidence/board-before.json`. The board shows only its first screen (spec decision 7), so every widget goes on it, at rows below the lowest existing instance. Existing instances must stay unchanged: in Task 7, compare them with this file.
+Get `<roomId>` from `GET /api/v1/rooms`. If there is exactly one room, use it. If there are several, use the one the dashboard opens (`roomId` from `connect()` in `apps/ui/app/app.vue`, read with `orca eval` or from the board request in the Orca network log). Write the id in `$ROOT/evidence/room-id.txt`; every later board call uses it. Save `GET /api/v1/rooms/<roomId>/board` to `$ROOT/evidence/board-before.json`. The board shows only its first screen (spec decision 7), so every widget goes on it, at rows below the lowest existing instance. Existing instances must stay unchanged: in Task 7, compare them with this file.
 
 - [ ] **Step 2: Import each deliverable**
 
@@ -265,7 +265,7 @@ Restore the original size afterwards. A size the agent excluded through its mani
   - every allowed size renders correctly (the full loop in Step 3).
 - **Counter:**
   - plus and minus change the value;
-  - the value survives a reload of the Orca tab;
+  - the value survives a reload of the app: for each counter, reload the Orca tab; then, once for both counters together, quit and reopen `LifeDashboard.app`, re-pair the Orca tab if asked (Review Focus 5), and check both values again;
   - a new title set in the settings screen is shown.
 - **Decorative:**
   - two screenshots 2 s apart differ;
