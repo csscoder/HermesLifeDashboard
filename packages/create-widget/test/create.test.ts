@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { parseWidgetManifest } from '@lifedashboard/contracts/widget-package'
 import { renderConfigDeclaration } from '../../widget-sdk/src/config-declaration.ts'
 import { createWidgetProject, sdkSpecifier } from '../src/create.ts'
@@ -180,37 +181,126 @@ describe('sdkSpecifier', () => {
   })
 })
 
-it('packs a standalone CLI and scaffolds with a packed SDK without installing', async () => {
-  const work = await temporaryDirectory()
-  run('pnpm', ['-C', packageDir, 'pack', '--pack-destination', work], repoDir)
-  const tarball = join(work, 'lifedashboard-create-widget-0.1.0.tgz')
-  run('tar', ['-xzf', tarball, '-C', work], repoDir)
-  const packed = join(work, 'package')
-  const manifest = await json(join(packed, 'package.json'))
-  expect(manifest.bin).toEqual({ 'create-widget': './dist/cli.js' })
-  expect(manifest).not.toHaveProperty('private')
-  expect(manifest.files).toEqual(['dist', 'template'])
-  const packedFiles = await files(packed)
-  expect(packedFiles).toContain('dist/cli.js')
-  expect(packedFiles).toContain('template/gitignore')
-  expect(await readFile(join(packed, 'dist/cli.js'), 'utf8')).toMatch(/^#!\/usr\/bin\/env node\n/)
-  // This pack relies on the workspace dependency ordering SDK tests before create-widget tests.
-  run('pnpm', ['-C', join(repoDir, 'packages/widget-sdk'), 'pack', '--pack-destination', work], repoDir)
-  const sdkTarball = join(work, 'lifedashboard-widget-sdk-0.1.0.tgz')
-  const result = run(process.execPath, [join(packed, 'dist/cli.js'), 'demo', '--sdk', sdkTarball], work)
-  expect(result.stderr).toBe('')
-  expect(result.stdout).toBe([
-    'Created demo/', 'Next:', '  cd demo', '  npm install', '  npx ld-widget check',
-    'Read AGENTS.md before writing code.', '',
-  ].join('\n'))
-  const project = join(work, 'demo')
-  expect((await json(join(project, 'package.json'))).devDependencies['@lifedashboard/widget-sdk'])
-    .toBe(`file:${sdkTarball}`)
-  expect(await files(project)).toHaveLength(8)
-  const invalid = spawnSync(process.execPath, [join(packed, 'dist/cli.js'), 'BadName'], {
-    cwd: work, encoding: 'utf8',
+describe('packs and runs a standalone CLI', () => {
+  const NPM_AGENT = 'npm/11.6.0 node/v24.21.0 darwin arm64'
+  const PNPM_AGENT = 'pnpm/10.30.2 npm/? node/v24.21.0 darwin arm64'
+  let packed = ''
+  let cli = ''
+  let sdkTarball = ''
+  let stub = ''
+
+  beforeAll(async () => {
+    const work = await temporaryDirectory()
+    run('pnpm', ['-C', packageDir, 'pack', '--pack-destination', work], repoDir)
+    run('tar', ['-xzf', join(work, 'lifedashboard-create-widget-0.1.0.tgz'), '-C', work], repoDir)
+    packed = join(work, 'package')
+    cli = join(packed, 'dist/cli.js')
+    run('pnpm', ['-C', join(repoDir, 'packages/widget-sdk'), 'pack', '--pack-destination', work], repoDir)
+    sdkTarball = join(work, 'lifedashboard-widget-sdk-0.1.0.tgz')
+    // Stub package managers record their working directory and arguments, then exit with $STUB_EXIT.
+    stub = await temporaryDirectory()
+    const script = ['#!/bin/sh', '{ pwd -P; printf \'%s\\n\' "$@"; } > "$STUB_LOG"', 'exit "$STUB_EXIT"', ''].join('\n')
+    for (const name of ['npm', 'pnpm']) await writeFile(join(stub, name), script, { mode: 0o755 })
+  }, 180_000)
+
+  async function runCli(args: string[], userAgent = NPM_AGENT, exit = 0) {
+    const cwd = await temporaryDirectory()
+    const log = join(await temporaryDirectory(), 'stub.log')
+    const result = spawnSync(process.execPath, [cli, ...args], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        PATH: `${stub}:${process.env.PATH}`,
+        npm_config_user_agent: userAgent,
+        STUB_LOG: log,
+        STUB_EXIT: String(exit),
+      },
+    })
+    expect(result.error).toBeUndefined()
+    return { cwd, log, result }
+  }
+
+  it('packs the CLI with the expected manifest and bundle', async () => {
+    const manifest = await json(join(packed, 'package.json'))
+    expect(manifest.bin).toEqual({ 'create-widget': './dist/cli.js' })
+    expect(manifest).not.toHaveProperty('private')
+    expect(manifest.files).toEqual(['dist', 'template'])
+    const packedFiles = await files(packed)
+    expect(packedFiles).toContain('dist/cli.js')
+    expect(packedFiles).toContain('template/gitignore')
+    const source = await readFile(cli, 'utf8')
+    expect(source).toMatch(/^#!\/usr\/bin\/env node\n/)
+    expect(source).not.toMatch(/(?:from|import|require)\s*\(?\s*['"]@lifedashboard\/contracts/)
   })
-  expect(invalid.status).toBe(1)
-  expect(invalid.stdout).toBe('')
-  expect(invalid.stderr).toBe('Invalid name "BadName". Fix: use lowercase letters, digits and dashes, starting with a letter.\n')
+
+  it.each([
+    { manager: 'npm', userAgent: NPM_AGENT },
+    { manager: 'pnpm', userAgent: PNPM_AGENT },
+  ])('installs with $manager after scaffolding', async ({ userAgent }) => {
+    const { cwd, log, result } = await runCli(['Мои часы', '--sdk', sdkTarball], userAgent)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toBe([
+      'Created lifedashboard-moi-chasy/',
+      '  title: Мои часы',
+      '  id: dev.local.moi-chasy',
+      '  package: moi-chasy',
+      'Next: open lifedashboard-moi-chasy/ in Claude Code or Codex; the agent starts from AGENTS.md.',
+      '',
+    ].join('\n'))
+    const project = join(cwd, 'lifedashboard-moi-chasy')
+    expect(await readFile(log, 'utf8')).toBe(`${await realpath(project)}\ninstall\n`)
+    expect(await files(project)).toHaveLength(8)
+    expect((await json(join(project, 'package.json'))).devDependencies['@lifedashboard/widget-sdk'])
+      .toBe(`file:${sdkTarball}`)
+  })
+
+  it.each([
+    { manager: 'npm', userAgent: NPM_AGENT },
+    { manager: 'pnpm', userAgent: PNPM_AGENT },
+  ])('skips install with --no-install and prints the $manager hint', async ({ manager, userAgent }) => {
+    const { log, result } = await runCli(['Clock', '--no-install'], userAgent)
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toBe([
+      'Created lifedashboard-clock/',
+      '  title: Clock',
+      '  id: dev.local.clock',
+      '  package: clock',
+      'Next: open lifedashboard-clock/ in Claude Code or Codex; the agent starts from AGENTS.md.',
+      `Install dependencies first: cd lifedashboard-clock && ${manager} install`,
+      '',
+    ].join('\n'))
+    expect(existsSync(log)).toBe(false)
+  })
+
+  it.each([
+    { manager: 'npm', userAgent: NPM_AGENT },
+    { manager: 'pnpm', userAgent: PNPM_AGENT },
+  ])('reports a failed $manager install and keeps the project folder', async ({ manager, userAgent }) => {
+    const { cwd, result } = await runCli(['Мои часы', '--sdk', sdkTarball], userAgent, 1)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(
+      `Dependency install failed. Fix: run "cd lifedashboard-moi-chasy && ${manager} install".\n`,
+    )
+    expect(await files(join(cwd, 'lifedashboard-moi-chasy'))).toContain('widget.json')
+  })
+
+  it('requires a title when stdin is not a terminal', async () => {
+    const { result } = await runCli([])
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('Missing widget title. Fix: run create-widget "<title>" [--slug <slug>].\n')
+  })
+
+  it.each([['Clock', 'Extra'], ['Clock', '--bogus']])('rejects invalid arguments %j', async (...args) => {
+    const { result } = await runCli([...args])
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe(
+      'Invalid arguments. Fix: use create-widget [title] [--slug <slug>] [--sdk <version|path|tarball>] [--no-install].\n',
+    )
+  })
 }, 180_000)
