@@ -51,21 +51,23 @@ For runs 4 and 5 the description names the exact URL (and for run 5 the header n
 
 1. **Setup, once.**
    - Pack `@lifedashboard/widget-sdk` and `@lifedashboard/create-widget` from current `main` into a temp folder outside the repo.
-   - Rebuild the desktop app from `main` (`pnpm -C apps/desktop run package`). After the user closes the running app, move the old `/Applications/LifeDashboard.app` to a backup and install the new one. The desktop data folder (`~/Library/Application Support/LifeDashboard Desktop`) stays.
+   - Rebuild the desktop app from `main` (`pnpm -C apps/desktop run package`). After the user closes the running app, move the old `/Applications/LifeDashboard.app` to a backup and install the new one. The desktop data folder (`~/Library/Application Support/LifeDashboard Desktop`) stays in place.
+   - Before the new build first starts, copy the whole data folder to a backup and compare the database's applied migrations with the new build's list. The API applies pending migrations on start, and some migrations delete tables. If a pending migration deletes user data, stop and ask the user. Restoring means putting back the old app bundle and the copied data folder together.
    - Create clean agent profiles (see Constraints) and confirm, with a throwaway project, that each agent loads the project's `AGENTS.md`, `CLAUDE.md` (Claude Code) and the `lifedashboard-widget` skill, and does not load the user's global config.
    - Start the local echo server for run 5. It is a small throwaway script in the temp folder, on `http://127.0.0.1:<port>`; it returns the request headers it received.
 2. **Per run.**
    - In a fresh empty folder outside the repo, the controller runs the create command from the unpacked `create-widget` tarball with the widget title and `--sdk <sdk tarball>`, with dependency install on (the user's one command). Before publishing, `npm create` cannot resolve the package, so this tarball command replaces it; the builder fixes the exact command and verifies install works with the tarball SDK.
    - The agent starts headless in the created `lifedashboard-<slug>/` folder with the one sentence and nothing else. It may run any command and iterate on its own `check` errors. Nobody answers its questions; a question it asks is recorded.
    - The run ends when the agent stops or hits the time cap (controller's call: 45 minutes).
-   - The controller runs `ld-widget check` and `ld-widget build` itself afterwards, so the result does not depend on the agent's claim.
+   - When the run ends, the controller saves a copy of the agent's built `dist/<id>-<version>/` folder as the run's deliverable. A missing built folder is a failure of the run. The deliverable is what gets imported.
+   - The controller then runs `ld-widget check` and `ld-widget build` itself on a separate copy of the project, so the result does not depend on the agent's claim. These commands rebuild `dist/`, so they never run on the deliverable. A deliverable that differs from the controller's build (stale or hand-edited) is recorded.
 3. **Import and checks, after all 10 runs.**
    - Import each built `dist/<id>-<version>/` folder into the new desktop app through its folder import («Виджеты → Выбрать папку»). How the controller drives the import (GUI automation of the app, or the app's own web origin in a browser) is the builder's call; the report says which path each import took.
-   - Create a separate screen, place the four kept widgets on it, and place the three check widgets there for testing, then remove the check widgets and their packages after the report.
+   - Create a separate screen and place all 10 imported widgets on it: the four kept ones (clock and counter from each agent) and the six check ones (decorative, HTTP and secret from each agent). Each of the 10 is checked on its own. After the report, remove the six check widgets and their packages.
 
 ## Pass criteria per widget
 
-- **Clock:** placed frameless (saved appearance `builtin:bare`, no card frame on screen); colors follow the current theme (switch at least two built-in themes); renders correctly at every size the manifest allows; shows the current local time and the hands move.
+- **Clock:** frameless on first placement, before anyone touches its frame setting (saved appearance `builtin:bare` and no card frame on screen right after placing; a framed first placement is a failure); colors follow the current theme (switch at least two built-in themes); renders correctly at every size the manifest allows; shows the current local time and the hands move.
 - **Counter:** plus and minus change the value; the value survives a reload of the app; changing the title in the widget's settings screen changes the shown title.
 - **Decorative:** animates; fills its rectangle at every allowed size; uses theme colors.
 - **HTTP:** shows data from the named API; refreshes on its interval; shows a readable state when the request fails (checked by blocking or breaking the request, builder's choice).
@@ -78,13 +80,13 @@ For runs 4 and 5 the description names the exact URL (and for run 5 the header n
 - The report lists every forbidden access with the exact tool call or command.
 - Borderline cases (controller's call):
   - A listing that shows only names (`ls`, `find` without reading content) is not a read.
-  - Reading `node_modules/@lifedashboard/*/package.json` is recorded as borderline, in its own report column, not as a failure. It is metadata, not source.
+  - Reading any other file under `node_modules/@lifedashboard/*/`, including its `package.json`, is a failure, as the allowed list says.
   - A `grep`/`rg` whose output shows content from a forbidden file is a read of that file.
   - Files of the generated project, including those `check` or `build` output names, are always allowed.
 
 ## Infrastructure faults
 
-A run that fails for a reason that is not the SDK's (rate limit, agent crash, sandbox blocking network, the run 4 API being down) is rerun once from a fresh folder. Both attempts are in the report (controller's call). A second infrastructure fault is reported as such, not as an SDK failure.
+A run that fails for a reason that is not the SDK's (rate limit, agent crash, sandbox blocking network, the run 4 API being down) is not rerun, per decision 4. The report records it as an infrastructure fault, separate from SDK failures, and the remaining runs continue.
 
 ## Report
 
