@@ -1,0 +1,73 @@
+# Workflow
+
+A widget goes from project to built folder to the user's dashboard in four steps: `dev`, `check`, `build`, handover.
+
+## Create
+
+```sh
+npm create @lifedashboard/widget -- "<title>"
+cd lifedashboard-<slug>
+```
+
+The project folder is `lifedashboard-<slug>/`. Dependencies are installed. The project includes `AGENTS.md`, `CLAUDE.md` and the widget skill for Claude Code and Codex.
+
+## dev
+
+```sh
+npx ld-widget dev
+```
+
+The dev server starts the shell. The shell shows the widget in a frame, at sizes between the manifest `min` and `max`, in every built-in theme, framed and frameless. It also shows a settings form generated from the schema and a log of gateway calls and errors.
+
+- Runtime errors, CSP violations, gateway errors and content that overflows the frame are written to `.ld-widget/dev.log`.
+- After each change, read `.ld-widget/dev.log` and fix every entry in it.
+- Shell state (size, theme, frame) is in the URL, so each combination can be opened and checked separately.
+
+Declared differences from production:
+
+- The Vue development build is used for hot reload.
+- Vite's client and its hot-reload WebSocket are allowed by the CSP.
+- State is kept in memory or on disk, with the same size limit and revisions as production.
+- HTTP goes through a dev proxy. It allows only the manifest `network` origins and applies the production limits, timeouts, header rules, rate limits and confirmation policy.
+
+The dev shell does not reproduce every production behavior, so run `check` and `build` before handover.
+
+## check
+
+```sh
+npx ld-widget check
+```
+
+`check` runs without a browser. It prints plain-text problems and writes `.ld-widget/check.json`. It checks:
+
+- the manifest, the settings schema and secret bindings, for the declared `sdk` level;
+- types, against the SDK types and the generated `widget-env.d.ts`, using the project's own `vue-tsc`;
+- APIs that do not work in the sandbox or on the baseline (see [runtime.md](runtime.md));
+- HTTP URL literals whose origin is not in the manifest `network` list;
+- media: an MP4 without a WebM source, or audio without an Opus source, is an error;
+- the build itself and the code size limit (see [runtime.md](runtime.md)).
+
+Fix every reported problem. `check` does not verify codecs; media needs the engine checks below.
+
+## build
+
+```sh
+npx ld-widget build
+```
+
+The output is `dist/<id>-<version>/`. It contains the code, `assets/`, and `source/`.
+
+- `source/` is an allow-list: `widget.json`, `package.json`, lockfiles, `tsconfig*.json`, `AGENTS.md`, `CLAUDE.md`, `README*`, and the `src/` and `test/` directories. Dotfiles are never included. `build` prints what it put into `source/`.
+- `--no-source` leaves `source/` out.
+- Relative URLs only. Everything is bundled. The folder works the same on macOS, Windows and Linux.
+
+## Handover
+
+Give the user the folder `dist/<id>-<version>/`. The user imports it in the dashboard with «Виджеты → Выбрать папку».
+
+- A built folder is portable and carries no credentials. Share it as it is.
+- Sharing the project means sharing the source. Do not share `node_modules/`, `dist/` or `.ld-widget/`.
+
+## Engine checks
+
+For a widget with media, check playback in the target engines before handover: Safari on macOS and GNOME Web on Linux. Both must play the WebM and Opus files the widget uses.

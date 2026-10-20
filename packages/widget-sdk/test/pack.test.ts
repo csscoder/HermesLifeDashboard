@@ -54,6 +54,13 @@ it('packs the compiled public package without workspace references or sources', 
   expect((await readFile(join(extracted, 'dist/cli.js'), 'utf8')).split('\n')[0]).toBe('#!/usr/bin/env node')
 })
 
+it('packs the generated docs and not their source', () => {
+  for (const page of ['index', 'api', 'runtime', 'errors', 'design', 'settings', 'recipes', 'workflow']) {
+    expect(files).toContain(`docs/${page}.md`)
+  }
+  expect(files.some((file) => file.startsWith('docs-src/'))).toBe(false)
+})
+
 it('typechecks and builds a consumer outside the workspace using only the tarball', async () => {
   const consumer = join(work, 'consumer')
   const modules = join(consumer, 'node_modules')

@@ -6,11 +6,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { rewriteDeclarations } from './rewrite-declarations.ts'
+import { checkDocs } from './docs.ts'
 import { extractCssBlock, extractThemeTokens, type DevTheme } from '../src/dev/themes.ts'
 import { DEV_PATHS } from '../src/dev/server.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(import.meta.url)
+// Fails before packing when docs/ differs from a fresh render of docs-src/.
+await checkDocs()
 await rm(join(root, 'dist'), { recursive: true, force: true })
 
 await build({

@@ -4,7 +4,7 @@
   "license": "MIT",
   "description": "Widget SDK and build CLI for LifeDashboard",
   "type": "module",
-  "files": ["dist"],
+  "files": ["dist", "docs"],
   "exports": {
     ".": "./src/index.ts",
     "./host": "./src/host.ts",
@@ -28,6 +28,7 @@
   },
   "scripts": {
     "dev": "vite build --watch",
+    "docs": "node scripts/docs.ts",
     "build": "node scripts/build.ts",
     "prepack": "node scripts/build.ts",
     "typecheck": "tsc -p tsconfig.json",
