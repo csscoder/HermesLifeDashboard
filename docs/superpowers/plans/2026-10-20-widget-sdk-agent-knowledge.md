@@ -224,7 +224,7 @@ Expected: FAIL (old signature).
     Next: open lifedashboard-moi-chasy/ in Claude Code or Codex; the agent starts from AGENTS.md.
     ```
   - `cli.js "Clock" --no-install` → the stub did not run; stdout ends with `Install dependencies first: cd lifedashboard-clock && npm install`.
-  - `STUB_EXIT=1` → exit 1, the project folder exists, stderr is `Dependency install failed. Fix: run "cd lifedashboard-<slug> && npm install".`
+  - `STUB_EXIT=1` → exit 1, the project folder exists, stderr is `Dependency install failed. Fix: run "cd lifedashboard-<slug> && npm install".` Both install messages interpolate the detected package manager (`<pm> install`); with `npm_config_user_agent: 'pnpm/10.30.2 …'` and a `pnpm` stub, the `--no-install` hint ends with `&& pnpm install`.
   - No title, stdin a pipe (`spawnSync` default) → exit 1 within the timeout, stderr `Missing widget title. Fix: run create-widget "<title>" [--slug <slug>].`
   - Two positionals or an unknown flag → `Invalid arguments. Fix: use create-widget [title] [--slug <slug>] [--sdk <version|path|tarball>] [--no-install].`
   - The packed `package.json` has `files` `['dist', 'template']` (Task 6 adds `skill`) and `dist/cli.js` starts with `#!/usr/bin/env node`; `dist/cli.js` contains no `@lifedashboard/contracts` import.
@@ -326,7 +326,7 @@ Rendered docs are committed so the README can link them and GitHub shows real nu
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm -C apps/ui exec vitest run test/starter-prompt.test.ts` — Expected: FAIL.
 
-- [ ] **Step 3: Implement** the module and a block in the list view: subtitle «Создать свой виджет», a line «1. Создайте проект:» with `<code class="packages__path">{{ CREATE_COMMAND }}</code>` and a «Копировать» button using the existing `copy()`; a line «2. Откройте папку в Claude Code или Codex и напишите:» with `AGENT_TASK` the same way. Reuse existing `packages__*` classes; the `<code>` text stays selectable as the fallback when the clipboard fails.
+- [ ] **Step 3: Implement** the module and a block in the list view: subtitle «Создать свой виджет», a line «1. Создайте проект:» with `<code class="packages__path">{{ CREATE_COMMAND }}</code>` and a «Копировать» button using the existing `copy()`, which gains a `try/catch` around `navigator.clipboard.writeText` so a refused clipboard leaves no unhandled rejection (the selectable `<code>` is the fallback; this also covers the existing source-path buttons); a line «2. Откройте папку в Claude Code или Codex и напишите:» with `AGENT_TASK` the same way. Reuse existing `packages__*` classes; the `<code>` text stays selectable as the fallback when the clipboard fails.
 
 - [ ] **Step 4: Run** `pnpm -C apps/ui test && pnpm -C apps/ui typecheck` — Expected: PASS. Then open the dialog in Orca's browser (`pnpm dev`, project rule: Orca's built-in browser via `orca-cli`) and check both copy buttons. Then build the desktop app (`pnpm -C apps/desktop run package`), open the dialog there and check both copy buttons in WKWebView; if copying fails, confirm the `<code>` text can be selected and copied by hand and that the failed copy leaves no unhandled error in the console. Report both results.
 
