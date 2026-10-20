@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- No new dependencies. One exception needs the user's approval of this plan: `vite` `8.3.2` (already in the lockfile through `@lifedashboard/widget-sdk`) becomes a devDependency of `@lifedashboard/create-widget` to bundle `contracts` into its CLI, as the SDK already does (Task 5).
+- No new dependencies. One exception, approved by the user on 2026-10-20: `vite` `8.3.2` (already in the lockfile through `@lifedashboard/widget-sdk`) becomes a devDependency of `@lifedashboard/create-widget` to bundle `contracts` into its CLI, as the SDK already does (Task 5).
 - Installed `sdk: 1` and `sdk: 2` widgets keep working unchanged; `sdk: 2` manifests without `frame` keep their canonical JSON and package hash.
 - `SDK_LEVELS` = `[1, 2, 3]`, `SDK_TARGET_LEVEL` = `3`.
 - Manifest field: optional `"frame": "framed" | "frameless"`, default `framed`, requires `sdk: 3`.
@@ -94,7 +94,9 @@ Expected: FAIL (`addInstance` is not exported; `frame` missing).
 
 - [ ] **Step 4: Run** `pnpm -C apps/ui test && pnpm -C apps/ui typecheck` — Expected: PASS.
 
-- [ ] **Step 5: Commit** — `feat(ui): place widgets that declare frameless without a frame`
+- [ ] **Step 5: Check the real placement** (the unit tests do not cover the `confirmBuild` wiring). Build a copy of `examples/widgets/hello` in a temporary directory with `"sdk": 3, "frame": "frameless"` added to its `widget.json`, start `pnpm dev`, and in Orca's built-in browser (via `orca-cli`, project rule) install the folder, place it with «Добавить виджет…» and save. Expected: `GET` of the room returns the new instance with `appearance: { themeId: 'builtin:bare', shadow: null }`, and the widget renders without a frame. Report what you saw.
+
+- [ ] **Step 6: Commit** — `feat(ui): place widgets that declare frameless without a frame`
 
 ### Task 3: Dev shell starts in the manifest frame
 
@@ -172,7 +174,7 @@ Expected: FAIL (module not found).
 - [ ] **Step 5: Rewrite the `createWidgetProject` tests** in `create.test.ts` for the new options and return value:
   - `createWidgetProject({ title: 'Мои суперчасы', parentDir })` → `{ dir: join(parentDir, 'lifedashboard-moi-superchasy'), slug: 'moi-superchasy' }`; `widget.json` `id` `dev.local.moi-superchasy`, `title` `Мои суперчасы`, `sdk` `3`; `package.json` `name` `moi-superchasy`; manifest passes `parseWidgetManifest({ format: 2, ...manifest })`.
   - `slug: 'my-clock'` overrides derivation → folder `lifedashboard-my-clock`, title unchanged.
-  - Title boundary cases through both `create` and `parseWidgetManifest`: `'a'.repeat(60)` and `'Clock "pro" \\ v2'` are accepted and round-trip exactly through `widget.json`; `''`, `'a'.repeat(61)` and `'bad\u0007title'` reject with `Invalid title "<title>". Fix: use 1–60 characters without control characters.` and create nothing.
+  - Title boundary cases through both `create` and `parseWidgetManifest`: `'a'.repeat(60)`, `'Clock "pro" \\ v2'` and `'Clock __SDK__ __SLUG__'` are accepted and round-trip exactly through `widget.json`; `''`, `'a'.repeat(61)` and `'bad\u0007title'` reject with `Invalid title "<title>". Fix: use 1–60 characters without control characters.` and create nothing.
   - `title: '時計'` without `slug` rejects with `Cannot derive a Latin name from "時計". Fix: give one with --slug, for example --slug my-clock.` and creates nothing.
   - Invalid `slug` (`'Clock'`, `'1clock'`, `'a'.repeat(51)`) rejects with `Invalid slug "<slug>". Fix: use lowercase letters, digits and dashes, starting with a letter.`
   - Non-empty folder: `Folder lifedashboard-clock already exists and is not empty. Fix: choose another title or --slug, or remove the folder.`
@@ -183,7 +185,7 @@ Expected: FAIL (module not found).
 Run: `pnpm -C packages/create-widget exec vitest run test/create.test.ts -t createWidgetProject`
 Expected: FAIL (old signature).
 
-- [ ] **Step 7: Implement** the new `createWidgetProject`: validate the title with `isPlainText`, then the slug (given or derived), then the folder; replace `__TITLE__`, `__SLUG__` and `__SDK__` with JSON-string-escaped values (the existing `JSON.stringify(x).slice(1, -1)` pattern).
+- [ ] **Step 7: Implement** the new `createWidgetProject`: validate the title with `isPlainText`, then the slug (given or derived), then the folder; replace the markers in one pass, `template.replace(/__(TITLE|SLUG|SDK)__/g, (_, key) => escaped[key])`, with JSON-string-escaped values (`JSON.stringify(x).slice(1, -1)`), so a title containing a marker is never substituted again.
 
 - [ ] **Step 8: Run** `pnpm -C packages/create-widget exec vitest run test/slug.test.ts test/create.test.ts -t "createWidgetProject|slug"` — Expected: PASS. (The packed-CLI test is rewritten in Task 5.)
 
@@ -193,7 +195,7 @@ Expected: FAIL (old signature).
 
 **Files:**
 - Create: `packages/create-widget/src/install.ts`, `packages/create-widget/src/prompt.ts`, `packages/create-widget/scripts/build.ts`
-- Modify: `packages/create-widget/src/cli.ts`, `packages/create-widget/package.json` (`build` → `node scripts/build.ts`, devDependency `vite: 8.3.2`)
+- Modify: `packages/create-widget/src/cli.ts`, `packages/create-widget/package.json` (`build` → `node scripts/build.ts`, devDependency `vite: 8.3.2`), `packages/create-widget/tsconfig.json` (`include`: `["src", "test", "scripts"]`)
 - Delete: `packages/create-widget/tsconfig.build.json` if nothing else uses it
 - Test: `packages/create-widget/test/install.test.ts`, `packages/create-widget/test/prompt.test.ts`, `packages/create-widget/test/create.test.ts` (packed-CLI test)
 
@@ -281,12 +283,12 @@ Rendered docs are committed so the README can link them and GitHub shows real nu
   - `renderDocs(pages: ReadonlyMap<string, string>, values: Readonly<Record<string, string>>): Map<string, string>` — replaces `{{KEY}}`; throws `Unknown docs placeholder {{KEY}} in <page>` for a key not in `values` and `Docs value KEY is not used by any page` for an unused key.
   - `freshDocs(): Promise<Map<string, string>>` — reads `docs-src/`, renders with `docValues(await themeTokenNames())`; used by the script, the build check and the tests.
 
-`docValues` keys (each a Markdown-ready string): `SDK_TARGET_LEVEL`, `SDK_LEVELS`, `PERMISSIONS`, `GATEWAY_OPS` (table: operation | permission | confirmation policy), `RATE_LIMITS` (table: operation | max | window), `STATE_MAX_BYTES`, `NOTIFICATION_TITLE_MAX`, `NOTIFICATION_BODY_MAX`, `HTTP_URL_LENGTH`, `HTTP_HEADER_VALUE_LENGTH`, `HTTP_BODY_BYTES`, `HTTP_RESPONSE_BYTES`, `HTTP_TIMEOUT_MS`, `HTTP_SEND_METHODS`, `NETWORK_ORIGINS_MAX`, `BRIDGE_REQUEST_TIMEOUT_MS`, `BRIDGE_MAX_IN_FLIGHT`, `CODE_BYTES`, `TITLE_MAX`, `SETTINGS_PROPERTIES`, `SETTINGS_DESCRIPTION_LENGTH`, `SETTINGS_ENUM_ITEMS`, `SETTINGS_MAX_LENGTH`, `SECRET_MIN_LENGTH`, `REDACTED`, `GRID_COLS`, `ROWS_MAX`, `ERROR_CODES`, `THEME_TOKENS`, `CSP` (directives of `sandboxDocument({ runtime: '<runtime>/', packageDir: '<widget>/', entry: '<widget>/index.js' }, [])`, one per line, the `sha256-…` value replaced with `sha256-<import map hash>`).
+`docValues` keys (each a Markdown-ready string): `SDK_TARGET_LEVEL`, `SDK_LEVELS`, `PERMISSIONS`, `GATEWAY_OPS` (table: operation | permission | confirmation policy), `RATE_LIMITS` (table: operation | max | window), `STATE_MAX_BYTES`, `NOTIFICATION_TITLE_MAX`, `NOTIFICATION_BODY_MAX`, `HTTP_URL_LENGTH`, `HTTP_HEADER_VALUE_LENGTH`, `HTTP_BODY_BYTES`, `HTTP_RESPONSE_BYTES`, `HTTP_TIMEOUT_MS`, `HTTP_ANSWER_BYTES`, `HTTP_SEND_METHODS`, `NETWORK_ORIGINS_MAX`, `BRIDGE_MAX_MESSAGE_BYTES`, `BRIDGE_REQUEST_TIMEOUT_MS`, `BRIDGE_CONFIRM_TIMEOUT_MS`, `BRIDGE_MAX_IN_FLIGHT`, `CONFIRMATION_TTL_MS`, `CODE_BYTES`, `VUE_RANGE` (the SDK `peerDependencies.vue`), `TITLE_MAX`, `SETTINGS_PROPERTIES`, `SETTINGS_DESCRIPTION_LENGTH`, `SETTINGS_ENUM_ITEMS`, `SETTINGS_MAX_LENGTH`, `SECRET_MIN_LENGTH`, `REDACTED`, `GRID_COLS`, `ROWS_MAX`, `ERROR_CODES`, `THEME_TOKENS`, `CSP` (directives of `sandboxDocument({ runtime: '<runtime>/', packageDir: '<widget>/', entry: '<widget>/index.js' }, [])`, one per line, the `sha256-…` value replaced with `sha256-<import map hash>`).
 
 - [ ] **Step 1: Write the failing tests** (`docs.test.ts`):
   - `renderDocs` replaces keys, throws the unknown-placeholder and unused-value errors (exact messages above).
   - `freshDocs()` succeeds and leaves no `{{` in any page; the committed `docs/` has exactly the same file names and contents (the drift check).
-  - Every `docValues` key is a non-empty string; `values.STATE_MAX_BYTES === String(STATE_MAX_BYTES)` and `values.GRID_COLS === String(GRID_COLS)`.
+  - `Object.keys(docValues(...)).sort()` equals the full key list above (so a dropped limit fails); every value is a non-empty string; `values.STATE_MAX_BYTES === String(STATE_MAX_BYTES)`, `values.HTTP_ANSWER_BYTES === String(HTTP_LIMITS.answerBytes)`, `values.BRIDGE_CONFIRM_TIMEOUT_MS === String(BRIDGE_LIMITS.confirmTimeoutMs)`, `values.VUE_RANGE === '^3.5.0'` read from `package.json`.
   - `errors.md` has a `### <CODE>` heading for each of `WIDGET_ERROR_CODES` and no other `###` code headings.
   - `api.md` mentions every `GATEWAY_OPS` key, `useWidget`, `widget.state.get`, `widget.state.set`, `widget.notify`, `widget.http.get`, `widget.http.send`, `widget.call`, and every `WidgetContext` field (`size`, `sizeClass`, `frame`, `theme`, `rootFontSize`, `config`, `locale`, `visible`).
   - `index.md` links every other page; no page contains `Hermes`, `MCP`, `apps/` or `packages/contracts`.
@@ -299,7 +301,7 @@ Rendered docs are committed so the README can link them and GitHub shows real nu
 - [ ] **Step 4: Write the pages** (English; numbers only through placeholders; signatures by pointing at `dist/types/widget-sdk/src/index.d.ts`, never at platform sources):
   - `index.md`: one line per page; the minimum project layout.
   - `api.md`: `useWidget()`, every context field, `state`, `notify`, `http`, `call` with permissions and limits; the `GATEWAY_OPS` and `RATE_LIMITS` tables; `sdk` levels and what each adds (2: settings, typed HTTP, `frame`; 3: the `frame` manifest field).
-  - `runtime.md`: sandbox and CSP in plain words with the `CSP` block (no storage APIs → `state`; no Web Notifications → `notify`; files only from the widget folder; media by URL from `assets/`; workers from `blob:` only; HTTP only through the gateway); the runtime baseline from the parent spec section 7 (intersection of WebKit 18.6 and WebKitGTK 2.50; WebM VP9 + Opus; WebGL 2, WebGPU only as an enhancement; `backdrop-filter` only as an enhancement). Before writing the `requestIdleCallback` and `scheduler.postTask` lines, check them on MDN (WebFetch `https://developer.mozilla.org/en-US/docs/Web/API/Window/requestIdleCallback` and `https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/postTask`); if unreachable, say so in the task report.
+  - `runtime.md`: sandbox and CSP in plain words with the `CSP` block (no storage APIs → `state`; no Web Notifications → `notify`; files only from the widget folder; media by URL from `assets/`; workers from `blob:` only; HTTP only through the gateway); the runtime baseline from the parent spec section 7 (intersection of WebKit 18.6 and WebKitGTK 2.50; WebM VP9 + Opus; WebGL 2, WebGPU only as an enhancement; `backdrop-filter` only as an enhancement); dependencies: the host provides Vue `{{VUE_RANGE}}`, a widget must not bundle its own Vue, third-party npm libraries are allowed and bundled if they are browser ESM without Node APIs and the code stays within `{{CODE_BYTES}}` bytes. Before writing the `requestIdleCallback` and `scheduler.postTask` lines, check them on MDN (WebFetch `https://developer.mozilla.org/en-US/docs/Web/API/Window/requestIdleCallback` and `https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/postTask`); if unreachable, say so in the task report.
   - `errors.md`: one `### CODE` per error code: when it happens, what the widget should do.
   - `design.md`: theme tokens (the `THEME_TOKENS` list; meaning from `docs/theme-contract.md`), grid sizing (`GRID_COLS` columns, `sizing` in cells, size classes), `rem` and `rootFontSize`, framed vs frameless and the `frame` manifest field: when to declare `frameless` (decorative, object-like widgets: clocks, gauges, stickers) and that a frameless widget draws its own background or none, using tokens.
   - `settings.md`: the schema subset with limits and examples, secret settings and `REDACTED`.
@@ -326,7 +328,7 @@ Rendered docs are committed so the README can link them and GitHub shows real nu
 
 - [ ] **Step 3: Implement** the module and a block in the list view: subtitle «Создать свой виджет», a line «1. Создайте проект:» with `<code class="packages__path">{{ CREATE_COMMAND }}</code>` and a «Копировать» button using the existing `copy()`; a line «2. Откройте папку в Claude Code или Codex и напишите:» with `AGENT_TASK` the same way. Reuse existing `packages__*` classes; the `<code>` text stays selectable as the fallback when the clipboard fails.
 
-- [ ] **Step 4: Run** `pnpm -C apps/ui test && pnpm -C apps/ui typecheck` — Expected: PASS. Then open the dialog in Orca's browser (`pnpm dev`, project rule: Orca's built-in browser via `orca-cli`) and check both copy buttons; report the result.
+- [ ] **Step 4: Run** `pnpm -C apps/ui test && pnpm -C apps/ui typecheck` — Expected: PASS. Then open the dialog in Orca's browser (`pnpm dev`, project rule: Orca's built-in browser via `orca-cli`) and check both copy buttons. Then build the desktop app (`pnpm -C apps/desktop run package`), open the dialog there and check both copy buttons in WKWebView; if copying fails, confirm the `<code>` text can be selected and copied by hand and that the failed copy leaves no unhandled error in the console. Report both results.
 
 - [ ] **Step 5: Commit** — `feat(ui): show a starter prompt for creating a widget`
 
