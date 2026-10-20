@@ -79,6 +79,7 @@ describe('createWidgetProject', () => {
       'network', 'WebM', 'Opus', 'assets/', 'var(--ld-', 'context.size', 'sizeClass', 'context.frame',
       'context.visible', '"frame": "frameless"', 'npx ld-widget dev', 'npx ld-widget check', 'npx ld-widget build',
       '.ld-widget/dev.log', 'dist/<id>-<version>/', 'Виджеты → Выбрать папку',
+      'Keep `title` and `id`', 'default` size', 'height: 100%', 'compiled files',
     ]) expect(instructions).toContain(rule)
     expect(instructions).not.toContain('dist/types')
     expect(instructions).not.toMatch(/Hermes|MCP/)

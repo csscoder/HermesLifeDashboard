@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { sandboxDocument } from '@lifedashboard/contracts/sandbox-document'
 import { GRID_COLS, ROWS } from '@lifedashboard/contracts/grid'
 import { REDACTED, SECRET_MIN_LENGTH } from '@lifedashboard/contracts/widget-secrets'
@@ -27,6 +27,11 @@ const packageDir = fileURLToPath(new URL('..', import.meta.url))
 const sourceDir = join(packageDir, 'docs-src')
 const outputDir = join(packageDir, 'docs')
 const themesDir = join(packageDir, '../../apps/ui/app/theme/styles/themes')
+// Imported by URL, as in build.ts, so the UI source stays out of this package's type check.
+const { BUILTIN_THEMES } = await import(pathToFileURL(join(packageDir, '../../apps/ui/app/theme/builtin.ts')).href) as {
+  BUILTIN_THEMES: readonly { id: string; mode: string }[]
+}
+export { BUILTIN_THEMES }
 
 const code = (value: string): string => `\`${value}\``
 
@@ -89,6 +94,7 @@ export async function docValues(themeTokens: readonly string[]): Promise<Record<
     ROWS_MAX: String(ROWS.max),
     ERROR_CODES: WIDGET_ERROR_CODES.map(code).join(', '),
     THEME_TOKENS: themeTokens.map((name) => `- ${code(name)}`).join('\n'),
+    THEME_IDS: BUILTIN_THEMES.map((theme) => `- ${code(theme.id)}: ${theme.mode}`).join('\n'),
     CSP: directives.join('\n'),
   }
 }

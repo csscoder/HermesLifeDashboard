@@ -16,6 +16,9 @@ Read it when a rule below is unclear or a task is not covered here.
 - Adapt to `context.size` and `context.sizeClass`. Read `context.frame`.
 - Pause animation while `context.visible` is false.
 - Object-like widgets (clocks, gauges, stickers) set `"frame": "frameless"` in `widget.json` and draw no card background.
+- The widget root fills the frame: give it `height: 100%`. At the `default` size the essential content is visible without scrolling.
+- Keep `title` and `id` in `widget.json` as created, unless the user asks to change them.
+- Read only this project's files, the SDK docs and the `.d.ts` types. Do not read the compiled files of the SDK: the docs cover the dev shell URL, themes and limits.
 
 ## Workflow
 

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { BRIDGE_LIMITS, GATEWAY_OPS, HTTP_LIMITS, STATE_MAX_BYTES, WIDGET_ERROR_CODES } from '@lifedashboard/contracts/widget-gateway'
-import { checkDocs, docValues, freshDocs, renderDocs, themeTokenNames } from '../scripts/docs.ts'
+import { BUILTIN_THEMES, checkDocs, docValues, freshDocs, renderDocs, themeTokenNames } from '../scripts/docs.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const PAGES = ['index', 'api', 'runtime', 'errors', 'design', 'settings', 'recipes', 'workflow'].map((name) => `${name}.md`)
@@ -15,7 +15,7 @@ const DOC_KEYS = [
   'NETWORK_ORIGINS_MAX', 'BRIDGE_MAX_MESSAGE_BYTES', 'BRIDGE_REQUEST_TIMEOUT_MS', 'BRIDGE_CONFIRM_TIMEOUT_MS',
   'BRIDGE_MAX_IN_FLIGHT', 'CONFIRMATION_TTL_MS', 'CODE_BYTES', 'VUE_RANGE', 'TITLE_MAX', 'SETTINGS_PROPERTIES',
   'SETTINGS_DESCRIPTION_LENGTH', 'SETTINGS_ENUM_ITEMS', 'SETTINGS_MAX_LENGTH', 'SECRET_MIN_LENGTH', 'REDACTED',
-  'GRID_COLS', 'ROWS_MAX', 'ERROR_CODES', 'THEME_TOKENS', 'CSP',
+  'GRID_COLS', 'ROWS_MAX', 'ERROR_CODES', 'THEME_TOKENS', 'THEME_IDS', 'CSP',
 ].sort()
 
 async function readPages(dir: string): Promise<Map<string, string>> {
@@ -113,6 +113,19 @@ describe('page content', () => {
     const settings = (await freshDocs()).get('settings.md')!
     expect(settings).toContain('must declare `default`')
     expect(settings).toContain('A `secret` setting has no `default`')
+  })
+
+  it('workflow.md gives the dev shell URL parameters and every built-in theme id', async () => {
+    const workflow = (await freshDocs()).get('workflow.md')!
+    for (const param of ['`w`', '`h`', '`theme`', '`frame`', '`confirm`']) expect(workflow).toContain(param)
+    for (const theme of BUILTIN_THEMES) expect(workflow).toContain(`\`${theme.id}\``)
+    expect(workflow).toContain('?w=4&h=3&theme=builtin:paper&frame=frameless')
+  })
+
+  it('design.md says the root fills the widget and the default size shows the essential content', async () => {
+    const design = (await freshDocs()).get('design.md')!
+    expect(design).toContain('`#app` fill the widget rectangle')
+    expect(design).toContain('At the `default` size the essential content is visible without scrolling')
   })
 
   it('no page names the platform, its agents or its sources', async () => {

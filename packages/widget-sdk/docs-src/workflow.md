@@ -21,7 +21,17 @@ The dev server starts the shell. The shell shows the widget in a frame, at sizes
 
 - Runtime errors, CSP violations, gateway errors and content that overflows the frame are written to `.ld-widget/dev.log`.
 - After each change, read `.ld-widget/dev.log` and fix every entry in it.
-- Shell state (size, theme, frame) is in the URL, so each combination can be opened and checked separately.
+- Shell state is in the URL, so each combination can be opened and checked separately. Open the address `ld-widget dev` prints and add these query parameters:
+  - `w`, `h`: the size in cells. Values outside the manifest `min`…`max` are clamped; a missing value uses `default`.
+  - `theme`: a built-in theme id. An unknown id opens the first theme.
+  - `frame`: `framed` or `frameless`. A missing value uses the manifest `frame`.
+  - `confirm`: `allow` or `decline`, the answer the shell gives to confirmations.
+
+  Example: `?w=4&h=3&theme=builtin:paper&frame=frameless`. Built-in theme ids:
+
+{{THEME_IDS}}
+
+- The shell and `.ld-widget/dev.log` need a browser. Without one, rely on `check`, `build` and the rules in [design.md](design.md). Everything an agent needs is in these docs and the `.d.ts` types; do not read the compiled files of the SDK.
 
 Declared differences from production:
 

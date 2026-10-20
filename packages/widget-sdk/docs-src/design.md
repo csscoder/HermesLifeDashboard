@@ -6,6 +6,8 @@
 - Sizes in `sizing` and `context.size` are whole cells `{ w, h }`.
 - `widget.json` `sizing` sets `min`, `default` and `max`. Each must fit in the grid, and `min` ≤ `default` ≤ `max`.
 - `context.sizeClass` is `xs`, `s`, `m`, `l` or `xl`, from the smaller side of the size. Adapt the layout to `sizeClass` instead of checking `size` values. See [recipes.md](recipes.md).
+- `html`, `body` and `#app` fill the widget rectangle, so `height: 100%` on the widget's root element is the full widget height.
+- At the `default` size the essential content is visible without scrolling. Check `min` and `default` first, then `max`.
 
 ## rem and rootFontSize
 
@@ -16,7 +18,7 @@
 
 Every colour, radius, font, spacing and motion value comes from a theme token. Use `var(--ld-…)` with the full token name. Do not write literal colours, font names or durations.
 
-Read the current values from `context.theme.tokens`, or use the CSS variables directly. Tokens of the built-in themes:
+Read the current values from `context.theme.tokens`, or use the CSS variables directly. To see the widget in a theme, open the dev shell with its `theme` id ([workflow.md](workflow.md)). Tokens of the built-in themes:
 
 {{THEME_TOKENS}}
 
