@@ -38,7 +38,7 @@ Run ids: `claude-1` … `claude-5`, `codex-1` … `codex-5`.
 ## Review Focus
 
 1. An agent ends early with a question or a plan instead of a widget: the run is a failure with the question recorded, not a hang until the cap.
-2. An agent leaves `ld-widget dev` or Vite running: the next run and the import must not see it (Task 5 kills processes by run folder).
+2. An agent leaves `ld-widget dev` or Vite running: the next run and the import must not see it (the Task 2 runner kills the process group; Task 5 Step 3 sweeps processes by working directory and checks port 5273).
 3. Forbidden reads hidden in shell (`cat x | grep`, `node -e "fs.readFileSync(...)"`, `sed -n`, `rg` over `node_modules`): the audit flags any command or tool call that names a forbidden path, and the controller judges each flagged line by hand.
 4. Codex `workspace-write` blocks writes outside the run folder (`~/.npm`, `/tmp`): if `npx ld-widget …` fails for that reason it is an infrastructure fault, recorded as such.
 5. The pairing code expires or the app restarts mid-checks: re-pair from the latest log line; do not count it against a widget.
@@ -61,7 +61,7 @@ Expected: `$ROOT/pkg/lifedashboard-widget-sdk-0.1.0.tgz` and `$ROOT/pkg/package/
 Run, in `$ROOT/runs/_probe/`: `node $ROOT/pkg/package/dist/cli.js "Проба" --sdk $ROOT/pkg/lifedashboard-widget-sdk-0.1.0.tgz`
 Expected: exit 0, `lifedashboard-proba/node_modules/@lifedashboard/widget-sdk/docs/index.md` exists, and `npx ld-widget check` inside `lifedashboard-proba/` prints `check: OK`. If install fails, stop: it is a blocker that needs a code change.
 
-This is the create command for every run: `CREATE="node $ROOT/pkg/package/dist/cli.js"`, called as `$CREATE "<title>" --sdk $ROOT/pkg/lifedashboard-widget-sdk-0.1.0.tgz`.
+This is the create command for every run, always written out in full (no command stored in a shell variable; zsh does not split it): `node "$ROOT/pkg/package/dist/cli.js" "<title>" --sdk "$ROOT/pkg/lifedashboard-widget-sdk-0.1.0.tgz"`.
 
 - [ ] **Step 3: Write `$ROOT/tools/echo-server.mjs`**
 
@@ -70,20 +70,29 @@ Node `http` server on `127.0.0.1:8790`. `GET|POST /echo` answers `200 applicatio
 - [ ] **Step 4: Check the echo server and the run 4 API**
 
 Run: `node $ROOT/tools/echo-server.mjs & sleep 1; curl -s -H 'X-Api-Key: probe-value-1234567' http://127.0.0.1:8790/echo; curl -s 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,JPY'; kill %1`
-Expected: the echo answer contains `"x-api-key":"probe-value-1234567"`; the API answer has `rates` with `EUR`, `GBP`, `JPY`. If the API does not answer, pick another no-key HTTPS JSON API, change only the run 4 description, and note it in the report.
+Expected: the echo answer contains `"x-api-key":"probe-value-1234567"`; the API answer has `rates` with `EUR`, `GBP`, `JPY`. The API is not replaced. If it does not answer at run 4 or during its checks, that is an infrastructure fault.
 
 - [ ] **Step 5: Fix the run 5 test secret**
 
 `SECRET=acceptance-secret-2026-10-20` (28 characters, no spaces or control characters). Save it in `$ROOT/secret.txt`.
 
-### Task 2: Read-audit script
+### Task 2: Run tooling (agent runner and read-audit filter)
 
 **Files (outside the repo):**
-- Create: `$ROOT/tools/audit-reads.mjs`
-- Create: `$ROOT/tools/audit-reads.check.mjs`
+- Create: `$ROOT/tools/run-agent.mjs`, `$ROOT/tools/run-agent.check.mjs`
+- Create: `$ROOT/tools/audit-reads.mjs`, `$ROOT/tools/audit-reads.check.mjs`
 
 **Interfaces:**
-- Produces: `node $ROOT/tools/audit-reads.mjs <claude|codex> <log.jsonl> <runDir>` prints JSON `{ flagged: Entry[], outside: Entry[], total: number }`, where `Entry = { via: string, path: string, call: string }`. `via` is the tool name (`Read`, `Grep`, `Glob`, `Bash`) or `shell` for Codex commands.
+- Produces: `node $ROOT/tools/run-agent.mjs <id> <capMinutes> -- <command> [args...]`. It runs the command in the current directory as the leader of a new process group (`spawn` with `detached: true`) and writes its stdout to `$ROOT/logs/<id>.jsonl`. When the command exits, or when the cap is reached, it kills the whole group (`process.kill(-pid, 'SIGTERM')`, then `SIGKILL` after 5 s). It writes `$ROOT/logs/<id>.meta.json` with `{ startedAt, endedAt, exit, timedOut }`.
+- Produces: `node $ROOT/tools/audit-reads.mjs <claude|codex> <log.jsonl> <runDir>` prints JSON `{ calls: Call[], flagged: Entry[], outside: Entry[] }`. Here `Call = { via, call, output }` lists every tool call and shell command with its output, and `Entry = { via: string, path: string, call: string }`. `via` is the tool name (`Read`, `Grep`, `Glob`, `Bash`) or `shell` for Codex commands. The script is only a filter: Task 5 Step 6 reviews every entry of `calls` by hand.
+
+- [ ] **Step 0a: Write the runner check, see it fail, implement, see it pass**
+
+`run-agent.check.mjs` asserts with `node:assert`:
+- `run-agent.mjs t1 1 -- sh -c "sleep 300 & echo started"` returns with `exit: 0`, and afterwards `pgrep -f "sleep 300"` finds nothing;
+- `run-agent.mjs t2 0.05 -- sleep 30` returns within 10 s with `timedOut: true`.
+
+Run: `node $ROOT/tools/run-agent.check.mjs`. Expected: FAIL before `run-agent.mjs` exists, exit 0 after.
 
 - [ ] **Step 1: Write the failing check**
 
@@ -108,7 +117,7 @@ Claude logs: take every `tool_use` block and read `input.file_path`, `input.path
 - outside `runDir` → `outside`;
 - otherwise allowed.
 
-Listing commands are not exempted by the script. The controller judges each flagged line by hand (Task 5, Step 6).
+The script does not exempt listing commands. A token cannot reveal everything: `rg pattern .` names only the project root, and `node -e "fs.readFileSync(...)"` hides its path inside an expression. So the controller judges every call by hand (Task 5, Step 6), and `flagged` only orders that review.
 
 - [ ] **Step 4: Run the check**
 
@@ -173,26 +182,26 @@ Expected: the Orca tab shows the user's boards.
 
 **Files (outside the repo):** `$ROOT/runs/<id>/`, `$ROOT/logs/<id>.jsonl`, `$ROOT/deliverables/<id>/`, `$ROOT/control/<id>/`, `$ROOT/logs/runs.jsonl`
 
-Runs go in pairs: `claude-n` and `codex-n` at the same time, n = 1 … 5. They use different providers and different folders.
+Runs go one at a time, in this order: `claude-1`, `codex-1`, `claude-2`, `codex-2`, and so on. The dev shell uses one fixed port (5273, `strictPort`), so two runs at once would collide on it.
+
+Before `claude-5`, start the echo server: `node "$ROOT/tools/echo-server.mjs" &`, and save its PID in `$ROOT/echo.pid`. It keeps running until the secret checks in Task 6 are done.
 
 For each run id, in order:
 
 - [ ] **Step 1: Create the project**
 
-`mkdir -p $ROOT/runs/<id> && cd $ROOT/runs/<id> && $CREATE "<title>" --sdk $ROOT/pkg/lifedashboard-widget-sdk-0.1.0.tgz`
+`mkdir -p "$ROOT/runs/<id>" && cd "$ROOT/runs/<id>" && node "$ROOT/pkg/package/dist/cli.js" "<title>" --sdk "$ROOT/pkg/lifedashboard-widget-sdk-0.1.0.tgz"`
 Expected: exit 0. A failure here is an infrastructure fault, not an agent result.
 
-- [ ] **Step 2: Start the agent with the sentence and nothing else**
+- [ ] **Step 2: Start the agent through the runner with the sentence and nothing else**
 
-Working directory: `$ROOT/runs/<id>/lifedashboard-<slug>/`.
-- Claude: `CLAUDE_CONFIG_DIR=$ROOT/profiles/claude claude -p "<sentence>" --setting-sources project,local --dangerously-skip-permissions --output-format stream-json --verbose > $ROOT/logs/<id>.jsonl`
-- Codex: `CODEX_HOME=$ROOT/profiles/codex codex exec --json --skip-git-repo-check -C <project dir> -s workspace-write -c sandbox_workspace_write.network_access=true "<sentence>" > $ROOT/logs/<id>.jsonl`
-
-Kill the agent's process group after 45 minutes. Record the start time, end time and exit code.
+Working directory: `$ROOT/runs/<id>/lifedashboard-<slug>/`. Cap: 45 minutes.
+- Claude: `CLAUDE_CONFIG_DIR="$ROOT/profiles/claude" node "$ROOT/tools/run-agent.mjs" <id> 45 -- claude -p "<sentence>" --setting-sources project,local --dangerously-skip-permissions --output-format stream-json --verbose`
+- Codex: `CODEX_HOME="$ROOT/profiles/codex" node "$ROOT/tools/run-agent.mjs" <id> 45 -- codex exec --json --skip-git-repo-check -C "<project dir>" -s workspace-write -c sandbox_workspace_write.network_access=true "<sentence>"`
 
 - [ ] **Step 3: Stop leftovers**
 
-Run: `pkill -f "$ROOT/runs/<id>/"`, then `lsof -nP -iTCP -sTCP:LISTEN | grep -i node` to confirm no process from that folder still listens.
+The runner already killed the process group. Then run `lsof -a -d cwd -Fpn | grep -B1 "$ROOT/runs/<id>/"` to find processes whose working directory is still inside the run folder, kill each one, and run the command again to confirm none is left. Then check that port 5273 is free: `lsof -nP -iTCP:5273 -sTCP:LISTEN` prints nothing.
 
 - [ ] **Step 4: Save the deliverable**
 
@@ -206,7 +215,7 @@ Record both exit codes and whether the deliverable differs from the control buil
 - [ ] **Step 6: Audit reads**
 
 Run: `node $ROOT/tools/audit-reads.mjs <claude|codex> $ROOT/logs/<id>.jsonl <project dir> > $ROOT/logs/<id>.audit.json`
-Judge each `flagged` entry by hand with the spec's rules. A names-only listing (`ls`, `find` without reading) is not a read. A `grep`/`rg` whose output shows forbidden content is a read. Record each confirmed forbidden read with its exact call.
+Review every entry of `calls`, with its output, by hand; start with the `flagged` entries. Apply the spec's rules. A names-only listing (`ls`, `find` without reading) is not a read. A `grep`/`rg` whose output shows forbidden content is a read. Record each confirmed forbidden read with its exact call.
 
 - [ ] **Step 7: Record the run**
 
@@ -224,19 +233,24 @@ Append one line to `$ROOT/logs/runs.jsonl` with these fields:
 
 **Files (outside the repo):** `$ROOT/evidence/<id>-*.png`, `$ROOT/logs/checks.jsonl`
 
-- [ ] **Step 1: Create the screen**
+- [ ] **Step 1: Record the main screen before placing anything**
 
-In the Orca tab on `http://127.0.0.1:3101`, add a screen named `Приёмка SDK`.
+Save `GET /api/v1/rooms/<roomId>/board` to `$ROOT/evidence/board-before.json`. The board shows only its first screen (spec decision 7), so every widget goes on it, at rows below the lowest existing instance. Existing instances must stay unchanged: in Task 7, compare them with this file.
 
 - [ ] **Step 2: Import each deliverable**
 
 For each `$ROOT/deliverables/<id>/<dirname>/`, use «Виджеты → Выбрать папку» and give the folder to the file chooser with `orca-cli`. Record `import: ok` or the exact error text.
 
-- [ ] **Step 3: Place each imported widget on `Приёмка SDK` and check it at once**
+- [ ] **Step 3: Place each imported widget on the main screen below the existing widgets and check it at once**
 
 Right after each placement, before touching any frame setting, read the instance's saved `appearance` through `GET /api/v1/rooms/<roomId>/board` and take a screenshot.
 
-Sizes: test the default size and the four corners of the manifest's sizing range (min×min, min×max, max×min, max×max). The executor may not shrink this set further. The report states that this set stands in for "every allowed size".
+Sizes (clock and decorative): check every integer pair `w × h` with `min.w ≤ w ≤ max.w` and `min.h ≤ h ≤ max.h` from the deliverable's `widget.json`. Run it as a loop:
+- set the instance's size by saving the board through `PUT /api/v1/rooms/<roomId>/board`, using the request shape in `packages/contracts/src/board.ts`, and keep the instance's other fields unchanged;
+- wait for the widget to render, then take a screenshot clipped to the instance's rectangle, saved as `$ROOT/evidence/<id>-size-<w>x<h>.png`;
+- after the loop, build one contact sheet per widget with `montage` (ImageMagick, already installed at `/opt/homebrew/bin/montage`), labelled by size, in `$ROOT/evidence/<id>-sizes.png`, and judge each cell.
+
+Restore the original size afterwards. A size the agent excluded through its manifest range is not tested.
 
 - [ ] **Step 4: Per-widget checks (spec "Pass criteria per widget")**
 
@@ -256,8 +270,8 @@ Sizes: test the default size and the four corners of the manifest's sizing range
   - it changes with the theme.
 - **HTTP:**
   - it shows EUR, GBP and JPY rates;
-  - its code refreshes on an interval of 10 minutes (read the deliverable's source, or wait one interval);
-  - failure state: read the deliverable's source for a visible error branch. Record `failure state: source only`, because breaking the network for one widget needs system changes this plan does not make.
+  - it refreshes: keep the widget on screen for at least 21 minutes. The desktop API logs every request in `~/Library/Application Support/LifeDashboard Desktop/logs/api.log`. Count the widget gateway requests from that instance there: at least three requests, spaced about 10 minutes apart, pass;
+  - failure state: switch the Orca tab offline (`orca set offline --state on`). The widget's next request then fails without any change to the deliverable or the system. Trigger the request with a tab reload or by waiting one interval, screenshot the widget, and check that it shows a readable error. Then run `orca set offline --state off` and check that the widget recovers. Record which trigger was used.
 - **Secret:**
   - with the echo server running and no secret set, it shows the unavailable case readably;
   - after entering the secret from `$ROOT/secret.txt` in its settings screen, `$ROOT/logs/echo.jsonl` gets a line whose `x-api-key` equals the secret;
@@ -275,10 +289,12 @@ Append one line per widget to `$ROOT/logs/checks.jsonl`: `id`, `import`, and one
 The report has these sections, in order:
 - **Summary:** pass or fail per run, and the overall verdict.
 - **Runs table:** one row per run with these columns: id, agent, model, widget, duration, deliverable, check, build, import, each criterion, forbidden reads (count), questions, infra fault.
+- **Forbidden reads:** every confirmed forbidden read, with its run id and the exact tool call or command.
+- **Import path:** every import went through «Виджеты → Выбрать папку» in the Orca browser on the desktop app's origin `http://127.0.0.1:3101`; note any exception per run.
 - **Failures:** one subsection per failed run. Each says what happened and which gap in docs, types, skill or `AGENTS.md` it points to, citing the file in `node_modules/@lifedashboard/*/docs/` or the template that should have prevented it.
 - **Gaps:** deduplicated, ranked by the number of runs that hit them.
 - **How the agents worked without a browser:** decision 9.
-- **Not checked:** each item and why, including the size set and the HTTP failure state.
+- **Not checked:** each item and why.
 - **Artifacts:** paths under `$ROOT`.
 
 - [ ] **Step 2: Commit the report**
@@ -290,11 +306,11 @@ git commit -m "docs: add the widget SDK acceptance run report"
 
 - [ ] **Step 3: Remove the six check widgets**
 
-Remove these instances from `Приёмка SDK`, and their packages from «Виджеты»:
+Remove these instances from the main screen, and their packages from «Виджеты»:
 - the decorative, HTTP and secret instances;
 - `claude-3` … `claude-5` and `codex-3` … `codex-5`.
 
-The four kept widgets stay. Stop the echo server.
+The four kept widgets stay. Stop the echo server. Fetch the board again and check that every instance in `$ROOT/evidence/board-before.json` is still there unchanged.
 
 - [ ] **Step 4: Hand back to the user**
 

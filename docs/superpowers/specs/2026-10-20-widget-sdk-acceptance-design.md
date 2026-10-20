@@ -25,7 +25,7 @@ Plan 4 is a measurement, not a fix. It produces a report. Fixing the gaps it fin
 4. If a run fails, the controller does not fix docs or rerun. It finishes all 10 runs and writes one full report. The user decides on fixes afterwards.
 5. Agents run with their default model.
 6. Agents run in a clean profile, as a new user would: no user-level `CLAUDE.md`, `AGENTS.md`, plugins, skills, hooks or MCP servers.
-7. The clock and counter from both agents (4 widgets) go on a separate screen of the main dashboard for side-by-side comparison.
+7. The clock and counter from both agents (4 widgets) go on the main dashboard for side-by-side comparison. The board shows only its first screen and has no screen management, so the user chose the main screen, in free space below the existing widgets, over a separate screen (which would need a product change).
 8. The user closes the running desktop app before the new build is installed.
 9. Agents get no browser, as a new user's terminal agent has none. `AGENTS.md`, the skill and `workflow.md` tell the agent to open the dev shell in a browser; how the agent copes without one is a finding for the report, not a reason to change the setup. The agent may not install a browser for itself. If it tries, the attempt is recorded. Any `ld-widget dev` or other long-running process an agent leaves behind is stopped by the controller when the run ends.
 
@@ -64,7 +64,7 @@ For runs 4 and 5 the description names the exact URL (and for run 5 the header n
    - The controller then runs `ld-widget check` and `ld-widget build` itself on a separate copy of the project, so the result does not depend on the agent's claim. These commands rebuild `dist/`, so they never run on the deliverable. A deliverable that differs from the controller's build (stale or hand-edited) is recorded.
 3. **Import and checks, after all 10 runs.**
    - Import each built `dist/<id>-<version>/` folder into the new desktop app through its folder import («Виджеты → Выбрать папку»). How the controller drives the import (GUI automation of the app, or the app's own web origin in a browser) is the builder's call; the report says which path each import took.
-   - Create a separate screen and place all 10 imported widgets on it: the four kept ones (clock and counter from each agent) and the six check ones (decorative, HTTP and secret from each agent). Each of the 10 is checked on its own. After the report, remove the six check widgets and their packages.
+   - Place all 10 imported widgets on the main screen, in free space below the existing widgets, without moving or changing the existing ones: the four kept ones (clock and counter from each agent) and the six check ones (decorative, HTTP and secret from each agent). Each of the 10 is checked on its own. After the report, remove the six check widgets and their packages.
 
 ## Pass criteria per widget
 
