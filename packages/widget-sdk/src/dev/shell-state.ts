@@ -22,10 +22,11 @@ export function parseShellState(search: string, manifest: WidgetPackageManifest,
       : manifest.sizing.default[key]
   }
   const theme = params.get('theme')
+  const frameParam = params.get('frame')
   return {
     w: dimension('w'), h: dimension('h'),
     theme: theme !== null && themeIds.includes(theme) ? theme : themeIds[0] ?? '',
-    frame: params.get('frame') === 'frameless' ? 'frameless' : 'framed',
+    frame: frameParam === 'framed' || frameParam === 'frameless' ? frameParam : manifest.frame ?? 'framed',
     confirm: params.get('confirm') === 'decline' ? 'decline' : 'allow',
   }
 }

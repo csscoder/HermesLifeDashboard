@@ -34,6 +34,14 @@ it('clamps dimensions and defaults invalid choices', () => {
   }
 })
 
+it('starts in the manifest frame and lets the URL override it', () => {
+  const frameless = { ...counter, frame: 'frameless' } as WidgetPackageManifest
+  expect(parseShellState('', frameless, themeIds).frame).toBe('frameless')
+  expect(parseShellState('?frame=framed', frameless, themeIds).frame).toBe('framed')
+  expect(parseShellState('?frame=x', frameless, themeIds).frame).toBe('frameless')
+  expect(parseShellState('', counter, themeIds).frame).toBe('framed')
+})
+
 it('serializes every control in order and round-trips valid state', () => {
   expect(serializeShellState(state)).toBe('?w=4&h=3&theme=builtin%3Aglass&frame=framed&confirm=allow')
   const changed: ShellState = { w: 1, h: 4, theme: 'builtin:paper', frame: 'frameless', confirm: 'decline' }
