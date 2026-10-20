@@ -4,6 +4,7 @@ import type { Grant, GrantMode, PackageInspection, WidgetPermission } from '@lif
 import { secretsOf } from '@lifedashboard/contracts/widget-secrets'
 import { api, type ApiFailure } from '../api'
 import { bindingLine } from './secret-binding'
+import { AGENT_TASK, CREATE_COMMAND } from './starter-prompt'
 import {
   CONFIRMABLE_PERMISSIONS,
   describeInstallFailure,
@@ -186,7 +187,11 @@ function cancel() {
 }
 
 async function copy(path: string) {
-  await navigator.clipboard.writeText(path)
+  try {
+    await navigator.clipboard.writeText(path)
+  } catch {
+    // A refused clipboard leaves the selectable <code> text as the fallback.
+  }
 }
 
 async function remove(id: string) {
@@ -342,6 +347,17 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
           </p>
         </li>
       </ul>
+      <h3 class="packages__subtitle">Создать свой виджет</h3>
+      <p>1. Создайте проект:</p>
+      <p>
+        <code class="packages__path">{{ CREATE_COMMAND }}</code>
+        <button type="button" class="packages__button" @click="copy(CREATE_COMMAND)">Копировать</button>
+      </p>
+      <p>2. Откройте папку в Claude Code или Codex и напишите:</p>
+      <p>
+        <code class="packages__path">{{ AGENT_TASK }}</code>
+        <button type="button" class="packages__button" @click="copy(AGENT_TASK)">Копировать</button>
+      </p>
       <div class="packages__actions">
         <button type="button" class="packages__button" :disabled="busy" @click="folderInput?.click()">Выбрать папку</button>
         <button type="button" class="packages__button" @click="open = false">Закрыть</button>
