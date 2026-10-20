@@ -44,6 +44,10 @@ async function boot(port: MessagePort, initial: WidgetContext): Promise<void> {
 
 function start(): void {
   if (parent === window) return
+  // The widget root fills the frame, so `height: 100%` in widget CSS resolves to the widget rectangle.
+  for (const element of [document.documentElement, document.body, document.getElementById('app')]) {
+    if (element) element.style.height = '100%'
+  }
   addEventListener('message', function onInit(event: MessageEvent) {
     const data = event.data as Partial<InitMessage> | null
     const port = event.ports[0]
