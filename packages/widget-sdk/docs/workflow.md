@@ -43,6 +43,7 @@ The dev server starts the shell. The shell shows the widget in a frame, at sizes
   - `<browser>`: on macOS `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`; on Linux `google-chrome` or `chromium`; on Windows the full path to `chrome.exe` or `msedge.exe`.
   - Take one screenshot per combination: min, default and max size, each theme, framed and frameless. The widget is at the top left, below the controls.
   - If the widget area is blank or still shows a loading state, take the screenshot again.
+  - If the browser exits at start with no output, an agent sandbox is the usual cause. Ask the user to approve running the command outside the sandbox, or to run it themselves and share the image.
   - The headless run writes `.ld-widget/dev.log` like an open browser does.
   - Do not install a browser or packages for this. If no Chromium-based browser is installed, rely on `check`, `build` and the rules in [design.md](design.md), and tell the user that the layout was not checked visually.
 - Everything an agent needs is in these docs and the `.d.ts` types; do not read the compiled files of the SDK.

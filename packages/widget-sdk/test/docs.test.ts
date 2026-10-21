@@ -132,6 +132,7 @@ describe('page content', () => {
     const workflow = (await freshDocs()).get('workflow.md')!
     for (const flag of ['--headless', '--virtual-time-budget=20000', '--screenshot=']) expect(workflow).toContain(flag)
     expect(workflow).toContain('the layout was not checked visually')
+    expect(workflow).toContain('outside the sandbox')
   })
 
   it('design.md says the root fills the widget and the default size shows the essential content', async () => {
