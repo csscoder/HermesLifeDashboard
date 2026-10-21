@@ -122,6 +122,12 @@ describe('page content', () => {
     expect(workflow).toContain('?w=4&h=3&theme=builtin:paper&frame=frameless')
   })
 
+  it('workflow.md gives a headless screenshot command for agents without a browser', async () => {
+    const workflow = (await freshDocs()).get('workflow.md')!
+    for (const flag of ['--headless', '--virtual-time-budget=20000', '--screenshot=']) expect(workflow).toContain(flag)
+    expect(workflow).toContain('the layout was not checked visually')
+  })
+
   it('design.md says the root fills the widget and the default size shows the essential content', async () => {
     const design = (await freshDocs()).get('design.md')!
     expect(design).toContain('`#app` fill the widget rectangle')

@@ -31,7 +31,19 @@ The dev server starts the shell. The shell shows the widget in a frame, at sizes
 
 {{THEME_IDS}}
 
-- The shell and `.ld-widget/dev.log` need a browser. Without one, rely on `check`, `build` and the rules in [design.md](design.md). Everything an agent needs is in these docs and the `.d.ts` types; do not read the compiled files of the SDK.
+- The shell and `.ld-widget/dev.log` need a browser. Without an open browser, take headless screenshots of the shell with an installed Chromium-based browser and look at each image. With `ld-widget dev` running, from the project folder:
+
+  ```sh
+  "<browser>" --headless --hide-scrollbars --window-size=1280,900 --virtual-time-budget=20000 \
+    --screenshot=.ld-widget/shot-4x3-paper.png "<shell address>?w=4&h=3&theme=builtin:paper"
+  ```
+
+  - `<browser>`: on macOS `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`; on Linux `google-chrome` or `chromium`; on Windows the full path to `chrome.exe` or `msedge.exe`.
+  - Take one screenshot per combination: min, default and max size, each theme, framed and frameless. The widget is at the top left, below the controls.
+  - If the widget area is blank or still shows a loading state, take the screenshot again.
+  - The headless run writes `.ld-widget/dev.log` like an open browser does.
+  - Do not install a browser or packages for this. If no Chromium-based browser is installed, rely on `check`, `build` and the rules in [design.md](design.md), and tell the user that the layout was not checked visually.
+- Everything an agent needs is in these docs and the `.d.ts` types; do not read the compiled files of the SDK.
 
 Declared differences from production:
 

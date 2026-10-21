@@ -22,7 +22,7 @@ Read it when a rule below is unclear or a task is not covered here.
 
 ## Workflow
 
-1. `npx ld-widget dev`: open the shell at min, default and max size, in every theme, framed and frameless.
+1. `npx ld-widget dev`: open the shell at min, default and max size, in every theme, framed and frameless. Without a browser, take headless screenshots as `workflow.md` shows and look at each one.
 2. After each change, read `.ld-widget/dev.log` and fix every entry in it.
 3. `npx ld-widget check`: fix every problem it reports.
 4. `npx ld-widget build`: writes `dist/<id>-<version>/`.
