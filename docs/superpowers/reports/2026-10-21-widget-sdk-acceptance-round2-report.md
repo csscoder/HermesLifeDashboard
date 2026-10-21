@@ -74,7 +74,7 @@ At 4×4 the header, «1 USD», a refresh button and the EUR row take the whole w
 
 claude-1, claude-2, claude-3 and claude-4 each found `.ld-widget/dev.log` entries like «content is 81×89 px in a 81×81 px frame», always +8 px, logged once per new size before the widget mounts. All four traced it correctly and concluded it is the dev shell, not their widget; claude-1 spent most of its 18 minutes on it.
 
-Cause, confirmed in code: `packages/widget-sdk/src/sandbox.ts` `start()` sets `height: 100%` on `html`, `body` and `#app` at script start, but `body`'s default 8 px margin is zeroed only in `followContext()`, after `ld:init` arrives. Between the two the document is the frame height plus 16 px and the overflow probe fires. This regression comes from round-2 fix `373f0fb`. Fix: zero the body margin in `start()` together with the height.
+Cause, confirmed in code: `packages/widget-sdk/src/sandbox.ts` `start()` sets `height: 100%` on `html`, `body` and `#app` at script start, but `body`'s default 8 px margin is zeroed only in `followContext()`, after `ld:init` arrives. Between the two the document is the frame height plus 16 px and the overflow probe fires. This regression comes from round-2 fix `373f0fb`. Fixed after the run in `f781bc4`: `start()` zeroes the body margin together with the height (`test/sandbox-root.test.ts` RED→GREEN, suite 1491/1491). The fix is not in the desktop build used for this run and was not rechecked in the dev shell.
 
 ## Gaps
 
