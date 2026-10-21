@@ -8,6 +8,7 @@
 - `context.sizeClass` is `xs`, `s`, `m`, `l` or `xl`, from the smaller side of the size. Adapt the layout to `sizeClass` instead of checking `size` values. See [recipes.md](recipes.md).
 - `html`, `body` and `#app` fill the widget rectangle, so `height: 100%` on the widget's root element is the full widget height.
 - At the `default` size the essential content is visible without scrolling. Check `min` and `default` first, then `max`.
+- Round or square content, such as a clock face or a gauge, sizes from the smaller side of the widget, so it fits when the widget is wider than tall or taller than wide. Give the root `container-type: size` and the content `width: min(100cqw, 100cqh); aspect-ratio: 1`. `width: 100%; height: 100%` on square content clips it in a non-square widget. See the clock in [recipes.md](recipes.md).
 
 ## rem and rootFontSize
 

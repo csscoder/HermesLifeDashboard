@@ -122,6 +122,12 @@ describe('page content', () => {
     expect(workflow).toContain('?w=4&h=3&theme=builtin:paper&frame=frameless')
   })
 
+  it('design.md and the clock recipe size square content from the smaller side', async () => {
+    const docs = await freshDocs()
+    expect(docs.get('design.md')).toContain('sizes from the smaller side of the widget')
+    for (const page of ['design.md', 'recipes.md']) expect(docs.get(page)).toContain('width: min(100cqw, 100cqh)')
+  })
+
   it('workflow.md gives a headless screenshot command for agents without a browser', async () => {
     const workflow = (await freshDocs()).get('workflow.md')!
     for (const flag of ['--headless', '--virtual-time-budget=20000', '--screenshot=']) expect(workflow).toContain(flag)

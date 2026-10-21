@@ -4,7 +4,7 @@ Each recipe follows the rules in [api.md](api.md) and [errors.md](errors.md).
 
 ## Visibility-aware animation
 
-Pause animation while `widget.context.visible` is `false`. A hidden widget should not run frames. This frameless clock draws no card background, so it uses `"frame": "frameless"` in `widget.json`.
+Pause animation while `widget.context.visible` is `false`. A hidden widget should not run frames. This frameless clock draws no card background, so it uses `"frame": "frameless"` in `widget.json`. Its face sizes from the smaller side, so it stays round and whole at every size.
 
 ```vue
 <script setup lang="ts">
@@ -33,14 +33,23 @@ onBeforeUnmount(stop)
 
 <template>
   <div class="clock">
-    <div class="hand" :style="{ transform: `rotate(${hand}deg)` }" />
+    <div class="face">
+      <div class="hand" :style="{ transform: `rotate(${hand}deg)` }" />
+    </div>
   </div>
 </template>
 
 <style scoped>
 .clock {
-  width: 100%;
   height: 100%;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+
+.face {
+  width: min(100cqw, 100cqh);
+  aspect-ratio: 1;
 }
 
 .hand {
