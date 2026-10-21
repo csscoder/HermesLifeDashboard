@@ -4,8 +4,9 @@ import { join, relative, resolve, sep } from 'node:path'
 import { buildWidget } from './build.ts'
 import { checkWidget } from './check.ts'
 import { startDevServer } from './dev/server.ts'
+import { takeShots, type ShotOptions } from './shot.ts'
 
-const usage = 'Usage: ld-widget <build|check|dev> [dir] [options]'
+const usage = 'Usage: ld-widget <build|check|dev|shot> [dir] [options]'
 const commands: Record<string, (args: string[]) => Promise<number>> = {
   async dev(args) {
     let dir: string | undefined
@@ -36,6 +37,30 @@ const commands: Record<string, (args: string[]) => Promise<number>> = {
       await server.close()
     }
     return 0
+  },
+  async shot(args) {
+    let dir: string | undefined
+    const options: ShotOptions & Required<Pick<ShotOptions, 'sizes' | 'themes' | 'frames'>> = { sizes: [], themes: [], frames: [] }
+    for (let index = 0; index < args.length; index++) {
+      const arg = args[index]!
+      const value = args[index + 1]
+      const size = value === undefined ? null : /^(\d+)x(\d+)$/.exec(value)
+      if (arg === '--size' && size) options.sizes.push({ w: Number(size[1]), h: Number(size[2]) })
+      else if (arg === '--theme' && value !== undefined) options.themes.push(value)
+      else if (arg === '--frame' && (value === 'framed' || value === 'frameless')) options.frames.push(value)
+      else if (arg === '--wait' && value !== undefined && /^\d+$/.test(value)) options.wait = Number(value)
+      else if (!arg.startsWith('-') && dir === undefined) { dir = arg; continue }
+      else { console.error(usage); return 2 }
+      index++
+    }
+    const results = await takeShots(dir ?? process.cwd(), {
+      ...options,
+      sizes: options.sizes.length ? options.sizes : undefined,
+      themes: options.themes.length ? options.themes : undefined,
+      frames: options.frames.length ? options.frames : undefined,
+    })
+    for (const { file, rendered } of results) console.log(rendered ? file : `${file} (the widget did not render in 15 s)`)
+    return results.every((result) => result.rendered) ? 0 : 1
   },
   async check(args) {
     if (args.length > 1 || args.some((arg) => arg.startsWith('--'))) {

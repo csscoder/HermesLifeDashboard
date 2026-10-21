@@ -130,7 +130,7 @@ describe('probe runtime', () => {
     const parent = { postMessage: vi.fn() }
     const frame = { innerWidth: 100, innerHeight: 80, parent }
     const document = new EventTarget()
-    Object.assign(document, { documentElement: rootElement })
+    Object.assign(document, { documentElement: rootElement, getElementById: () => null })
     let resize!: () => void
     const observe = vi.fn()
     vi.stubGlobal('window', frame)
@@ -161,5 +161,23 @@ describe('probe runtime', () => {
     expect(parent.postMessage).toHaveBeenCalledExactlyOnceWith({
       t: 'ld:dev', kind: 'overflow', message: 'content is 110×80 px in a 100×80 px frame',
     }, '*')
+  })
+
+  it('tells the shell once that the widget has rendered into #app', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+    const app = { hasChildNodes: () => false }
+    const parent = { postMessage: vi.fn() }
+    const document = new EventTarget()
+    Object.assign(document, { documentElement: { scrollWidth: 10, scrollHeight: 10 }, getElementById: (id: string) => id === 'app' ? app : null })
+    vi.stubGlobal('window', { innerWidth: 100, innerHeight: 80, parent })
+    vi.stubGlobal('document', document)
+    vi.stubGlobal('ResizeObserver', class { observe() {} })
+    await import('../src/dev/probe.ts')
+    vi.advanceTimersByTime(500)
+    expect(parent.postMessage).not.toHaveBeenCalled()
+    app.hasChildNodes = () => true
+    vi.advanceTimersByTime(1000)
+    expect(parent.postMessage).toHaveBeenCalledExactlyOnceWith({ t: 'ld:dev', kind: 'rendered', message: '' }, '*')
   })
 })

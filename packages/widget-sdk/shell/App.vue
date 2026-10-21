@@ -108,7 +108,9 @@ function onMessage(event: MessageEvent) {
   if (!frame.value?.contentWindow || event.source !== frame.value.contentWindow) return
   const data = event.data
   if (typeof data !== 'object' || data === null) return
-  if (data.t === 'ld:hello') {
+  if (data.t === 'ld:dev' && data.kind === 'rendered') {
+    document.documentElement.dataset.ldRendered = 'true'
+  } else if (data.t === 'ld:hello') {
     handshakes.register(event.source, () => sessions.hello())
     handshakes.handle(event)
   } else if (data.t === 'ld:dev' && typeof data.message === 'string'

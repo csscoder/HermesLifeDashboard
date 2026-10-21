@@ -11,14 +11,20 @@ export function overflowReport(
 }
 
 if (typeof window !== 'undefined') {
-  const post = (kind: 'csp' | 'overflow', message: string) => {
+  const post = (kind: 'csp' | 'overflow' | 'rendered', message: string) => {
     window.parent.postMessage({ t: 'ld:dev', kind, message }, '*')
   }
   document.addEventListener('securitypolicyviolation', (event) => {
     post('csp', `${event.violatedDirective} blocked ${event.blockedURI}`)
   })
   let last: string | null = null
+  let rendered = false
   const measure = () => {
+    // `ld-widget shot` waits for this before it captures.
+    if (!rendered && document.getElementById('app')?.hasChildNodes()) {
+      rendered = true
+      post('rendered', '')
+    }
     const root = document.documentElement
     const message = overflowReport(
       { w: root.scrollWidth, h: root.scrollHeight },

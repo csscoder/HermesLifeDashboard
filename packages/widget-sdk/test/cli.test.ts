@@ -30,10 +30,10 @@ it.each([false, true])('builds with --no-source=%s and lists sources only when i
   expect(result.stdout).toBe(`${lines.join('\n')}\n`)
 }, 30_000)
 
-it.each([['unknown'], ['dev', '--port'], ['dev', '--port', 'no'], ['dev', '--port', '65536'], ['dev', '--unknown'], ['dev', 'one', 'two']])('prints usage for invalid arguments %j', (...args) => {
+it.each([['unknown'], ['dev', '--port'], ['dev', '--port', 'no'], ['dev', '--port', '65536'], ['dev', '--unknown'], ['dev', 'one', 'two'], ['shot', '--size', '4'], ['shot', '--frame', 'boxed'], ['shot', '--wait', 'soon'], ['shot', '--unknown']])('prints usage for invalid arguments %j', (...args) => {
   const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', timeout: 30_000 })
   expect(result.error).toBeUndefined()
   expect(result.status).toBe(2)
   expect(result.stdout).toBe('')
-  expect(result.stderr).toBe('Usage: ld-widget <build|check|dev> [dir] [options]\n')
+  expect(result.stderr).toBe('Usage: ld-widget <build|check|dev|shot> [dir] [options]\n')
 })

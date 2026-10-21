@@ -10,7 +10,7 @@ Use this skill in a `lifedashboard-<slug>/` project. `AGENTS.md` holds the rules
 ## Steps
 
 1. Edit `src/index.vue` and `widget.json`. Declare every permission and every network origin the code uses.
-2. Run `npx ld-widget dev`. Open the dev shell at min, default and max size, in every theme, framed and frameless. The URL parameters and theme ids are in `workflow.md`. Without a browser, take headless screenshots as `workflow.md` shows and look at each one; only if no Chromium-based browser is installed, rely on `check` and `design.md` and say so at handover.
+2. Run `npx ld-widget dev`. Open the dev shell at min, default and max size, in every theme, framed and frameless. The URL parameters and theme ids are in `workflow.md`. Without a browser, run `npx ld-widget shot` and look at each image in `.ld-widget/shots/`; only if no Chromium-based browser is installed, rely on `check` and `design.md` and say so at handover.
 3. After each change, read `.ld-widget/dev.log` and fix every entry it lists.
 4. Run `npx ld-widget check` and fix every reported problem.
 5. Run `npx ld-widget build`. The output is `dist/<id>-<version>/`.

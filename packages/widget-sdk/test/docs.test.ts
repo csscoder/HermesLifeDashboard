@@ -128,9 +128,10 @@ describe('page content', () => {
     for (const page of ['design.md', 'recipes.md']) expect(docs.get(page)).toContain('width: min(100cqw, 100cqh)')
   })
 
-  it('workflow.md gives a headless screenshot command for agents without a browser', async () => {
+  it('workflow.md tells agents without a browser to look at ld-widget shot images', async () => {
     const workflow = (await freshDocs()).get('workflow.md')!
-    for (const flag of ['--headless', '--virtual-time-budget=20000', '--screenshot=']) expect(workflow).toContain(flag)
+    for (const text of ['npx ld-widget shot', '--size', '--theme', '--frame', '--wait', '.ld-widget/shots/', 'LD_BROWSER']) expect(workflow).toContain(text)
+    expect(workflow).not.toContain('--virtual-time-budget')
     expect(workflow).toContain('the layout was not checked visually')
     expect(workflow).toContain('outside the sandbox')
   })
