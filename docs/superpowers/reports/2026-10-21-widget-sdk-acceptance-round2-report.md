@@ -92,6 +92,23 @@ Cause, confirmed in code: `packages/widget-sdk/src/sandbox.ts` `start()` sets `h
 - HTTP recovery was checked at the next timer tick with the iframe alive, as the plan says (round 1 used a tab reload at the user's request). claude-4 recovered at 02:50:20Z, 23 s after going online (its own retry); codex-4 at its 02:58:42Z tick.
 - The user enlarged the Orca window during the run; codex-4's layout was rechecked without viewport emulation. Same result.
 
+## Follow-up reruns of the two Codex failures
+
+After the report, branch `fix/widget-sdk-square-fit` added the square-fit rule (`699b073`, gap A) and the sandbox note (`e9760b0`). codex-1 and codex-4 were rerun on fresh tarballs with the same driver; titles got « 3» (and « 4» for the last run) so package ids do not collide.
+
+| run | setup | SDK | result |
+|---|---|---|---|
+| codex-1 «Часы Codex 3» | `workspace-write` sandbox, as before | `699b073` | **pass**: frameless, face sized with `min(100cqw, 95cqh)` from the new rule, 121/121 sizes (4 blank tiles recaptured with content, `evidence/codex-1-r3-sizes.png`). Tried the headless screenshot; Chrome aborted. |
+| codex-4 «Данные Codex 3» | `workspace-write` sandbox, as before | `699b073` | **fail**: still overlaps at 4×4 (`evidence/r3-http-codex-rates.png`). Tried the headless screenshot; Chrome aborted. |
+| codex-4 «Данные Codex 4» | no sandbox (`--dangerously-bypass-approvals-and-sandbox`) | `e9760b0` | **pass at 4×4**: took 18 screenshots, found the clipping in `dev.log` and the images, compacted the small layout and set `min` 4×4, `default` 6×5 (`evidence/r4-http-codex-rates.png`). 5.6 min. It drove Chrome over the DevTools protocol in the end, beyond the documented command. Refresh, offline and recovery not rechecked. |
+
+Findings:
+- **Chrome cannot start inside Codex's macOS `workspace-write` sandbox.** Exit 134 with no output, reproduced with `codex sandbox` outside the agent; the same command works unsandboxed. The screenshot route therefore needs the sandbox lifted, or the user's approval for one command in interactive Codex (`e9760b0` tells the agent to ask). Not an SDK bug, but it decides whether the route helps Codex users by default.
+- Round 2's comparison was unequal: Claude ran without a sandbox (`--dangerously-skip-permissions`), Codex inside one. Part of the Codex "never looks" pattern is the sandbox, not the model.
+- With a working browser, the docs route closes gap B for codex-4. The rule text alone (gap A) was enough for codex-1.
+- The board places a new widget at `min` when no `default`-sized spot is free, so «Данные Codex 4» was placed at 4×4. Expected behavior.
+- The stopped first size loop overwrote part of round 2's codex-1 tiles (up to about 5×4) because the user had scrolled the page; round 2's contact sheet `evidence/codex-1-sizes.png` is intact. `shot.sh` now scrolls to the top before each capture.
+
 ## Not checked
 
 - The desktop app's own window (WKWebView). All checks ran in the Orca browser on the app's origin.
@@ -100,4 +117,6 @@ Cause, confirmed in code: `packages/widget-sdk/src/sandbox.ts` `start()` sets `h
 
 ## Artifacts
 
-Under `ROOT=/Volumes/ExtendSSD/ld-acceptance-2026-10-20`, as in round 1; round-1 files are in `round1/`. Round-2 specifics: `logs/control-round2.log`, `logs/import-round2.log`, `logs/place-round2.log`, `logs/sizes-<id>.log`, `evidence/r2-*.png`, `evidence/<id>-sizes.png`, `evidence/codex-1-clip.png`.
+Under `ROOT=/Volumes/ExtendSSD/ld-acceptance-2026-10-20`, as in round 1; round-1 files are in `round1/`. Round-2 specifics: `logs/control-round2.log`, `logs/import-round2.log`, `logs/place-round2.log`, `logs/sizes-<id>.log`, `evidence/r2-*.png`, `evidence/<id>-sizes.png`, `evidence/codex-1-clip.png`. Reruns: `round2/` and `round3/` (archived run folders and tarballs), `logs/run-all-round3.log`, `logs/run-all-round4.log`, `logs/sizes-codex-1-round3.log`, `evidence/r3-*.png`, `evidence/r4-*.png`, `evidence/final-board.png`.
+
+Final board: the user's clock plus nine kept clocks and counters (rounds 1–3) at x 12–23, y 0–11. All check widgets and their packages are removed.
