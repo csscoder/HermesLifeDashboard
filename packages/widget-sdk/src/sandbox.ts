@@ -16,7 +16,6 @@ function report(port: MessagePort, error: unknown): void {
 function followContext(context: WidgetContext): void {
   const root = document.documentElement
   root.style.background = 'transparent'
-  document.body.style.margin = '0'
   let applied: string[] = []
   watchEffect(() => {
     applied = applyTokens(root.style, applied, context.theme.tokens)
@@ -48,6 +47,7 @@ function start(): void {
   for (const element of [document.documentElement, document.body, document.getElementById('app')]) {
     if (element) element.style.height = '100%'
   }
+  document.body.style.margin = '0'
   addEventListener('message', function onInit(event: MessageEvent) {
     const data = event.data as Partial<InitMessage> | null
     const port = event.ports[0]

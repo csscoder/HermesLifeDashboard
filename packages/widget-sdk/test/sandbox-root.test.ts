@@ -19,4 +19,6 @@ it('gives html, body and #app the full frame height before the widget loads', as
   })
   await import('../src/sandbox.ts')
   expect([html.style.height, body.style.height, app.style.height]).toEqual(['100%', '100%', '100%'])
+  // The default 8px body margin would make the full-height body overflow the frame until init.
+  expect(body.style.margin).toBe('0')
 })
