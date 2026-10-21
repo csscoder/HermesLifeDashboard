@@ -103,6 +103,11 @@ describe('overflowReport', () => {
     expect(overflowReport({ w: 99, h: 79 }, { w: 100, h: 80 }, null)).toBeNull()
   })
 
+  it('ignores a frame that has no width or height yet', () => {
+    expect(overflowReport({ w: 24, h: 150 }, { w: 0, h: 150 }, null)).toBeNull()
+    expect(overflowReport({ w: 100, h: 24 }, { w: 100, h: 0 }, null)).toBeNull()
+  })
+
   it('suppresses the last size and reports changed content or viewport sizes', () => {
     const last = overflowReport({ w: 102, h: 80 }, { w: 100, h: 80 }, null)!
     expect(overflowReport({ w: 102, h: 80 }, { w: 100, h: 80 }, last)).toBeNull()

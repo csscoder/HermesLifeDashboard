@@ -3,6 +3,8 @@ export function overflowReport(
   inner: { w: number; h: number },
   last: string | null,
 ): string | null {
+  // A frame without width or height is not laid out yet; the next resize measures it.
+  if (inner.w === 0 || inner.h === 0) return null
   if (scroll.w <= inner.w + 1 && scroll.h <= inner.h + 1) return null
   const message = `content is ${scroll.w}×${scroll.h} px in a ${inner.w}×${inner.h} px frame`
   return message === last ? null : message
