@@ -74,6 +74,7 @@ const themeNotice = ref<string | null>(
   storedThemeId !== null && !BUILTIN_THEME_IDS.has(storedThemeId) ? 'Тема не найдена, показана тема по умолчанию' : null,
 )
 const headerNotice = computed(() => [notice.value, themeNotice.value].filter(Boolean).join(' · ') || null)
+const statusText = computed(() => [apiLabel.value, headerNotice.value].filter(Boolean).join(' · '))
 
 function selectTheme(event: Event) {
   themeId.value = resolveThemeId([(event.target as HTMLSelectElement).value], BUILTIN_THEME_IDS)
@@ -127,7 +128,14 @@ onMounted(check)
     <div class="space__backdrop" />
     <div class="app">
       <header class="app__header">
-        <p v-if="state === 'ready'" class="app__title">{{ headerText }}</p>
+        <div class="app__start">
+          <p v-if="state === 'ready'" class="app__title">{{ headerText }}</p>
+          <!-- The API status and the notice share one line; the notice is cut first when there is no room. -->
+          <p class="app__meta" role="status" :title="statusText">
+            <span>{{ apiLabel }}</span>
+            <span v-if="headerNotice" class="app__notice"> · {{ headerNotice }}</span>
+          </p>
+        </div>
         <ScreenDots
           v-if="state === 'ready'"
           :count="screenCount"
@@ -188,8 +196,6 @@ onMounted(check)
               <option v-for="theme in BUILTIN_THEMES" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
             </select>
           </label>
-          <p class="app__notice" role="status">{{ headerNotice }}</p>
-          <p class="app__api">{{ apiLabel }}</p>
         </div>
       </header>
       <main class="app__main">
@@ -240,33 +246,70 @@ html {
   height: 100dvh;
 }
 
-/* Position context for the absolutely centred ScreenDots; the right padding reserves the corner slot. */
+/* Three columns: title and status (column 1), screen dots (column 2, centred by the equal side columns),
+   controls (column 3). The right padding reserves the corner slot. */
 .app__header {
-  position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
   padding: 0 3.5rem 0 1rem;
 }
 
-.app__title {
-  margin: 0;
-  font-size: 1.125rem;
-  white-space: nowrap;
-}
-
-/* The controls, theme, notice and API status sit at the right edge. */
-.app__end {
+.app__start {
+  grid-column: 1;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-left: auto;
+  min-width: 0;
+}
+
+/* The title keeps its width until the status needs the room; it is capped at half the column. */
+.app__title {
+  flex: 0 1 auto;
+  max-width: 50%;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* API status first, then the notice; the notice is cut first. Full text in the title attribute. */
+.app__meta {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ld-text-muted);
+  font-size: 0.875rem;
+}
+
+.app__notice {
+  color: var(--ld-danger-text);
+}
+
+/* The controls and the theme select sit at the right edge, before the corner slot. */
+.app__end {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.app__end > * {
+  flex-shrink: 0;
 }
 
 .app__button {
   height: var(--ld-control-height);
   min-width: var(--ld-control-height);
-  padding: 0 0.875rem;
+  padding: 0 0.625rem;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: var(--ld-radius-control);
   background: var(--ld-surface-3);
@@ -288,14 +331,14 @@ html {
 .app__theme {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
   color: var(--ld-text-muted);
   font-size: 0.875rem;
 }
 
 .app__select {
   height: var(--ld-control-height);
-  padding: 0 0.5rem;
+  padding: 0 0.375rem;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: var(--ld-radius-control);
   background: var(--ld-surface-3);
@@ -309,23 +352,11 @@ html {
 }
 
 .app__rows {
-  width: 4.5rem;
+  width: 3.5rem;
 }
 
 .app__rows:invalid {
   outline: 0.125rem solid var(--ld-danger);
-}
-
-.app__notice {
-  margin: 0;
-  color: var(--ld-danger-text);
-  font-size: 0.875rem;
-}
-
-.app__api {
-  margin: 0;
-  color: var(--ld-text-muted);
-  font-size: 0.875rem;
 }
 
 .app__main {

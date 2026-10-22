@@ -76,14 +76,11 @@ const emit = defineEmits<{
 
 <style scoped>
 .dots {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  grid-column: 2;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.375rem 0.625rem;
+  gap: 0.375rem;
+  padding: 0.25rem 0.375rem;
   border-radius: var(--ld-radius-pill);
 }
 
@@ -94,13 +91,13 @@ const emit = defineEmits<{
 .dots__list {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.25rem;
 }
 
 .dots__item {
-  position: relative;
   display: flex;
-  justify-content: center;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .dots__dot {
@@ -137,8 +134,8 @@ const emit = defineEmits<{
 .dots__add {
   display: grid;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: 50%;
@@ -161,13 +158,11 @@ const emit = defineEmits<{
   cursor: default;
 }
 
-/* The ✕ sits under the active dot: shown on hover, and on keyboard focus of that dot. */
+/* The ✕ sits beside the active dot, inside the header. It is shown on hover and on keyboard focus of
+   that dot; it keeps its place while hidden, so the dots do not move. */
 .dots__remove {
-  position: absolute;
-  top: calc(100% + 0.375rem);
-  left: 50%;
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -177,7 +172,6 @@ const emit = defineEmits<{
   font-size: 0.75rem;
   line-height: 1;
   cursor: pointer;
-  transform: translateX(-50%);
   opacity: 0;
   pointer-events: none;
 }
