@@ -1,4 +1,5 @@
-import type { SpaceBoard, SpaceSummary, SaveBoardRequest } from '@lifedashboard/contracts/board'
+import type { SpaceBoard, SaveBoardRequest } from '@lifedashboard/contracts/board'
+import type { SpaceSummary } from '@lifedashboard/contracts/space'
 import type { WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
 import type { FolderFile, Grant, GrantMode, InstalledPackage, PackageInspection, UploadCreated, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 

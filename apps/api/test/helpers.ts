@@ -54,7 +54,7 @@ export async function testApp(base?: Pick<TestApp, 'db' | 'dataDir'>, extra: Pic
 }
 
 export interface CallOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   url: string
   payload?: unknown
   cookie?: string

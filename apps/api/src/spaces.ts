@@ -1,14 +1,25 @@
+import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
 import {
   parseScreenBoard,
   type SpaceBoard,
-  type SpaceSummary,
   type SaveBoardRequest,
   type ScreenBoard,
   type WidgetAppearance,
   type WidgetSource,
 } from '@lifedashboard/contracts/board'
+import { ROWS } from '@lifedashboard/contracts/grid'
+import {
+  NEW_SPACE_ICON,
+  NEW_SPACE_TITLE,
+  SPACE_LIMITS,
+  nextColor,
+  parseSpacePatch,
+  type DeleteRequest,
+  type SpaceColor,
+  type SpaceSummary,
+} from '@lifedashboard/contracts/space'
 import { ApiError, ok } from './errors.ts'
 
 interface WidgetRow {
@@ -39,6 +50,16 @@ const SAVE_SCHEMA = {
   },
 } as const
 
+const DELETE_SCHEMA = {
+  body: {
+    type: 'object',
+    required: ['expectedRevision'],
+    properties: { expectedRevision: { type: 'integer', minimum: 1 } },
+  },
+} as const
+
+const SPACE_COLUMNS = 'SELECT id, title, icon, color, position, revision FROM spaces'
+
 export interface SpacesDeps {
   db: DatabaseSync
   now: () => Date
@@ -46,6 +67,18 @@ export interface SpacesDeps {
 
 export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): void {
   app.get('/api/v1/spaces', async (request) => ok(request, listSpaces(db)))
+
+  app.post('/api/v1/spaces', async (request) => ok(request, createSpace(db, now())))
+
+  app.patch<{ Params: { spaceId: string } }>('/api/v1/spaces/:spaceId', async (request) =>
+    ok(request, updateSpace(db, request.params.spaceId, request.body, now())),
+  )
+
+  app.delete<{ Params: { spaceId: string }; Body: DeleteRequest }>(
+    '/api/v1/spaces/:spaceId',
+    { schema: DELETE_SCHEMA },
+    async (request) => ok(request, deleteSpace(db, request.params.spaceId, request.body.expectedRevision)),
+  )
 
   app.get<{ Params: { spaceId: string } }>('/api/v1/spaces/:spaceId/board', async (request) =>
     ok(request, readBoard(db, request.params.spaceId)),
@@ -59,7 +92,71 @@ export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): v
 }
 
 function listSpaces(db: DatabaseSync): SpaceSummary[] {
-  return db.prepare('SELECT id, title, position, revision FROM spaces ORDER BY position, created_at').all() as unknown as SpaceSummary[]
+  return db.prepare(`${SPACE_COLUMNS} ORDER BY position, created_at`).all() as unknown as SpaceSummary[]
+}
+
+function readSpace(db: DatabaseSync, spaceId: string): SpaceSummary {
+  return db.prepare(`${SPACE_COLUMNS} WHERE id = ?`).get(spaceId) as unknown as SpaceSummary
+}
+
+// One BEGIN IMMEDIATE transaction: the checks and the write see the same revisions.
+function transaction<T>(db: DatabaseSync, work: () => T): T {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const result = work()
+    db.exec('COMMIT')
+    return result
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
+function createSpace(db: DatabaseSync, now: Date): SpaceSummary {
+  return transaction(db, () => {
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM spaces').get() as { count: number }
+    if (count >= SPACE_LIMITS.spaces) throw new ApiError('VALIDATION_ERROR', `At most ${SPACE_LIMITS.spaces} spaces`)
+    const used = (db.prepare('SELECT color FROM spaces').all() as { color: SpaceColor }[]).map((row) => row.color)
+    const { next } = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next FROM spaces').get() as { next: number }
+    const id = randomUUID()
+    const stamp = now.toISOString()
+    db.prepare(
+      'INSERT INTO spaces (id, title, icon, color, position, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
+    ).run(id, NEW_SPACE_TITLE, NEW_SPACE_ICON, nextColor(used), next, stamp, stamp)
+    db.prepare('INSERT INTO screens (id, space_id, position, rows) VALUES (?, ?, 0, ?)').run(randomUUID(), id, ROWS.default)
+    return readSpace(db, id)
+  })
+}
+
+// Does not change the revision: the board is not touched.
+function updateSpace(db: DatabaseSync, spaceId: string, raw: unknown, now: Date): SpaceSummary {
+  const result = parseSpacePatch(raw)
+  if (!result.ok) throw new ApiError('VALIDATION_ERROR', result.error)
+  const { title = null, icon = null, color = null } = result.value
+  spaceRevision(db, spaceId)
+  const sql = 'UPDATE spaces SET title = COALESCE(?, title), icon = COALESCE(?, icon), color = COALESCE(?, color), updated_at = ? WHERE id = ?'
+  db.prepare(sql).run(title, icon, color, now.toISOString(), spaceId)
+  return readSpace(db, spaceId)
+}
+
+// Cascades to the screens and widgets of the space (spec «Data»).
+function deleteSpace(db: DatabaseSync, spaceId: string, expectedRevision: number): null {
+  transaction(db, () => {
+    if (spaceRevision(db, spaceId) !== expectedRevision) {
+      throw new ApiError('REVISION_CONFLICT', 'The space changed since it was loaded')
+    }
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM spaces').get() as { count: number }
+    if (count <= 1) throw new ApiError('VALIDATION_ERROR', 'The last space cannot be deleted')
+    db.prepare('DELETE FROM spaces WHERE id = ?').run(spaceId)
+    dropOrphanWidgetData(db)
+  })
+  return null
+}
+
+// widget_state and widget_secrets have no foreign key: drop the rows of widgets that no longer exist.
+function dropOrphanWidgetData(db: DatabaseSync): void {
+  db.prepare('DELETE FROM widget_state WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
+  db.prepare('DELETE FROM widget_secrets WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
 }
 
 function spaceRevision(db: DatabaseSync, spaceId: string): number {
@@ -121,8 +218,7 @@ function checkPackagesInstalled(db: DatabaseSync, screens: ScreenBoard[]): void 
 
 // One transaction: 404, then 409, then 400, then the replacement (spec «PUT /spaces/:spaceId/board»).
 function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, now: Date): SpaceBoard {
-  db.exec('BEGIN IMMEDIATE')
-  try {
+  transaction(db, () => {
     if (spaceRevision(db, spaceId) !== body.expectedRevision) {
       throw new ApiError('REVISION_CONFLICT', 'The board changed since it was loaded')
     }
@@ -163,15 +259,9 @@ function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, no
         }
       }
     }
-    // widget_state has no foreign key (spec «Data»): drop the state of widgets this save removed.
-    db.prepare('DELETE FROM widget_state WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
-    db.prepare('DELETE FROM widget_secrets WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
+    dropOrphanWidgetData(db)
     db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+  })
   return readBoard(db, spaceId)
 }
 

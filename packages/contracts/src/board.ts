@@ -55,13 +55,6 @@ export interface SpaceBoard {
   screens: ScreenBoard[]
 }
 
-export interface SpaceSummary {
-  id: string
-  title: string
-  position: number
-  revision: number
-}
-
 export interface SaveBoardRequest {
   expectedRevision: number
   screens: ScreenBoard[]

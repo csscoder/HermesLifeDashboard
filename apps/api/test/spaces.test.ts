@@ -1,8 +1,10 @@
 import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
+import type { SpaceSummary } from '@lifedashboard/contracts/space'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { call, errorCode, pair, testApp, type TestApp } from './helpers.ts'
 
+const SPACES = '/api/v1/spaces'
 const BOARD = `/api/v1/spaces/${SEED_SPACE_ID}/board`
 const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
@@ -46,11 +48,153 @@ function put(payload: unknown, url = BOARD) {
   return call(t.app, { method: 'PUT', url, cookie, payload })
 }
 
+function create() {
+  return call(t.app, { method: 'POST', url: SPACES, cookie, payload: {} })
+}
+
+function patch(spaceId: string, payload: unknown) {
+  return call(t.app, { method: 'PATCH', url: `${SPACES}/${spaceId}`, cookie, payload })
+}
+
+function remove(spaceId: string, expectedRevision: number) {
+  return call(t.app, { method: 'DELETE', url: `${SPACES}/${spaceId}`, cookie, payload: { expectedRevision } })
+}
+
+async function listSpaces(): Promise<SpaceSummary[]> {
+  return (await call(t.app, { url: SPACES, cookie })).json().data
+}
+
+async function boardOf(spaceId: string): Promise<SpaceBoard> {
+  return (await call(t.app, { url: `${SPACES}/${spaceId}/board`, cookie })).json().data
+}
+
 describe('GET /api/v1/spaces', () => {
   it('lists the seed space', async () => {
     const response = await call(t.app, { url: '/api/v1/spaces', cookie })
     expect(response.statusCode).toBe(200)
-    expect(response.json().data).toEqual([{ id: SEED_SPACE_ID, title: 'Главная', position: 0, revision: 1 }])
+    expect(response.json().data).toEqual([{ id: SEED_SPACE_ID, title: 'Главная', icon: '🏠', color: 'violet', position: 0, revision: 1 }])
+  })
+})
+
+describe('POST /api/v1/spaces', () => {
+  it('creates spaces with the next colour, the next position and one empty screen', async () => {
+    const first = (await create()).json().data as SpaceSummary
+    const second = (await create()).json().data as SpaceSummary
+    expect(first).toEqual({ id: expect.any(String), title: 'Новое пространство', icon: '⭐', color: 'blue', position: 1, revision: 1 })
+    expect(second).toEqual({ id: expect.any(String), title: 'Новое пространство', icon: '⭐', color: 'teal', position: 2, revision: 1 })
+    expect((await listSpaces()).map((space) => [space.id, space.position])).toEqual([
+      [SEED_SPACE_ID, 0],
+      [first.id, 1],
+      [second.id, 2],
+    ])
+    for (const id of [first.id, second.id]) {
+      expect(await boardOf(id)).toEqual({
+        spaceId: id,
+        revision: 1,
+        screens: [{ id: expect.any(String), rows: 12, instances: [], layout: [] }],
+      })
+    }
+  })
+
+  it('answers 400 at 20 spaces and adds nothing', async () => {
+    for (let index = 1; index < 20; index++) expect((await create()).statusCode).toBe(200)
+    expect(await listSpaces()).toHaveLength(20)
+    const response = await create()
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(response.json().error.message).toBe('At most 20 spaces')
+    expect(await listSpaces()).toHaveLength(20)
+  })
+})
+
+describe('PATCH /api/v1/spaces/:spaceId', () => {
+  it('updates title, icon and colour, keeps the revision', async () => {
+    const response = await patch(SEED_SPACE_ID, { title: '  Дом ', icon: '💼', color: 'pink' })
+    expect(response.statusCode).toBe(200)
+    const expected = { id: SEED_SPACE_ID, title: 'Дом', icon: '💼', color: 'pink', position: 0, revision: 1 }
+    expect(response.json().data).toEqual(expected)
+    expect(await listSpaces()).toEqual([expected])
+  })
+
+  it('answers 400 for a blank title and changes nothing', async () => {
+    const before = await listSpaces()
+    const response = await patch(SEED_SPACE_ID, { title: '' })
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(await listSpaces()).toEqual(before)
+  })
+
+  it('answers 404 for an unknown space', async () => {
+    const response = await patch('00000000-0000-4000-8000-000000000000', { title: 'Дом' })
+    expect(response.statusCode).toBe(404)
+    expect(errorCode(response)).toBe('NOT_FOUND')
+  })
+})
+
+describe('DELETE /api/v1/spaces/:spaceId', () => {
+  const W = '00000000-0000-4000-8000-00000000000c'
+  const oneWidget = (id: string, screenId: string) => ({
+    id: screenId,
+    rows: 12,
+    instances: [{ id, source: { ...placeholder }, configVersion: 1, config: {} }],
+    layout: [{ instanceId: id, x: 0, y: 0, w: 2, h: 2 }],
+  })
+
+  it('deletes the space with its widgets, widget state and secrets, and keeps other spaces data', async () => {
+    const other = (await create()).json().data.id as string
+    const otherScreen = (await boardOf(other)).screens[0]!.id
+    await put({ expectedRevision: 1, screens: [oneWidget(A, otherScreen)] }, `${SPACES}/${other}/board`)
+    await put({ expectedRevision: 1, screens: [oneWidget(W, SEED_SCREEN_ID)] })
+    t.db.exec(`
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${A}', '{}', 1, 'x');
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${W}', '{}', 1, 'x');
+      INSERT INTO widget_secrets (widget_id, key, value, updated_at) VALUES ('${A}', 'apiKey', 'v', 'x');
+    `)
+
+    // The board save above made the revision 2.
+    const response = await remove(other, 2)
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data).toBeNull()
+    expect((await listSpaces()).map((space) => space.id)).toEqual([SEED_SPACE_ID])
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widgets WHERE id = ?').get(A)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_state WHERE widget_id = ?').get(A)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_secrets WHERE widget_id = ?').get(A)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_state WHERE widget_id = ?').get(W)).toEqual({ n: 1 })
+    expect((await getBoard()).screens[0]!.instances.map((instance) => instance.id)).toEqual([W])
+  })
+
+  it('answers 409 for a stale revision and keeps the space and its widgets', async () => {
+    const other = (await create()).json().data.id as string
+    await put({ expectedRevision: 1, screens: [oneWidget(W, SEED_SCREEN_ID)] })
+    const saved = await getBoard()
+    expect(saved.revision).toBe(2)
+    const response = await remove(SEED_SPACE_ID, 1)
+    expect(response.statusCode).toBe(409)
+    expect(errorCode(response)).toBe('REVISION_CONFLICT')
+    expect((await listSpaces()).map((space) => space.id)).toEqual([SEED_SPACE_ID, other])
+    expect(await getBoard()).toEqual(saved)
+  })
+
+  it('answers 400 for the last space and keeps it', async () => {
+    const response = await remove(SEED_SPACE_ID, 1)
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(response.json().error.message).toBe('The last space cannot be deleted')
+    expect((await listSpaces()).map((space) => space.id)).toEqual([SEED_SPACE_ID])
+  })
+
+  it('answers 404 for an unknown space', async () => {
+    const response = await remove('00000000-0000-4000-8000-000000000000', 1)
+    expect(response.statusCode).toBe(404)
+    expect(errorCode(response)).toBe('NOT_FOUND')
+  })
+})
+
+describe('space mutations without a session', () => {
+  it('answers 401 for create, update and delete', async () => {
+    expect((await call(t.app, { method: 'POST', url: SPACES, payload: {} })).statusCode).toBe(401)
+    expect((await call(t.app, { method: 'PATCH', url: `${SPACES}/${SEED_SPACE_ID}`, payload: { title: 'Дом' } })).statusCode).toBe(401)
+    expect((await call(t.app, { method: 'DELETE', url: `${SPACES}/${SEED_SPACE_ID}`, payload: { expectedRevision: 1 } })).statusCode).toBe(401)
   })
 })
 
