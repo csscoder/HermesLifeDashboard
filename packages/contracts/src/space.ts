@@ -42,6 +42,8 @@ export interface DeleteRequest {
   expectedRevision: number
 }
 
+export type AddScreenRequest = DeleteRequest
+
 const PATCH_KEYS = ['title', 'icon', 'color']
 
 function isSpaceColor(value: unknown): value is SpaceColor {

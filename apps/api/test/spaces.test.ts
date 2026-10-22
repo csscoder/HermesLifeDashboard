@@ -10,6 +10,13 @@ const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 const EMPTY_SCREEN = { id: SEED_SCREEN_ID, rows: 12, instances: [], layout: [] }
+const W = '00000000-0000-4000-8000-00000000000c'
+const oneWidget = (id: string, screenId: string) => ({
+  id: screenId,
+  rows: 12,
+  instances: [{ id, source: { ...placeholder }, configVersion: 1, config: {} }],
+  layout: [{ instanceId: id, x: 0, y: 0, w: 2, h: 2 }],
+})
 
 // B is listed before A on purpose: the saved order must read back unchanged.
 // The layout follows the instance order, as every board the UI produces does.
@@ -58,6 +65,14 @@ function patch(spaceId: string, payload: unknown) {
 
 function remove(spaceId: string, expectedRevision: number) {
   return call(t.app, { method: 'DELETE', url: `${SPACES}/${spaceId}`, cookie, payload: { expectedRevision } })
+}
+
+function addScreen(spaceId: string, expectedRevision: number) {
+  return call(t.app, { method: 'POST', url: `${SPACES}/${spaceId}/screens`, cookie, payload: { expectedRevision } })
+}
+
+function removeScreen(spaceId: string, screenId: string, expectedRevision: number) {
+  return call(t.app, { method: 'DELETE', url: `${SPACES}/${spaceId}/screens/${screenId}`, cookie, payload: { expectedRevision } })
 }
 
 async function listSpaces(): Promise<SpaceSummary[]> {
@@ -132,14 +147,6 @@ describe('PATCH /api/v1/spaces/:spaceId', () => {
 })
 
 describe('DELETE /api/v1/spaces/:spaceId', () => {
-  const W = '00000000-0000-4000-8000-00000000000c'
-  const oneWidget = (id: string, screenId: string) => ({
-    id: screenId,
-    rows: 12,
-    instances: [{ id, source: { ...placeholder }, configVersion: 1, config: {} }],
-    layout: [{ instanceId: id, x: 0, y: 0, w: 2, h: 2 }],
-  })
-
   it('deletes the space with its widgets, widget state and secrets, and keeps other spaces data', async () => {
     const other = (await create()).json().data.id as string
     const otherScreen = (await boardOf(other)).screens[0]!.id
@@ -195,6 +202,158 @@ describe('space mutations without a session', () => {
     expect((await call(t.app, { method: 'POST', url: SPACES, payload: {} })).statusCode).toBe(401)
     expect((await call(t.app, { method: 'PATCH', url: `${SPACES}/${SEED_SPACE_ID}`, payload: { title: 'Дом' } })).statusCode).toBe(401)
     expect((await call(t.app, { method: 'DELETE', url: `${SPACES}/${SEED_SPACE_ID}`, payload: { expectedRevision: 1 } })).statusCode).toBe(401)
+  })
+
+  it('answers 401 for add and delete screen', async () => {
+    expect((await call(t.app, { method: 'POST', url: `${SPACES}/${SEED_SPACE_ID}/screens`, payload: { expectedRevision: 1 } })).statusCode).toBe(401)
+    expect(
+      (await call(t.app, { method: 'DELETE', url: `${SPACES}/${SEED_SPACE_ID}/screens/${SEED_SCREEN_ID}`, payload: { expectedRevision: 1 } })).statusCode,
+    ).toBe(401)
+  })
+})
+
+describe('POST /api/v1/spaces/:spaceId/screens', () => {
+  it('adds an empty screen with 12 rows at the end and bumps the revision', async () => {
+    const response = await addScreen(SEED_SPACE_ID, 1)
+    expect(response.statusCode).toBe(200)
+    const board: SpaceBoard = response.json().data
+    expect(board.revision).toBe(2)
+    expect(board.screens).toHaveLength(2)
+    expect(board.screens[0]).toEqual(EMPTY_SCREEN)
+    expect(board.screens[1]).toEqual({ id: expect.any(String), rows: 12, instances: [], layout: [] })
+    expect(board.screens[1]!.id).not.toBe(SEED_SCREEN_ID)
+    expect(await getBoard()).toEqual(board)
+    expect(t.db.prepare('SELECT position FROM screens WHERE space_id = ? ORDER BY position').all(SEED_SPACE_ID)).toEqual([
+      { position: 0 },
+      { position: 1 },
+    ])
+  })
+
+  it('answers 400 at 20 screens and adds nothing', async () => {
+    let revision = 1
+    for (let index = 1; index < 20; index++) {
+      const response = await addScreen(SEED_SPACE_ID, revision)
+      expect(response.statusCode).toBe(200)
+      revision = response.json().data.revision
+    }
+    const before = await getBoard()
+    expect(before.screens).toHaveLength(20)
+    const response = await addScreen(SEED_SPACE_ID, revision)
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(response.json().error.message).toBe('At most 20 screens per space')
+    expect(await getBoard()).toEqual(before)
+  })
+
+  it('answers 409 for a stale revision and adds nothing', async () => {
+    // Another tab saved the board since revision 1 was loaded.
+    expect((await put({ expectedRevision: 1, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })).statusCode).toBe(200)
+    const before = await getBoard()
+    const response = await addScreen(SEED_SPACE_ID, 1)
+    expect(response.statusCode).toBe(409)
+    expect(errorCode(response)).toBe('REVISION_CONFLICT')
+    expect(await getBoard()).toEqual(before)
+    expect(before.screens).toHaveLength(1)
+  })
+
+  it('answers 400 for a missing expectedRevision and adds nothing', async () => {
+    const response = await call(t.app, { method: 'POST', url: `${SPACES}/${SEED_SPACE_ID}/screens`, cookie, payload: {} })
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect((await getBoard()).screens).toHaveLength(1)
+  })
+
+  it('answers 404 for an unknown space', async () => {
+    const response = await addScreen('00000000-0000-4000-8000-000000000000', 1)
+    expect(response.statusCode).toBe(404)
+    expect(errorCode(response)).toBe('NOT_FOUND')
+  })
+
+  it('lets a board save use the new screen list', async () => {
+    expect((await addScreen(SEED_SPACE_ID, 1)).statusCode).toBe(200)
+    const board = await getBoard()
+    const response = await put({ expectedRevision: board.revision, screens: [board.screens[0]!, { ...board.screens[1]!, rows: 20 }] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.revision).toBe(3)
+    expect(response.json().data.screens.map((screen: ScreenBoard) => screen.rows)).toEqual([12, 20])
+  })
+})
+
+describe('DELETE /api/v1/spaces/:spaceId/screens/:screenId', () => {
+  it('deletes the second of two screens with its widgets, widget state and secrets', async () => {
+    const second = (await addScreen(SEED_SPACE_ID, 1)).json().data.screens[1].id as string
+    expect((await put({ expectedRevision: 2, screens: [oneWidget(A, SEED_SCREEN_ID), oneWidget(W, second)] })).statusCode).toBe(200)
+    t.db.exec(`
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${A}', '{}', 1, 'x');
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('${W}', '{}', 1, 'x');
+      INSERT INTO widget_secrets (widget_id, key, value, updated_at) VALUES ('${W}', 'apiKey', 'v', 'x');
+    `)
+
+    const response = await removeScreen(SEED_SPACE_ID, second, 3)
+    expect(response.statusCode).toBe(200)
+    const board: SpaceBoard = response.json().data
+    expect(board.revision).toBe(4)
+    expect(board.screens.map((screen) => screen.id)).toEqual([SEED_SCREEN_ID])
+    expect(board.screens[0]!.instances.map((instance) => instance.id)).toEqual([A])
+    expect(await getBoard()).toEqual(board)
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM screens WHERE id = ?').get(second)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widgets WHERE id = ?').get(W)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_state WHERE widget_id = ?').get(W)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_secrets WHERE widget_id = ?').get(W)).toEqual({ n: 0 })
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widget_state WHERE widget_id = ?').get(A)).toEqual({ n: 1 })
+  })
+
+  it('deletes a middle screen and renumbers the rest to 0..n-1', async () => {
+    await addScreen(SEED_SPACE_ID, 1)
+    const three: SpaceBoard = (await addScreen(SEED_SPACE_ID, 2)).json().data
+    const middle = three.screens[1]!.id
+    const last = three.screens[2]!.id
+    expect((await put({ expectedRevision: 3, screens: [EMPTY_SCREEN, three.screens[1]!, oneWidget(W, last)] })).statusCode).toBe(200)
+
+    const response = await removeScreen(SEED_SPACE_ID, middle, 4)
+    expect(response.statusCode).toBe(200)
+    const board: SpaceBoard = response.json().data
+    expect(board.revision).toBe(5)
+    expect(board.screens.map((screen) => screen.id)).toEqual([SEED_SCREEN_ID, last])
+    expect(board.screens[1]!.instances.map((instance) => instance.id)).toEqual([W])
+    expect(t.db.prepare('SELECT position FROM screens WHERE space_id = ? ORDER BY position').all(SEED_SPACE_ID)).toEqual([
+      { position: 0 },
+      { position: 1 },
+    ])
+  })
+
+  it('answers 400 for the only screen and keeps it', async () => {
+    const before = await getBoard()
+    const response = await removeScreen(SEED_SPACE_ID, SEED_SCREEN_ID, 1)
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect(response.json().error.message).toBe('The last screen cannot be deleted; delete the space')
+    expect(await getBoard()).toEqual(before)
+  })
+
+  it('answers 409 for a stale revision and keeps the screen and its widgets', async () => {
+    const second = (await addScreen(SEED_SPACE_ID, 1)).json().data.screens[1].id as string
+    // Another tab saved widgets on the second screen after revision 2 was loaded.
+    expect((await put({ expectedRevision: 2, screens: [EMPTY_SCREEN, oneWidget(W, second)] })).statusCode).toBe(200)
+    const saved = await getBoard()
+    expect(saved.revision).toBe(3)
+    const response = await removeScreen(SEED_SPACE_ID, second, 2)
+    expect(response.statusCode).toBe(409)
+    expect(errorCode(response)).toBe('REVISION_CONFLICT')
+    expect(await getBoard()).toEqual(saved)
+    expect(t.db.prepare('SELECT COUNT(*) AS n FROM widgets WHERE id = ?').get(W)).toEqual({ n: 1 })
+  })
+
+  it('answers 404 for an unknown space and for a screen of another space', async () => {
+    const other = (await create()).json().data.id as string
+    const otherScreen = (await boardOf(other)).screens[0]!.id
+    const unknownSpace = await removeScreen('00000000-0000-4000-8000-000000000000', SEED_SCREEN_ID, 1)
+    expect(unknownSpace.statusCode).toBe(404)
+    expect(errorCode(unknownSpace)).toBe('NOT_FOUND')
+    const response = await removeScreen(SEED_SPACE_ID, otherScreen, 1)
+    expect(response.statusCode).toBe(404)
+    expect(errorCode(response)).toBe('NOT_FOUND')
+    expect((await boardOf(other)).screens.map((screen) => screen.id)).toEqual([otherScreen])
   })
 })
 

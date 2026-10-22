@@ -16,6 +16,7 @@ import {
   SPACE_LIMITS,
   nextColor,
   parseSpacePatch,
+  type AddScreenRequest,
   type DeleteRequest,
   type SpaceColor,
   type SpaceSummary,
@@ -50,7 +51,7 @@ const SAVE_SCHEMA = {
   },
 } as const
 
-const DELETE_SCHEMA = {
+const REVISION_SCHEMA = {
   body: {
     type: 'object',
     required: ['expectedRevision'],
@@ -76,8 +77,21 @@ export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): v
 
   app.delete<{ Params: { spaceId: string }; Body: DeleteRequest }>(
     '/api/v1/spaces/:spaceId',
-    { schema: DELETE_SCHEMA },
+    { schema: REVISION_SCHEMA },
     async (request) => ok(request, deleteSpace(db, request.params.spaceId, request.body.expectedRevision)),
+  )
+
+  app.post<{ Params: { spaceId: string }; Body: AddScreenRequest }>(
+    '/api/v1/spaces/:spaceId/screens',
+    { schema: REVISION_SCHEMA },
+    async (request) => ok(request, addScreen(db, request.params.spaceId, request.body.expectedRevision, now())),
+  )
+
+  app.delete<{ Params: { spaceId: string; screenId: string }; Body: DeleteRequest }>(
+    '/api/v1/spaces/:spaceId/screens/:screenId',
+    { schema: REVISION_SCHEMA },
+    async (request) =>
+      ok(request, deleteScreen(db, request.params.spaceId, request.params.screenId, request.body.expectedRevision, now())),
   )
 
   app.get<{ Params: { spaceId: string } }>('/api/v1/spaces/:spaceId/board', async (request) =>
@@ -151,6 +165,41 @@ function deleteSpace(db: DatabaseSync, spaceId: string, expectedRevision: number
     dropOrphanWidgetData(db)
   })
   return null
+}
+
+// Positions stay 0..n-1: the new screen goes last.
+function addScreen(db: DatabaseSync, spaceId: string, expectedRevision: number, now: Date): SpaceBoard {
+  transaction(db, () => {
+    if (spaceRevision(db, spaceId) !== expectedRevision) {
+      throw new ApiError('REVISION_CONFLICT', 'The space changed since it was loaded')
+    }
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM screens WHERE space_id = ?').get(spaceId) as { count: number }
+    if (count >= SPACE_LIMITS.screens) throw new ApiError('VALIDATION_ERROR', `At most ${SPACE_LIMITS.screens} screens per space`)
+    db.prepare('INSERT INTO screens (id, space_id, position, rows) VALUES (?, ?, ?, ?)').run(randomUUID(), spaceId, count, ROWS.default)
+    db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
+  })
+  return readBoard(db, spaceId)
+}
+
+// Cascades to the widgets of the screen (spec «Data»).
+function deleteScreen(db: DatabaseSync, spaceId: string, screenId: string, expectedRevision: number, now: Date): SpaceBoard {
+  transaction(db, () => {
+    const revision = spaceRevision(db, spaceId)
+    const screen = db.prepare('SELECT position FROM screens WHERE id = ? AND space_id = ?').get(screenId, spaceId) as
+      | { position: number }
+      | undefined
+    if (!screen) throw new ApiError('NOT_FOUND', 'Screen not found')
+    if (revision !== expectedRevision) throw new ApiError('REVISION_CONFLICT', 'The space changed since it was loaded')
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM screens WHERE space_id = ?').get(spaceId) as { count: number }
+    if (count <= 1) throw new ApiError('VALIDATION_ERROR', 'The last screen cannot be deleted; delete the space')
+    db.prepare('DELETE FROM screens WHERE id = ?').run(screenId)
+    dropOrphanWidgetData(db)
+    // Two steps: the first moves the later screens below zero, so the unique index never sees a duplicate position.
+    db.prepare('UPDATE screens SET position = -position - 1 WHERE space_id = ? AND position > ?').run(spaceId, screen.position)
+    db.prepare('UPDATE screens SET position = -position - 2 WHERE space_id = ? AND position < 0').run(spaceId)
+    db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
+  })
+  return readBoard(db, spaceId)
 }
 
 // widget_state and widget_secrets have no foreign key: drop the rows of widgets that no longer exist.
