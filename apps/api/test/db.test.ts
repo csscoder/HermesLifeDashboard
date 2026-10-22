@@ -45,8 +45,8 @@ describe('openDatabase', () => {
       'widget_state',
       'widgets',
     ])
-    expect(db.prepare('SELECT id, title, position, revision FROM spaces').all()).toEqual([
-      { id: SEED_SPACE_ID, title: 'Главная', position: 0, revision: 1 },
+    expect(db.prepare('SELECT id, title, position, revision, icon, color FROM spaces').all()).toEqual([
+      { id: SEED_SPACE_ID, title: 'Главная', position: 0, revision: 1, icon: '🏠', color: 'violet' },
     ])
     expect(db.prepare('SELECT id, space_id, position, rows FROM screens').all()).toEqual([
       { id: SEED_SCREEN_ID, space_id: SEED_SPACE_ID, position: 0, rows: 12 },
