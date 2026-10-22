@@ -1,6 +1,6 @@
 import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
 import { describe, expect, it, vi } from 'vitest'
-import { afterLoad, afterManage, afterSave, afterStaySave, connect, useSpaceSync } from '../app/board/space-sync'
+import { afterLoad, afterManage, afterSave, afterStaySave, connect, failureOutcome, useSpaceSync } from '../app/board/space-sync'
 
 const SPACE = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
 const OTHER_SPACE = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b02'
@@ -47,9 +47,10 @@ async function loaded(revision = 1) {
 }
 
 describe('connect', () => {
-  it('is ready with the first space', async () => {
-    const spaces = vi.fn().mockResolvedValue(ok([{ id: 'r1' }, { id: 'r2' }]))
-    expect(await connect({ spaces })).toEqual({ state: 'ready', spaceId: 'r1' })
+  it('is ready with the full list of spaces', async () => {
+    const list = [{ id: 'r1' }, { id: 'r2' }]
+    const spaces = vi.fn().mockResolvedValue(ok(list))
+    expect(await connect({ spaces })).toEqual({ state: 'ready', spaces: list })
   })
 
   it('asks for pairing on 401', async () => {
@@ -108,6 +109,17 @@ describe('load', () => {
     client.saveBoard.mockResolvedValueOnce({ ok: false, kind: 'conflict' })
     expect(await sync.save(screen([]))).toBe('conflict')
     expect(client.saveBoard.mock.calls[0]![1].expectedRevision).toBe(1)
+  })
+
+  it('ignores a load that finishes after the view moved to another space', async () => {
+    const { client, view, sync } = await loaded(1)
+    const late = deferred<unknown>()
+    client.board.mockReturnValueOnce(late.promise)
+    const pending = sync.load()
+    view.spaceId = OTHER_SPACE // a switch started while the load was in flight
+    late.resolve(ok({ ...board(2, [A]), spaceId: SPACE }))
+    expect(await pending).toBe('ignored')
+    expect(sync.space.value).toEqual(board(1))
   })
 
   it('ignores a failed load while a mode is open', async () => {
@@ -289,6 +301,20 @@ describe('deleteScreen', () => {
     client.deleteScreen.mockResolvedValueOnce({ ok: false, kind })
     expect(await sync.deleteScreen(SCREEN)).toBe(outcome)
     expect(sync.saving.value).toBe(false)
+  })
+})
+
+describe('failureOutcome', () => {
+  it.each([
+    ['conflict', 'conflict'],
+    ['unauthorized', 'unauthorized'],
+    ['session-expired', 'unavailable'],
+    ['invalid', 'invalid'],
+    ['unavailable', 'unavailable'],
+    ['rate-limited', 'unavailable'],
+    ['upstream', 'unavailable'],
+  ] as const)('maps a %s failure to %s', (kind, outcome) => {
+    expect(failureOutcome(kind)).toBe(outcome)
   })
 })
 

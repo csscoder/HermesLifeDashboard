@@ -229,8 +229,19 @@ async function switchScreen(id: string): Promise<boolean> {
   return true
 }
 
-// Switches space and loads it. The id model is set first, because the sync loads the id it reads from it.
+// One space switch at a time: a request made meanwhile is refused, so two loads never finish out of order.
+const switching = ref(false)
 async function switchSpace(target: string, screen: string | null, opts?: { discard: boolean }): Promise<boolean> {
+  if (switching.value) return false
+  switching.value = true
+  try {
+    return await runSwitchSpace(target, screen, opts)
+  } finally {
+    switching.value = false
+  }
+}
+// Switches space and loads it. The id model is set first, because the sync loads the id it reads from it.
+async function runSwitchSpace(target: string, screen: string | null, opts?: { discard: boolean }): Promise<boolean> {
   if (saving.value || mode.value === 'build') return false
   if (!opts?.discard && !(await saveIfDirty())) return false
   const previousSpace = spaceId.value
@@ -512,6 +523,7 @@ defineExpose({
   confirm,
   cancel,
   saving,
+  switching,
   loaded,
   rows,
   setRows,

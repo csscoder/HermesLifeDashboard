@@ -10,6 +10,9 @@ export interface FanSlot {
   angle: number
 }
 
+// Default fan geometry in rem: a bubble is 5 rem (80 px at the 1280 px minimum width).
+export const FAN_GEOMETRY: FanGeometry = { r0: 9.125, step: 6.75, size: 5, gap: 1.5 }
+
 const ARC_DEGREES = 74
 const CENTRE_DEGREES = 45
 

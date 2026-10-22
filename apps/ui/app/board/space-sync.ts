@@ -1,8 +1,9 @@
 import { computed, ref } from 'vue'
 import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
-import type { api, ApiResult } from '../api'
+import type { SpaceSummary } from '@lifedashboard/contracts/space'
+import type { api, ApiFailure, ApiResult } from '../api'
 
-export type ConnectResult = { state: 'ready'; spaceId: string } | { state: 'pairing' | 'unavailable' }
+export type ConnectResult = { state: 'ready'; spaces: SpaceSummary[] } | { state: 'pairing' | 'unavailable' }
 export type LoadOutcome = 'loaded' | 'ignored' | 'unauthorized' | 'unavailable'
 export type SaveOutcome = 'saved' | 'skipped' | 'conflict' | 'unauthorized' | 'invalid' | 'unavailable'
 
@@ -15,11 +16,16 @@ export interface Reaction {
   app?: 'pairing' | 'unavailable'
 }
 
-/** The first space decides the app state: 401 asks for pairing; no space or no API is unavailable. */
+/** 401 asks for pairing; no space or no API is unavailable. */
 export async function connect(client: Pick<typeof api, 'spaces'>): Promise<ConnectResult> {
   const result = await client.spaces()
-  if (result.ok) return result.data[0] ? { state: 'ready', spaceId: result.data[0].id } : { state: 'unavailable' }
+  if (result.ok) return result.data.length > 0 ? { state: 'ready', spaces: result.data } : { state: 'unavailable' }
   return { state: result.kind === 'unauthorized' ? 'pairing' : 'unavailable' }
+}
+
+/** The outcome of a failed request. Conflict, 401 and invalid data are kept apart; the rest is unavailable. */
+export function failureOutcome(kind: ApiFailure['kind']): SaveOutcome {
+  return kind === 'conflict' || kind === 'unauthorized' || kind === 'invalid' ? kind : 'unavailable'
 }
 
 /**
@@ -38,9 +44,12 @@ export function useSpaceSync(
   const loaded = computed(() => space.value !== null)
 
   async function load(): Promise<LoadOutcome> {
-    const result = await client.board(spaceId())
+    const requested = spaceId()
+    const result = await client.board(requested)
     // An expired session always wins: pairing discards the working copy anyway.
     if (!result.ok && result.kind === 'unauthorized') return 'unauthorized'
+    // A switch that started meanwhile owns the board now; so does a mode opened during the load.
+    if (spaceId() !== requested) return 'ignored'
     if (space.value !== null && (!idle() || saving.value)) return 'ignored'
     if (!result.ok) return 'unavailable'
     space.value = result.data
@@ -56,10 +65,7 @@ export function useSpaceSync(
     saving.value = true
     const result = await request(current)
     saving.value = false
-    if (!result.ok) {
-      const kept = result.kind === 'conflict' || result.kind === 'unauthorized' || result.kind === 'invalid'
-      return { outcome: kept ? result.kind : 'unavailable' }
-    }
+    if (!result.ok) return { outcome: failureOutcome(result.kind) }
     space.value = result.data
     return { outcome: 'saved', board: result.data }
   }

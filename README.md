@@ -36,7 +36,7 @@ The following describes the implementation in the repository as of **October 202
 | Widget SDK | Initial `useWidget()` API, `ld-widget build` CLI, reactive widget context, persisted state, and host notifications. |
 | Isolation | Third-party widget packages run in sandboxed iframes with a restricted bridge to the host and API. |
 | Local access | Pairing code, authenticated browser sessions, and local API origin checks. |
-| Spaces and screens | Data contracts exist, but the UI currently displays the initial space and its first screen; management/navigation is planned. |
+| Spaces and screens | Spaces are managed from the corner switcher (create, rename, icon and colour, delete); screens are added and deleted in edit mode; the last open space and screen are remembered per browser. |
 | Hermes Agent | Planned; no Hermes adapter or chat UI is implemented in the current application. |
 | Desktop app | Local macOS (Apple Silicon) build with Tauri: the app runs the same API and UI; ad-hoc signed, not notarized or distributed. |
 | Animated backgrounds | Planned; there is no animated-background system yet. |
