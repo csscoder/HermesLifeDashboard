@@ -1,6 +1,6 @@
 # Spaces and screens: creation and switching — design
 
-Date: 2026-10-21. Status: draft for approval.
+Date: 2026-10-21. Status: approved (2026-10-22).
 
 Interactive mockup used in the conversation (throwaway, not committed): `.superpowers/brainstorm/37531-1792606568/content/space-switcher-v15.html`. It is the visual reference for geometry, motion and states; the implementation uses the app's theme tokens and rem scale, not the mockup's hard-coded values.
 
