@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 // Screen navigation of the active space. Absolutely centred by the header; hidden for one screen outside edit mode.
-defineProps<{
+const props = defineProps<{
   count: number
   index: number
   editing: boolean
@@ -9,6 +11,8 @@ defineProps<{
   canRemove: boolean
   removeTitle: string
 }>()
+// With one screen, ✕ deletes the whole space.
+const removeLabel = computed(() => (props.count > 1 ? 'Удалить экран' : 'Удалить пространство'))
 const emit = defineEmits<{
   go: [index: number]
   add: []
@@ -42,8 +46,8 @@ const emit = defineEmits<{
           v-if="editing && position - 1 === index"
           type="button"
           class="dots__remove"
-          aria-label="Удалить экран"
-          :title="canRemove ? 'Удалить экран' : removeTitle"
+          :aria-label="removeLabel"
+          :title="canRemove ? removeLabel : removeTitle"
           :disabled="disabled || !canRemove"
           @click="emit('remove')"
         >

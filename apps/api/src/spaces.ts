@@ -328,7 +328,7 @@ function validateScreens(raw: unknown[], expectedIds: string[]): ScreenBoard[] {
     }
     screens.push(result.value)
   }
-  // Step 1 of GO-3 cannot create or delete screens.
+  // A board save keeps the screen list; screens are added and deleted by their own routes.
   if (screens.map((screen) => screen.id).join() !== expectedIds.join()) {
     throw new ApiError('VALIDATION_ERROR', 'Screens do not match the space')
   }

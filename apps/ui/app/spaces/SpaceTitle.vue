@@ -56,7 +56,13 @@ watch(
       @keydown.esc.stop.prevent="finish(false)"
       @blur="finish(true)"
     />
-    <button v-else-if="editing" type="button" class="space-title__button" @click="startEdit">
+    <button
+      v-else-if="editing"
+      type="button"
+      class="space-title__button"
+      aria-label="Переименовать пространство"
+      @click="startEdit"
+    >
       <span class="space-title__text">{{ title }}{{ suffix }}</span>
       <span class="space-title__pen" aria-hidden="true">✎</span>
     </button>
