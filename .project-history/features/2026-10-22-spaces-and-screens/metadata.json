@@ -1,0 +1,452 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "spaces-and-screens",
+    "name": "Spaces and screens",
+    "slug": "spaces-and-screens"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": "2026-10-22",
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "main",
+    "commit": "5cecd9dfb0f62024ebe306c36cb42a9d020cfdc5",
+    "headDescribe": "5cecd9d",
+    "workingTree": "clean",
+    "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "contentStateSha256": "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456",
+    "treeStateSha256": "764382460c914f13b00aceaf413f3b235dc5e89fe9a97e9792d355c5c7e5ad8f",
+    "indexStateSha256": "a84051793f7ed3414df95643e067939c356f79b8f76c90e94f12bc9ab02623c8",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-21-spaces-and-screens-design.md",
+      "archivePath": "spec.md",
+      "sha256": "fc18a5695eda001915aae02bb96bc0a4eaeb450a6ce3dfd27dfee14247759194",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-22-spaces-and-screens.md",
+      "archivePath": "plan.md",
+      "sha256": "92efd07382063bebd8a0c448de0bdeb28b21a74a22650cac9f568379572f7eed",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "459db3e89f2f424d93494f9cf0dd81b4729e126c35657642736d099d784a9b74"
+    }
+  },
+  "areas": [],
+  "tags": [],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "The spec (status: approved, 2026-10-22, commit 927f5d0) and the plan (commit 13f3e99, unchanged since) both carry the slug spaces-and-screens and the plan header links the spec by path. Neither has a draft, obsolete or superseded marker. HEAD 927f5d0 is the final version of both. Implementation: commits dbffb89..9f21c81 map to plan Tasks 1-7 and the review fixes; the files and symbols named in the plan exist in the working tree (spot-check). Review: controller session record of Sonnet task reviews, Opus final whole-branch review (findings file) and a scoped re-review; the code review is recorded as approved with one Important follow-up (GO-5). Verification: controller session record and the full-verify log; typecheck passed, the test run failed on three pre-existing widget-sdk tests, so the verification phase is recorded as failed. Source and evidence files were scanned for credential patterns with no match.",
+    "evidence": [
+      "ev-spec",
+      "ev-plan",
+      "ev-spot-check",
+      "ev-session-facts",
+      "ev-final-review",
+      "ev-verify-log"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "ev-spec",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-21-spaces-and-screens-design.md",
+      "inspected": true,
+      "summary": "Approved design, status approved 2026-10-22 (commit 927f5d0). Sections: Intent; Decisions made by the user (9 items: term space, switcher and fan, screen dots and arrows, header title, edit-mode gating, delete space rule, icon and colour, saving rules, deferred items); Goals and Non-goals; Anti-goals; Behaviour details (fan, screens, edit-mode interplay, failure rule, confirmations); Data and API (migration, contracts, routes, revision checks, limits); Rename; Persistence (localStorage per device); Visual; Testing; Calls made by the designer (13 items); Left to the builder.",
+      "sha256": "fc18a5695eda001915aae02bb96bc0a4eaeb450a6ce3dfd27dfee14247759194",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "ev-plan",
+      "kind": "file",
+      "reference": "docs/superpowers/plans/2026-10-22-spaces-and-screens.md",
+      "inspected": true,
+      "summary": "Seven tasks (rename and migration 9; contracts and API space operations; API screen operations; UI client and sync; pure UI helpers; screen dots and add/delete; space switcher). Global Constraints fix the icon set, colour keys, limits and title format. Its Deviations section lists two items (native ConfirmDelete dialog instead of ConfirmDialog; old-schema migration tests keep rooms). Step checkboxes are unchecked and the plan has no acceptance-results section, so it records no results.",
+      "sha256": "92efd07382063bebd8a0c448de0bdeb28b21a74a22650cac9f568379572f7eed",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "ev-spot-check",
+      "kind": "session",
+      "reference": "This archive session, Bash: git log --oneline --date=short --format='%h %ad %s' -60; git log --oneline 2c118a4..9f21c81; git log --oneline -- docs/superpowers/plans/2026-10-22-spaces-and-screens.md docs/superpowers/specs/2026-10-21-spaces-and-screens-design.md; ls apps/api/src/spaces.ts apps/ui/app/spaces/ packages/contracts/src/space.ts apps/ui/app/board/space-sync.ts apps/ui/app/board/switch-flow.ts; grep -n 'RENAME\\|ADD COLUMN' apps/api/src/migrations.ts; grep -n 'app\\.\\(get\\|post\\|patch\\|put\\|delete\\)' apps/api/src/spaces.ts; git grep -n -i -w -E 'rooms?' -- . ':!.project-history' ':!docs/superpowers'; git grep -n -E 'room_id|roomId|\\.room|SEED_ROOM' -- . ':!.project-history' ':!docs/superpowers'; ls .project-history/features/; git check-ignore -v .superpowers/sdd/2026-10-22-spaces-and-screens/final-review.md",
+      "inspected": true,
+      "summary": "17 commits in 2c118a4..9f21c81: 4629954 and 13f3e99 (docs), dbffb89 and 46ad678 (rename, migration 9), 7387ee2 (space API), 673bee9 (screen API), a486f95 (UI client and sync), ef9f21e (fan geometry, header title, last-open memory), e1932dd, 8f0a360, 68c5457 (screens UI), 8fbbe7f and 170b59a (space switcher), 463af11, 6ecb9e3, d152fb4, 9f21c81 (final-review fixes). Present in the working tree: apps/api/src/spaces.ts, apps/ui/app/spaces/ (ScreenDots, ConfirmDelete, SpaceSwitcher, SpacePicker, SpaceTitle, fan-layout, nav, last-open, space-flow), packages/contracts/src/space.ts, apps/ui/app/board/space-sync.ts, apps/ui/app/board/switch-flow.ts. Migration 9 in apps/api/src/migrations.ts: ALTER TABLE rooms RENAME TO spaces; RENAME COLUMN room_id TO space_id; ADD COLUMN icon and color. Routes: GET and POST /api/v1/spaces, PATCH and DELETE /api/v1/spaces/:spaceId, POST and DELETE /api/v1/spaces/:spaceId/screens(/:screenId), GET and PUT /api/v1/spaces/:spaceId/board. Git grep for the word room (case-insensitive, whole word) outside .project-history and docs/superpowers: hits only in released or new migration SQL and comments (apps/api/src/migrations.ts), old-schema and migration 9 tests (apps/api/test/db.test.ts), and ordinary English prose (apps/ui/app/app.vue:262, apps/ui/app/spaces/SpaceTitle.vue:74, apps/ui/app/board/widget-settings.ts:32, examples/widgets/hermes-tasks/src/layout.ts:5). room_id appears only in migrations.ts and db.test.ts; roomId, .room and SEED_ROOM have no hits. The .superpowers/sdd files are git-ignored (.gitignore:32).",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "ev-session-facts",
+      "kind": "session",
+      "reference": "Controller session 2026-10-22: subagent-driven execution ledger and verification runs",
+      "inspected": true,
+      "summary": "Implementation commits on main (fast-forward merge of feat/spaces-and-screens, pushed 2c118a4..9f21c81) as listed in ev-spot-check. Task reviews: every task had a Sonnet review (spec compliance and quality), all approved; Tasks 1, 6 and 7 after one fix round each. Final whole-branch review on Opus: one Critical (C1: remembered screen lost on space switch from a non-first screen; edit mode could delete the wrong screen) and two Important (I1 header overlap with many screens; I2 conflict notice lacked the «Отмена» hint) plus minors, all fixed in 463af11..9f21c81 (C1 test-first). Scoped re-review confirmed the fixes; it flagged a new Important (fixed dots max-width of 8.5rem view and 22rem edit leaves 2 px slack at 1280 px and scrolls from about 5 screens); the user accepted the merge and the item is tracked as Linear GO-5. Spec review: Codex (gpt-6.1-sol, high), round 1 BLOCK with 7 findings, all accepted and fixed; round 2 APPROVE. Verification on the final code, 2026-10-22: pnpm typecheck exit 0 (passed). pnpm -r --no-bail test exit 1: api 328/328, ui 490/490, contracts 455/455, create-widget 50/50, hermes-tasks 28/28 passed; widget-sdk 299/302 with 3 failures in test/dev-server.listen.test.ts (file-watcher/HMR timeouts). The branch did not change widget-sdk source, any package.json or the lockfile (only 2 lines in packages/widget-sdk/test/dev-parity.test.ts). The Task 1 implementer observed the same 3 failures on clean pre-branch HEAD; the controller did not re-run them on main. Browser checks in Orca's built-in browser by implementers for Tasks 6 and 7: dots, arrows, title, slide, save on switch, delete confirmation, API-down switch refusal, header rects at 1280 and 1920 px, fan in themes. Not observed: native Esc in the delete dialog; ✕ visibility at the scroll edge with 20 screens. Deviations and controller rulings are listed in outcome.deviations.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "ev-final-review",
+      "kind": "file",
+      "reference": ".superpowers/sdd/2026-10-22-spaces-and-screens/final-review.md",
+      "inspected": true,
+      "summary": "Opus final whole-branch review of 2c118a4..170b59a, before the fixes. Findings: C1 (remembered screen lost on a space switch from a non-first screen; edit-mode delete can act on the wrong screen), I1 (header overlap with many screens), I2 (conflict notice lacks the Отмена hint), plus minors. Strengths: API transactions and revision checks, contiguous renumbering, migration 9, complete rename. Notes that Vue wiring has no component tests. Verdict: ready to merge with fixes. The later fix commits and the scoped re-review are recorded in ev-session-facts.",
+      "sha256": "4967e63beeb626e67c2a9eb148cbb8adfd3fa7a4808fd4ce067b43d3ac8fa7d6",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "ev-verify-log",
+      "kind": "file",
+      "reference": ".superpowers/sdd/2026-10-22-spaces-and-screens/full-verify-2.log",
+      "inspected": true,
+      "summary": "Log of the final-code verification run. pnpm -r run typecheck: all packages report Done. Test output: contracts 455/455 passed, apps/ui 490/490 passed, apps/api 328/328 passed, packages/create-widget 50/50 passed, examples/widgets/hermes-tasks 28/28 passed. packages/widget-sdk: 299 passed, 3 failed in test/dev-server.listen.test.ts (Matcher timeouts in the file-watcher and HMR tests); the run ends with ERR_PNPM_RECURSIVE_FAIL and widget-sdk Exit status 1.",
+      "sha256": "0f04bc54686f8d0a748a5e7252fe7e20f7106fa26baa073436ecad48ebc2a831",
+      "external": false,
+      "validation": "bytes-hashed"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "ev-spot-check",
+      "ev-session-facts"
+    ]
+  },
+  "review": {
+    "status": "approved",
+    "evidence": [
+      "ev-session-facts",
+      "ev-final-review"
+    ]
+  },
+  "verification": {
+    "status": "failed",
+    "evidence": [
+      "ev-session-facts",
+      "ev-verify-log"
+    ],
+    "checks": [
+      {
+        "command": "pnpm typecheck (runs pnpm -r run typecheck)",
+        "result": "passed",
+        "exitCode": 0,
+        "evidence": [
+          "ev-session-facts",
+          "ev-verify-log"
+        ]
+      },
+      {
+        "command": "pnpm -r --no-bail test (controller session command; root script is pnpm -r --if-present run test)",
+        "result": "failed",
+        "exitCode": 1,
+        "evidence": [
+          "ev-session-facts",
+          "ev-verify-log"
+        ]
+      },
+      {
+        "command": "Orca built-in browser checks by implementers, Tasks 6 and 7 (dots, arrows, title, slide, save on switch, delete confirmation, API-down switch refusal, header rects at 1280 and 1920 px, fan in themes); result not re-run by the controller or the archive agent",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": [
+          "ev-session-facts"
+        ]
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "Rename rooms to spaces end to end: migration 9 renames rooms to spaces and screens.room_id to space_id and adds spaces.icon and spaces.color; API routes under /api/v1/spaces; contracts SpaceBoard and SpaceSummary; CSS classes .space*; theme contract selector .space--theme-<slug>; README and theme contract docs. Commits dbffb89, 46ad678.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "API for spaces: create (one empty screen), update title, icon and colour (no board revision bump), delete (refused for the last space); revision-checked delete, with nothing deleted on mismatch (409); limits of 20 spaces and 20 screens per space. Commit 7387ee2.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "API for screens: add screen (revision-checked, empty screen), delete screen (revision-checked, refused for the last screen, contiguous positions after delete, widget state and secrets removed). Commit 673bee9.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "UI client and sync: API methods for space and screen operations; saveAndStay, switchSpace, addScreen and deleteScreen in space-sync; pure switch-flow reactions that never leave edit mode or reload on a conflict. Commit a486f95.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "Pure UI helpers: fan geometry, header title format, screen choice after delete, last-open memory in localStorage with fallback to the first space and screen, delete-confirmation rule. Header «LifeDashboard» heading removed. Commit ef9f21e.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "Screens on the board: ScreenDots with arrows (no wrap-around), add and delete screen, slide on switch, ConfirmDelete native dialog for screens with widgets. Commits e1932dd, 8f0a360, 68c5457.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "Space switcher: corner button with the space icon, fan of space bubbles on quarter-circle arcs, SpacePicker for icon and colour, inline rename in the header, delete space from its last screen with confirmation, colour tint on the board. Commits 8fbbe7f, 170b59a.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-spot-check"
+        ]
+      },
+      {
+        "text": "Final review fixes: C1 (remembered screen kept on space switch; test first), I1 (header clear with many screens), I2 (conflict notice hint «Отмена»), label and comment fixes. Commits 463af11, 6ecb9e3, d152fb4, 9f21c81.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-final-review"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "recorded",
+      "evidence": [
+        "ev-plan",
+        "ev-session-facts",
+        "ev-final-review"
+      ],
+      "items": [
+        {
+          "change": "Delete confirmation for a space or a screen uses a small native dialog component (ConfirmDelete) instead of the spec's existing ConfirmDialog.",
+          "reason": "ConfirmDialog is bound to widget-gateway confirmations (op, widgetId), as recorded in the plan.",
+          "effect": "Confirmation behaviour matches the spec.",
+          "evidence": [
+            "ev-plan"
+          ]
+        },
+        {
+          "change": "Tests of released migrations on old schema versions keep rooms and room_id.",
+          "reason": "Released migration SQL stays byte-identical (plan Global Constraints; spec Rename exception).",
+          "effect": "No behaviour effect.",
+          "evidence": [
+            "ev-plan"
+          ]
+        },
+        {
+          "change": "Header is a three-column grid with equal side columns; the notice line and API status moved to the left column after the title.",
+          "reason": "Task 6 controller ruling: equal grid columns keep the centred dots clear of the side controls (final review, Rulings check).",
+          "effect": "Final review I1: the side columns shrink as the screen count grows, so the header could overlap at 1280 px with many screens. Fixed in 463af11..9f21c81 (controller session).",
+          "evidence": [
+            "ev-session-facts",
+            "ev-final-review"
+          ]
+        },
+        {
+          "change": "A failed pre-switch conflict notice tells the user to press «Отмена» and retry; «Отмена» reloads the space.",
+          "reason": "Final review I2: the conflict notice lacked the «Отмена» hint.",
+          "effect": null,
+          "evidence": [
+            "ev-session-facts",
+            "ev-final-review"
+          ]
+        },
+        {
+          "change": "Screen dots list scrolls inside a fixed max-width (8.5rem in view mode, 22rem in edit mode) instead of adapting to the viewport.",
+          "reason": null,
+          "effect": "At 1280 px the dots scroll from about 5 screens and leave 2 px of slack; tracked as Linear GO-5.",
+          "evidence": [
+            "ev-session-facts"
+          ]
+        }
+      ]
+    },
+    "excludedScope": [
+      {
+        "text": "Reordering spaces or screens, screen names, per-space themes (spec Non-goals; decision 9).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Keyboard switching of spaces and screens (arrows, digits, 1-9 badges), touch and swipe gestures, narrow or mobile layouts; minimum width stays 1280 px (spec Non-goals; designer call 1).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Import, export, presets and templates of spaces (spec Non-goals).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Renaming of .project-history archives, existing documents in docs/superpowers and the SQL of released migrations, which keep room (spec Rename; designer call 9).",
+        "evidence": [
+          "ev-spec"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Linear GO-5: deferred minor review items and the fixed dots max-width, which leaves 2 px slack at 1280 px and makes the dots scroll from about 5 screens.",
+        "evidence": [
+          "ev-session-facts"
+        ]
+      },
+      {
+        "text": "Fix the three pre-existing failures in packages/widget-sdk test/dev-server.listen.test.ts; they are not caused by this feature.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-verify-log"
+        ]
+      },
+      {
+        "text": "Check in the browser the two items not observed: native Esc in the delete dialog, and visibility of the ✕ at the scroll edge with 20 screens in edit mode.",
+        "evidence": [
+          "ev-session-facts"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "text": "The verification phase failed: pnpm -r --no-bail test exited 1 because of three widget-sdk dev-server.listen timeouts. The same failures occur on clean pre-branch HEAD (Task 1 implementer observation); the controller did not re-run them on main.",
+        "evidence": [
+          "ev-session-facts",
+          "ev-verify-log"
+        ]
+      },
+      {
+        "text": "Vue wiring (WidgetBoard runSwitchSpace glue, app.vue) has no component tests; the review found C1 that unit tests on the pure modules did not catch.",
+        "evidence": [
+          "ev-final-review"
+        ]
+      },
+      {
+        "text": "Screen dots at 1280 px have 2 px of slack and scroll from about 5 screens; ✕ visibility at the scroll edge with 20 screens is not observed.",
+        "evidence": [
+          "ev-session-facts"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "The term «пространство» (space) replaces «комната» (room) in the UI, code, API, database, CSS classes and docs of this feature. Rationale: the user's term (spec decision 1).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Creating, renaming, recolouring, re-iconing, deleting spaces and adding or deleting screens happen only in edit mode; outside it the user can only switch. Rationale: not recorded (spec decision 5).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Space and screen operations save immediately; «Готово» and «Отмена» apply only to widget layout edits. Switching space or screen in edit mode first saves pending widget edits and stays in edit mode, so nothing is lost; a failed pre-switch save blocks the switch and keeps the working copy. Rationale: no loss of pending edits (spec decision 8; Edit mode interplay).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "A space always has at least one screen. The ✕ on its only screen deletes the whole space after confirmation; no other delete-space control exists. Rationale: not recorded (spec decision 6).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Multi-screen navigation is a slider-style dot row at the top centre of the header with arrows that do not wrap; the header title is «Дом» with one screen and «Дом (2)» with more. Rationale: not recorded (spec decisions 3 and 4).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Deletes and add-screen are revision-checked: on a stale revision nothing is deleted and the existing conflict handling applies. Changing a space's title, icon or colour does not bump the board revision, so it never conflicts with a widget working copy. Rationale: stated in the spec's API and Edit mode sections.",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Icons are a fixed set of 24 system emoji and colours a fixed set of 8 keys, with no icon library. Rationale: as stated by the designer (spec designer call 2).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Limits: at most 20 spaces and 20 screens per space, enforced by the API. Rationale: twenty spaces still fit the fan on a 1280 px screen (spec Limits).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "The last open space and the last open screen of each space are remembered in browser localStorage, per device; missing or stale ids fall back to the first space and its first screen. Rationale: not recorded (spec designer call 6).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "No rooms API alias is kept, because the UI and API ship together. The theme contract stays version 1, because no user themes are stored yet. Rationale: stated in the spec (designer call 8; Rename).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Released migrations stay byte-identical; the schema change is migration 9 (user_version 9). Rationale: the spec's Data and API section (released migrations stay byte-identical).",
+        "evidence": [
+          "ev-spec",
+          "ev-plan"
+        ]
+      },
+      {
+        "text": "Build mode, a new widget draft being placed, blocks switching: the fan and screen controls stay disabled until the draft is confirmed or cancelled. Rationale: not recorded (spec designer call 7).",
+        "evidence": [
+          "ev-spec"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "User requested on 2026-10-22 to archive every completed feature in docs/superpowers; recorded review or verification evidence is incomplete",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: verification, verification checks.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "83661c170670b782eb852f36e75277b635bb107c3e18906a04286d7eadd528b2",
+  "archivedAt": "2026-10-22T05:25:02Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "be80efd504901a051fd451f07fa20ce289076fff35225d6bcfcc262d23f91675"
+  }
+}

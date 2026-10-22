@@ -1,0 +1,292 @@
+{
+  "schemaVersion": 2,
+  "feature": {
+    "id": "widget-sdk-dev-shell",
+    "name": "Widget SDK: dev shell",
+    "slug": "widget-sdk-dev-shell"
+  },
+  "status": "incomplete-evidence",
+  "completedAt": null,
+  "git": {
+    "repositoryRoot": ".",
+    "branch": "main",
+    "commit": "5cecd9dfb0f62024ebe306c36cb42a9d020cfdc5",
+    "headDescribe": "5cecd9d",
+    "workingTree": "clean",
+    "statusSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "contentStateSha256": "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456",
+    "treeStateSha256": "764382460c914f13b00aceaf413f3b235dc5e89fe9a97e9792d355c5c7e5ad8f",
+    "indexStateSha256": "a84051793f7ed3414df95643e067939c356f79b8f76c90e94f12bc9ab02623c8",
+    "tags": []
+  },
+  "artifacts": {
+    "spec": {
+      "sourcePath": "docs/superpowers/specs/2026-10-18-widget-sdk-agent-ready-design.md",
+      "archivePath": "spec.md",
+      "sha256": "a3542a858187e1fc37c96251c92af47ebd7b61b46f322dc564830838db73164c",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "plan": {
+      "sourcePath": "docs/superpowers/plans/2026-10-19-widget-sdk-dev-shell.md",
+      "archivePath": "plan.md",
+      "sha256": "1ead697b6deb70665631824e9470fb1b82307b443bc435993abb11b58502dcee",
+      "provenance": {
+        "kind": "file",
+        "external": false,
+        "commit": null
+      }
+    },
+    "outcome": {
+      "archivePath": "outcome.md",
+      "sha256": "509b41116709c82f4a7609cd8ae5f52f07419ef872f1aa3d05bdb76474571d7f"
+    }
+  },
+  "areas": [],
+  "tags": [],
+  "assessment": {
+    "sourcesRead": true,
+    "finalArtifacts": true,
+    "featureMatch": true,
+    "evidenceReviewed": true,
+    "secretsReviewed": true,
+    "basis": "Shared parent spec (docs/superpowers/specs/2026-10-18-widget-sdk-agent-ready-design.md), used by three plans. Its status line read 'Status: draft for approval.' until commit 2d3a66d (2026-10-22, controller change), which sets 'Status: approved (implemented by plans ...)'. The spec text is unchanged since 88378e1 ('apply glm review fixes'), and 2d3a66d changes only that line. The archive uses the file at HEAD 2d3a66d. Plan Widget SDK: dev shell links the spec by path and covers section 4 (dev shell and dev gateway) and the dev part of 'Secret settings' (plan header: 'Spec: ... section 4, plus the dev part of «Secret settings»'). Final plan: the plan has no draft, obsolete or superseded marker. Implementation: the commits and symbols listed in ev-commits exist in the tree at HEAD 2d3a66d. No code review record exists for these changes, and no recorded result exists for the plan's own test or browser-check steps. Archive mode is incomplete-evidence by explicit user request.",
+    "evidence": [
+      "ev-spec",
+      "ev-plan",
+      "ev-commits",
+      "ev-acceptance-r5"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "ev-spec",
+      "kind": "file",
+      "reference": "docs/superpowers/specs/2026-10-18-widget-sdk-agent-ready-design.md",
+      "inspected": true,
+      "summary": "Approved design dated 2026-10-18. Status line changed to approved in 2d3a66d (2026-10-22); content unchanged since 88378e1. Sections: 1 package shape and distribution; 2 sdk level compatibility; 3 platform gaps (settings, secret settings, typed gateway, frame signal); 4 dev shell and dev gateway; 5 ld-widget check; 6 agent knowledge; 7 runtime baseline; 8 portable built folder. Non-goals include CLI install into a running dashboard, Windows and Linux builds, MCP server, headless browser automation, npm publishing, and new gateway capabilities.",
+      "sha256": "a3542a858187e1fc37c96251c92af47ebd7b61b46f322dc564830838db73164c",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "ev-plan",
+      "kind": "file",
+      "reference": "docs/superpowers/plans/2026-10-19-widget-sdk-dev-shell.md",
+      "inspected": true,
+      "summary": "Plan 2b with 8 tasks: shared sandbox document, shared gateway core, host bridge in the SDK, dev assets, dev gateway, dev server and ld-widget dev, shell app, divergence test and end-to-end check. Global Constraints declare six dev-only differences. Task 8 Step 3 is an Orca browser run with no recorded result.",
+      "sha256": "1ead697b6deb70665631824e9470fb1b82307b443bc435993abb11b58502dcee",
+      "external": false,
+      "validation": "bytes-hashed"
+    },
+    {
+      "id": "ev-commits",
+      "kind": "session",
+      "reference": "This archive session, Bash: git log --reverse --format='%h %ad %s' --date=short 159ebc2^..cbd1f33; git grep -n -E 'export function (createDevGateway|readDevSecrets|startDevServer|createDevLog|createDevApi|parseShellState|createFrameSession|checkGatewayCall|createRateLimiter|widgetFailure|performHttp|secretValueError|extractThemeTokens|overflowReport)|DEV_SANDBOX_DIFFERENCES' -- packages; ls of packages/widget-sdk/src/dev/*, src/host.ts, shell/App.vue, test/dev-parity.test.ts, packages/contracts/src/sandbox-document.ts, widget-http.ts",
+      "inspected": true,
+      "summary": "Commits per plan task: Task 1 450bd59; Task 2 4932b12; Task 3 bac322d; Task 4 496060b; Task 5 3a3b966; Task 6 1d8604d; Task 7 d201f46 (titled 'add the dev shell page and its state helpers'); Task 8 fa3992f. Fix commits within the plan window: 8426c9d, 585847c, 8664b47, 71f22f6, 2b889cf, 6ec5108, d92da22, 9f761bd, 7c36ed4, fc3e397, aa28377. Present in tree: packages/contracts/src/sandbox-document.ts, widget-http.ts; packages/widget-sdk/src/host.ts, src/dev/gateway.ts, secrets.ts, server.ts (DEV_SANDBOX_DIFFERENCES), log.ts, shell-state.ts, themes.ts, probe.ts, shell/App.vue, test/dev-parity.test.ts. Later commits outside this plan: 4e0d426 (dev shell starts in manifest frame), 2c118a4 (ld-widget shot). No test result recorded in these commits.",
+      "sha256": null,
+      "external": false,
+      "validation": "agent-attested-session"
+    },
+    {
+      "id": "ev-acceptance-r5",
+      "kind": "file",
+      "reference": "docs/superpowers/reports/2026-10-21-widget-sdk-acceptance-round5-report.md",
+      "inspected": true,
+      "summary": "Committed acceptance report (plan 4, full rerun on f7ddb99, 2026-10-21): 10 of 10 runs pass the acceptance criteria; every deliverable passed ld-widget check and build and imported on the first attempt; 0 forbidden reads. Runs exercised settings (counter title from settings), typed HTTP with rate limits and recovery, secret settings (UNAVAILABLE before the secret is set, header reaches the server, [REDACTED] in the echo), and framed and frameless widgets. The report lists two open SDK defects before publishing: an unreliable headless screenshot recipe and a false overflow before the first measure. This is an acceptance-run result, not a plan-level test or browser-check result.",
+      "sha256": "4ce79e6e8d0532e05f0ebdea98a940802f23567ce88c48a618254c7714dddd98",
+      "external": false,
+      "validation": "bytes-hashed"
+    }
+  ],
+  "implementation": {
+    "status": "completed",
+    "evidence": [
+      "ev-commits"
+    ]
+  },
+  "review": {
+    "status": "missing",
+    "evidence": []
+  },
+  "verification": {
+    "status": "unverified",
+    "evidence": [],
+    "checks": [
+      {
+        "command": "pnpm -C packages/widget-sdk build && pnpm -C packages/widget-sdk test; dev-parity divergence test (plan Task 8 Step 2)",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": []
+      },
+      {
+        "command": "Controller-run tests (*controller-run*): dev-server listen test, echo cases in dev-gateway and widget-gateway, and the performHttp listener cases (plan Tasks 2, 5, 6)",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": []
+      },
+      {
+        "command": "Orca built-in browser end-to-end checks 1-9 of the dev shell, including hot reload, full reload, overflow, secrets and .ld-widget/dev.log (plan Task 8 Step 3; the plan asks for a ledger, which is not committed)",
+        "result": "unverified",
+        "exitCode": null,
+        "evidence": []
+      }
+    ]
+  },
+  "outcomeRecord": {
+    "scope": [
+      {
+        "text": "Production rules moved to shared code: sandbox document and CSP (450bd59); gateway checks, rate limits, HTTP proxying, secret checks and error mapping (4932b12); host bridge in the SDK (bac322d). Both hosts call the same functions.",
+        "evidence": [
+          "ev-commits"
+        ]
+      },
+      {
+        "text": "Dev assets built with the SDK: built-in theme tokens, dev Vue runtime, frame CSS copied from production rules, and the probe for CSP and overflow reports (496060b).",
+        "evidence": [
+          "ev-commits"
+        ]
+      },
+      {
+        "text": "Dev gateway running the production gateway rules, with secrets read from .env.local as LD_SECRET_<key> (3a3b966); later fixes for rate-limit parity (d92da22) and .env.local problems logged once (7c36ed4, aa28377).",
+        "evidence": [
+          "ev-commits"
+        ]
+      },
+      {
+        "text": "ld-widget dev: Vite server under /@ld/pkg/, sandbox document with dev additions, dev API, widget.json watch with last-good manifest, and .ld-widget/dev.log (1d8604d); cross-site rejection and terminal-escape stripping (8426c9d); log bounded (9f761bd).",
+        "evidence": [
+          "ev-commits"
+        ]
+      },
+      {
+        "text": "Dev shell page with frame sized in grid cells, themes, framed and frameless, settings, secret flags, log and URL state (d201f46; 585847c reuses the production theme class).",
+        "evidence": [
+          "ev-commits"
+        ]
+      },
+      {
+        "text": "Divergence test that fails on any undeclared difference, with DEV_SANDBOX_DIFFERENCES listing six entries (fa3992f).",
+        "evidence": [
+          "ev-commits"
+        ]
+      }
+    ],
+    "deviations": {
+      "status": "not-recorded",
+      "evidence": [],
+      "items": []
+    },
+    "excludedScope": [
+      {
+        "text": "Plan 3 items: package docs, full AGENTS.md, skill, starter prompt, README SDK section (plan 2b 'Deferred to other plans').",
+        "evidence": [
+          "ev-plan"
+        ]
+      },
+      {
+        "text": "Plan 4 acceptance run (plan 2b 'Deferred to other plans').",
+        "evidence": [
+          "ev-plan"
+        ]
+      },
+      {
+        "text": "Spec non-goals: hot reload inside the installed dashboard; headless browser automation (spec decision 8).",
+        "evidence": [
+          "ev-spec"
+        ]
+      }
+    ],
+    "followUps": [
+      {
+        "text": "Record the controller-run listen and echo tests and the Orca end-to-end checks. The plan asks for a ledger; no ledger or result is committed.",
+        "evidence": [
+          "ev-plan"
+        ]
+      },
+      {
+        "text": "The round 5 report lists a false overflow before the first measure as open. Later commits bbf3f7f (overflow probe skips until the frame has a size) and 2c118a4 (ld-widget shot) address it; no later report records a rerun.",
+        "evidence": [
+          "ev-acceptance-r5",
+          "ev-commits"
+        ]
+      }
+    ],
+    "risks": [
+      {
+        "text": "No code review record exists for this scope. Dev-shell behaviour in Orca and the controller-run tests are unrecorded.",
+        "evidence": [
+          "ev-plan",
+          "ev-commits"
+        ]
+      },
+      {
+        "text": "The dev shell matches production only within the six declared differences. The divergence test result is unrecorded.",
+        "evidence": [
+          "ev-plan",
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Round 5 acceptance runs used the dev shell and passed their criteria, with two open SDK defects named in the report.",
+        "evidence": [
+          "ev-acceptance-r5"
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "Production rules are shared code, not re-implemented in the dev shell. A test fails when dev and production diverge beyond the declared list (plan Global Constraints; spec section 4).",
+        "evidence": [
+          "ev-spec",
+          "ev-plan"
+        ]
+      },
+      {
+        "text": "Six declared dev-only differences: vue-dev-build, vite-client, probe, hmr-websocket, styles-via-vite, frame-reload (plan Global Constraints).",
+        "evidence": [
+          "ev-plan"
+        ]
+      },
+      {
+        "text": "Dev runtime feedback goes to the terminal and .ld-widget/dev.log, not a headless browser. Shell state (size, theme, frame) sits in the URL (spec section 4).",
+        "evidence": [
+          "ev-spec"
+        ]
+      },
+      {
+        "text": "Dev secrets come from .env.local as LD_SECRET_<key>, read on every call; a secret value never appears in the terminal, the log or the shell (plan Global Constraints; spec 'Secret settings').",
+        "evidence": [
+          "ev-spec",
+          "ev-plan"
+        ]
+      }
+    ]
+  },
+  "archiveStatus": "complete",
+  "skill": {
+    "name": "archive-plan",
+    "version": "1.1.1"
+  },
+  "archiveRoot": ".project-history/features",
+  "incompleteReason": "User requested on 2026-10-22 to archive every completed feature in docs/superpowers; recorded review or verification evidence is incomplete",
+  "warnings": [
+    "Explicit incomplete-evidence archive. Unsupported gates: review, verification, verification checks.",
+    "Completion date not recorded; completedAt remains null.",
+    "Deviations from plan were not recorded; absence of deviations is not claimed.",
+    "URL/session evidence is agent-attested; the helper does not fetch or independently verify it."
+  ],
+  "requestFingerprint": "58247bdf52bb2463e97ea3a77686ddb9a0ee4981be4aa08677866c51cb0d324d",
+  "archivedAt": "2026-10-22T05:24:52Z",
+  "revision": 1,
+  "supersedes": null,
+  "revisionReason": null,
+  "integrity": {
+    "algorithm": "sha256",
+    "metadataSha256": "f20aa7f8fd2dfc715d44551ecda34aa2bff179dbb22269622dd1710564806266"
+  }
+}
