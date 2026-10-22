@@ -1,6 +1,6 @@
 # Agent-ready Widget SDK — design
 
-Date: 2026-10-18. Status: draft for approval.
+Date: 2026-10-18. Status: approved (implemented by plans 2026-10-18-widget-sdk-platform-gaps, 2026-10-19-widget-sdk-dev-shell, 2026-10-19-widget-sdk-package).
 
 ## Intent
 

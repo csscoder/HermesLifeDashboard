@@ -1,6 +1,6 @@
 # Widget SDK agent knowledge (plan 3) — design
 
-Date: 2026-10-20. Status: draft for approval.
+Date: 2026-10-20. Status: approved (implemented by plan 2026-10-20-widget-sdk-agent-knowledge).
 
 Parent spec: `docs/superpowers/specs/2026-10-18-widget-sdk-agent-ready-design.md` (section 6 «Agent knowledge»). This document is the design for plan 3 of that series. Where the two differ, this one wins; the differences are listed in «Changes to the parent spec».
 
