@@ -1,6 +1,6 @@
 # Widget SDK acceptance run (plan 4) — design
 
-Date: 2026-10-20. Status: draft for approval.
+Date: 2026-10-20. Status: approved (implemented by plan 2026-10-20-widget-sdk-acceptance).
 
 Parent specs: `2026-10-18-widget-sdk-agent-ready-design.md` (acceptance run, section "Success and failure") and `2026-10-20-widget-sdk-agent-knowledge-design.md` (reference task, plan 3 deliverables). Where they differ, the plan 3 spec wins: the user runs `create`, then gives the agent one sentence.
 
