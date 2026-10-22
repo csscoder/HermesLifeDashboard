@@ -69,7 +69,9 @@ const titleSuffix = computed(() => screenSuffix(screenIndex.value, screenCount.v
 const current = computed(() => spaces.value.find((space) => space.id === currentId.value) ?? null)
 const hue = computed(() => SPACE_COLORS[current.value?.color ?? 'violet'])
 // Build and save block the switcher and the screen controls; so does a switch that is in flight.
-const busy = computed(() => mode.value === 'build' || !!boardRef.value?.saving || !!boardRef.value?.switching)
+const busy = computed(
+  () => mode.value === 'build' || managing.value || !!boardRef.value?.saving || !!boardRef.value?.switching,
+)
 const canRemove = computed(() => canRemoveScreen(spaces.value.length, screenCount.value))
 const removeTitle = computed(() => (canRemove.value ? '' : LAST_SPACE_HINT))
 
@@ -104,7 +106,25 @@ async function select(id: string) {
   }
 }
 
-async function create() {
+// One space create or delete at a time: a repeated « + » or ✕ while one runs, or waits for its confirmation, is ignored.
+const managing = ref(false)
+async function once(task: () => Promise<void>) {
+  if (managing.value) return
+  managing.value = true
+  try {
+    await task()
+  } finally {
+    managing.value = false
+  }
+}
+function create() {
+  return once(createSpace)
+}
+function removeScreen() {
+  return once(deleteScreenOrSpace)
+}
+
+async function createSpace() {
   const board = boardRef.value
   if (!board) return
   startRename.value = false
@@ -133,7 +153,7 @@ function rename(title: string) {
 }
 
 // ✕ on the screen. The board deletes a screen; its only screen deletes the space, after a confirmation.
-async function removeScreen() {
+async function deleteScreenOrSpace() {
   const board = boardRef.value
   if (!board) return
   const outcome = await board.removeScreen()
