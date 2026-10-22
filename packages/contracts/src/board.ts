@@ -94,7 +94,7 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   for (const [index, item] of raw.instances.entries()) {
     if (!isRecord(item) || !isUuid(item.id)) return fail(`instances[${index}]: id must be a UUID`)
     if (ids.has(item.id)) return fail(`instances[${index}]: duplicate id "${item.id}"`)
-    const source = parseSource(item.source)
+    const source = parseWidgetSource(item.source)
     if (!source) return fail(`instances[${index}]: invalid source`)
     const version = item.configVersion
     if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
@@ -130,7 +130,7 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   return { ok: true, value: { id: raw.id, rows, instances, layout } }
 }
 
-function parseSource(raw: unknown): WidgetSource | null {
+export function parseWidgetSource(raw: unknown): WidgetSource | null {
   if (!isRecord(raw)) return null
   if (raw.kind === 'builtin') return isNonEmptyString(raw.type) ? { kind: 'builtin', type: raw.type } : null
   if (raw.kind === 'package' && isPackageId(raw.packageId) && isPackageVersion(raw.version)) {

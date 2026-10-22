@@ -67,6 +67,7 @@ export function createBridge(
     closed = true
     for (const timer of timers) clearTimeout(timer)
     timers.clear()
+    port.postMessage({ t: 'close' })
     port.onmessage = null
     port.close()
   }

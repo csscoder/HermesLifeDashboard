@@ -123,6 +123,15 @@ describe('apiRequest', () => {
     expect(init?.body).toBe('{"data":1,"expectedRevision":0}')
   })
 
+  it('binds session creation to the source rendered by the host', async () => {
+    const fetchMock = respond(200, { data: { widgetSession: 'tok', grants: [] }, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.createWidgetSession('w1', { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' })
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      widgetId: 'w1', source: { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' },
+    })
+  })
+
   it('maps 428 to confirmation-required with its id, and a 428 without an id to invalid', async () => {
     vi.stubGlobal('fetch', respond(428, { error: { code: 'CONFIRMATION_REQUIRED', message: 'm', requestId: 'x', retryable: false, confirmationId: 'c1' } }))
     expect(await api.gateway('notifications.send', 'tok', {})).toEqual({ ok: false, kind: 'confirmation-required', confirmationId: 'c1' })

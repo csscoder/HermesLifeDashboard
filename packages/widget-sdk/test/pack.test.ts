@@ -93,6 +93,12 @@ const key: boolean = widget.context.config.apiKey
 const mode: 'a' | 'b' = widget.context.config.mode
 // @ts-expect-error unknown setting
 void widget.context.config.missing
+// @ts-expect-error the host owns nested context fields
+widget.context.size.w = 10
+// @ts-expect-error the host owns theme tokens
+widget.context.theme.tokens['--ld-bg'] = 'red'
+// @ts-expect-error the host owns generated config fields
+widget.context.config.city = 'London'
 const out = await widget.http.get('https://api.example.com/x')
 const status: number = out.status
 export { city, key, mode, status }

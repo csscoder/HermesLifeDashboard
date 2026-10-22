@@ -1,0 +1,21 @@
+{
+  "id": "dev.lifedashboard.showcase.counter",
+  "version": "1.0.0",
+  "title": "Focus sessions",
+  "author": "LifeDashboard",
+  "entry": "index.js",
+  "styles": ["style.css"],
+  "sizing": {
+    "default": { "w": 6, "h": 6 },
+    "min": { "w": 4, "h": 4 },
+    "max": { "w": 10, "h": 10 }
+  },
+  "permissions": ["state"],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string", "title": "Title", "default": "Focus sessions", "maxLength": 40 },
+      "goal": { "type": "integer", "title": "Session goal", "default": 8, "minimum": 1, "maximum": 100 }
+    }
+  }
+}

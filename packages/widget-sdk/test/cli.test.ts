@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process'
-import { cp, mkdtemp, rm } from 'node:fs/promises'
+import { spawn, spawnSync } from 'node:child_process'
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,3 +37,31 @@ it.each([['unknown'], ['dev', '--port'], ['dev', '--port', 'no'], ['dev', '--por
   expect(result.stdout).toBe('')
   expect(result.stderr).toBe('Usage: ld-widget <build|check|dev|shot> [dir] [options]\n')
 })
+
+it('dev --poll observes manifest edits when native filesystem events are unavailable', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ld-widget-cli-poll-'))
+  dirs.push(dir)
+  await cp(counter, dir, { recursive: true })
+  const child = spawn(process.execPath, [cli, 'dev', dir, '--port', '0', '--poll'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk) => { stdout += String(chunk) })
+  child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+  try {
+    await expect.poll(() => stdout, { timeout: 10_000 }).toContain('Dev shell: http://')
+    const url = /Dev shell: (http:\/\/\S+)/.exec(stdout)![1]!
+    const info = () => fetch(new URL('@ld/api/info', url)).then((response) => response.json())
+    const before = await info()
+    const path = join(dir, 'widget.json')
+    const manifest = JSON.parse(await readFile(path, 'utf8'))
+    manifest.title = 'Changed through polling'
+    await writeFile(path, JSON.stringify(manifest))
+    await expect.poll(async () => (await info()).manifest.title).toBe('Changed through polling')
+    expect((await info()).revision).toBeGreaterThan(before.revision)
+    expect(stderr).toBe('')
+  } finally {
+    const exited = new Promise((done) => child.once('exit', done))
+    child.kill('SIGINT')
+    if (child.exitCode === null) await exited
+  }
+}, 20_000)

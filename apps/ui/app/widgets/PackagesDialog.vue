@@ -291,7 +291,7 @@ async function changeMode(packageId: string, grant: Grant, event: Event) {
         </ul>
         <p>Сервер может вернуть ключ в ответе; LifeDashboard заменяет точные и URL-кодированные копии на [REDACTED], но изменённые копии скрыть не может</p>
       </template>
-      <p v-if="pending.inspection.installed">Эта версия уже установлена</p>
+      <p v-if="pending.inspection.installed">Эта версия уже установлена и не может быть заменена. Увеличьте version в widget.json, соберите виджет заново и импортируйте новую папку. Затем выберите новую версию в настройках размещённого виджета.</p>
       <progress v-if="progress" class="packages__progress" :value="progress.sent" :max="progress.total" />
       <div class="packages__actions">
         <button type="button" class="packages__button" :disabled="busy || pending.inspection.installed" @click="install">

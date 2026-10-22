@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { extname, join, resolve, sep } from 'node:path'
@@ -16,6 +17,7 @@ import { readDevSecrets } from './secrets.ts'
 import type { DevTheme } from './themes.ts'
 
 export const DEV_PATHS = { pkg: '/@ld/pkg/', runtime: '/@ld/runtime/', sandbox: '/@ld/sandbox', api: '/@ld/api/', shell: '/@ld/shell/' } as const
+export type DevPaths = { [Key in keyof typeof DEV_PATHS]: string }
 
 export interface DevInfo {
   revision: number
@@ -35,9 +37,9 @@ export const DEV_SANDBOX_DIFFERENCES: { id: string; description: string }[] = [
   { id: 'frame-reload', description: 'A second load of the frame (Vite full reload) re-handshakes instead of failing the widget.' },
 ]
 
-export function devSandboxDocument(origin: string, wsOrigin: string): Promise<{ html: string; csp: string }> {
-  const runtime = origin + DEV_PATHS.runtime
-  const packageDir = origin + DEV_PATHS.pkg
+export function devSandboxDocument(origin: string, wsOrigin: string, paths: DevPaths = DEV_PATHS): Promise<{ html: string; csp: string }> {
+  const runtime = origin + paths.runtime
+  const packageDir = origin + paths.pkg
   return sandboxDocument({ runtime, packageDir, entry: packageDir + 'src/index.vue' }, [], {
     scripts: [packageDir + '@vite/client', runtime + 'probe.js'], connectSrc: [wsOrigin],
   })
@@ -46,11 +48,12 @@ export function devSandboxDocument(origin: string, wsOrigin: string): Promise<{ 
 const logKinds: readonly DevLogKind[] = ['gateway', 'error', 'csp', 'overflow', 'manifest', 'secret']
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
-export function createDevApi(deps: { gateway: DevGateway; info: () => DevInfo; log: DevLog; reset: () => void }) {
+export function createDevApi(deps: { gateway: DevGateway; info: () => DevInfo; log: DevLog; reset: () => void; paths?: DevPaths }) {
+  const apiPath = deps.paths?.api ?? DEV_PATHS.api
   return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname
-    if (!path.startsWith(DEV_PATHS.api)) return false
-    const route = path.slice(DEV_PATHS.api.length)
+    if (!path.startsWith(apiPath)) return false
+    const route = path.slice(apiPath.length)
     const reply = (status: number, value?: unknown) => {
       res.statusCode = status
       if (value !== undefined) res.setHeader('content-type', 'application/json')
@@ -116,8 +119,11 @@ const contentTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml',
 }
 
-export async function startDevServer(dir: string, options: { port?: number } = {}): Promise<{ url: string; close(): Promise<void> }> {
+export async function startDevServer(dir: string, options: { port?: number; poll?: boolean } = {}): Promise<{ url: string; close(): Promise<void> }> {
   const root = resolve(dir)
+  // The opaque iframe needs CORS; an unguessable prefix keeps other opaque pages from reading project sources.
+  const session = `/${randomBytes(24).toString('hex')}`
+  const paths = Object.fromEntries(Object.entries(DEV_PATHS).map(([key, path]) => [key, session + path])) as DevPaths
   let manifest = await readManifest(root)
   await writeConfigDeclaration(root)
   const log = createDevLog(root)
@@ -127,7 +133,7 @@ export async function startDevServer(dir: string, options: { port?: number } = {
   const secrets = () => readDevSecrets(root, manifest, (kind, message) => log.write(kind, message), seen)
   let revision = 0
   const gateway = createDevGateway({ manifest: () => manifest, secrets, log: (kind, message, shell) => log.write(kind, message, shell) })
-  const api = createDevApi({ gateway, log, reset: () => gateway.reset(), info: () => {
+  const api = createDevApi({ gateway, log, paths, reset: () => gateway.reset(), info: () => {
     const values = secrets()
     return { revision, manifest, themes,
       secrets: Object.fromEntries(secretsOf(manifest.settings).map(({ key }) => [key, values.has(key)])),
@@ -148,8 +154,8 @@ export async function startDevServer(dir: string, options: { port?: number } = {
   const ldDevPlugin: Plugin = {
     name: 'ld-widget-dev', enforce: 'pre',
     resolveId(id) {
-      if (id === 'vue') return { id: origin + DEV_PATHS.runtime + 'vue.js', external: true }
-      if (id === '@lifedashboard/widget-sdk') return { id: origin + DEV_PATHS.runtime + 'sdk.js', external: true }
+      if (id === 'vue') return { id: origin + paths.runtime + 'vue.js', external: true }
+      if (id === '@lifedashboard/widget-sdk') return { id: origin + paths.runtime + 'sdk.js', external: true }
     },
     configureServer(server) {
       // A live (HMR) error, such as a Vue SFC syntax error, reaches only the browser overlay; Vite does not log it.
@@ -178,36 +184,45 @@ export async function startDevServer(dir: string, options: { port?: number } = {
       server.middlewares.use((req, res, next) => {
         const serve = async () => {
           const path = new URL(req.url ?? '/', origin).pathname
-          if (path.startsWith(DEV_PATHS.pkg) || path.startsWith(DEV_PATHS.runtime)) res.setHeader('access-control-allow-origin', '*')
+          if (!path.startsWith(session + '/') || (req.headers.origin !== undefined && req.headers.origin !== 'null' && req.headers.origin !== origin)) {
+            res.statusCode = 403
+            res.end()
+            return
+          }
+          res.setHeader('referrer-policy', 'no-referrer')
+          if (req.headers.origin !== undefined) {
+            res.setHeader('access-control-allow-origin', req.headers.origin)
+            res.setHeader('vary', 'Origin')
+          }
           if (await api(req, res)) return
-          if (path === DEV_PATHS.sandbox) {
-            const doc = await devSandboxDocument(origin, origin.replace(/^http/, 'ws'))
+          if (path === paths.sandbox) {
+            const doc = await devSandboxDocument(origin, origin.replace(/^http/, 'ws'), paths)
             res.setHeader('content-security-policy', doc.csp)
             res.setHeader('content-type', contentTypes['.html']!)
             res.end(doc.html)
             return
           }
           let file: string | undefined
-          if (path.startsWith(DEV_PATHS.runtime)) {
+          if (path.startsWith(paths.runtime)) {
             const files: Record<string, string> = { 'vue.js': 'dev/vue.js', 'sdk.js': 'sandbox.js', 'probe.js': 'dev/probe.js' }
-            const key = path.slice(DEV_PATHS.runtime.length)
+            const key = path.slice(paths.runtime.length)
             const name = Object.hasOwn(files, key) ? files[key] : undefined
             if (name !== undefined) file = join(dist, name)
             else { res.statusCode = 404; res.end(); return }
-          } else if (path === '/' || path.startsWith(DEV_PATHS.shell)) {
+          } else if (path === session + '/' || path.startsWith(paths.shell)) {
             const shellRoot = join(dist, 'shell')
-            const name = path === '/' ? 'index.html' : decodeURIComponent(path.slice(DEV_PATHS.shell.length))
+            const name = path === session + '/' ? 'index.html' : decodeURIComponent(path.slice(paths.shell.length))
             file = resolve(shellRoot, name)
             if (!file.startsWith(shellRoot + sep)) { res.statusCode = 404; res.end(); return }
           } else { next(); return }
           try {
             const data = await readFile(file)
             res.setHeader('content-type', contentTypes[extname(file)] ?? 'application/octet-stream')
-            res.end(data)
+            res.end(path === session + '/' ? data.toString('utf8').replaceAll(DEV_PATHS.shell, paths.shell) : data)
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-            res.statusCode = path === '/' ? 503 : 404
-            res.end(path === '/' ? 'Dev shell not built. Fix: pnpm -C packages/widget-sdk build' : undefined)
+            res.statusCode = path === session + '/' ? 503 : 404
+            res.end(path === session + '/' ? 'Dev shell not built. Fix: pnpm -C packages/widget-sdk build' : undefined)
           }
         }
         void serve().catch(next)
@@ -215,15 +230,15 @@ export async function startDevServer(dir: string, options: { port?: number } = {
     },
   }
   const server = await createServer({
-    root, base: DEV_PATHS.pkg, configFile: false, envDir: false,
+    root, base: paths.pkg, configFile: false, envDir: false,
     plugins: [...widgetVitePlugins(), ldDevPlugin], customLogger,
-    server: { port, strictPort: port !== 0, cors: false },
+    server: { port, strictPort: port !== 0, cors: false, ...(options.poll ? { watch: { usePolling: true } } : {}) },
     optimizeDeps: { exclude: ['vue', '@lifedashboard/widget-sdk'] },
   })
   try {
     await server.listen()
     origin = `http://localhost:${(server.httpServer!.address() as AddressInfo).port}`
-    return { url: origin + '/', async close() { await server.close(); await pendingManifest } }
+    return { url: origin + session + '/', async close() { await server.close(); await pendingManifest } }
   } catch (error) {
     await server.close()
     if (error instanceof Error && /(?:EADDRINUSE|Port .* is already in use)/.test(error.message)) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useId, useTemplateRef } from 'vue'
+import { computed, ref, useId, useTemplateRef, watch } from 'vue'
 import {
   BARE_THEME_ID,
   DEFAULT_SHADOW,
@@ -21,15 +21,20 @@ const props = defineProps<{
   config: Record<string, unknown>
   widgetId: string | null
   secrets: ReadonlySet<string>
+  version: string
+  versions: string[]
 }>()
 const emit = defineEmits<{
   change: [next: WidgetAppearance | null]
   config: [next: Record<string, unknown>]
   toggle: [open: boolean]
+  version: [version: string]
 }>()
 
 const panel = useTemplateRef<HTMLElement>('panelBox')
 const uid = useId()
+const selectedVersion = ref(props.version)
+watch(() => [props.widgetId, props.version], () => { selectedVersion.value = props.version })
 const shadow = computed(() => props.appearance?.shadow ?? null)
 // While the shadow is off the controls show DEFAULT_SHADOW, disabled; nothing is written.
 const shown = computed(() => shadow.value ?? DEFAULT_SHADOW)
@@ -101,6 +106,16 @@ defineExpose({ open, close, isOpen })
     @toggle="onToggle"
     @focusout="onFocusOut"
   >
+    <template v-if="versions.length > 0">
+      <label class="settings__row">
+        <span class="settings__label">Версия</span>
+        <select v-model="selectedVersion" class="settings__control">
+          <option v-for="item in versions" :key="item" :value="item">{{ item }}</option>
+        </select>
+      </label>
+      <button type="button" class="settings__reset" :disabled="selectedVersion === version" @click="emit('version', selectedVersion)">Применить версию</button>
+      <p class="settings__version-hint">Смена версии сохраняет изменения доски и данные виджета. Секреты с изменённой привязкой потребуется задать заново.</p>
+    </template>
     <label class="settings__row">
       <span class="settings__label">Стиль</span>
       <select class="settings__control" :value="styleValue(appearance)" @change="setStyle">
@@ -193,6 +208,12 @@ defineExpose({ open, close, isOpen })
 }
 
 .settings__label {
+  color: var(--ld-text-secondary);
+}
+
+.settings__version-hint {
+  margin: 0;
+  font-size: 0.875rem;
   color: var(--ld-text-secondary);
 }
 

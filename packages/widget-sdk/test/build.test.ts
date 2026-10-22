@@ -68,6 +68,21 @@ describe('buildWidget', () => {
     expect(await readFile(join(await buildWidget(dir), 'index.js'), 'utf8')).toContain('assets/bg.mp4')
   }, 30_000)
 
+  it('keeps ./assets image URLs relative to the installed package root', async () => {
+    const dir = await copyOf('counter')
+    await mkdir(join(dir, 'assets'))
+    await writeFile(join(dir, 'assets/icon.png'), 'image')
+    const path = join(dir, 'src/index.vue')
+    await writeFile(path, (await readFile(path, 'utf8')).replace('<template>', '<template>\n  <img src="./assets/icon.png" />'))
+    const built = buildWidget(dir, { quiet: true })
+    await expect(built).resolves.toBe(join(dir, 'dist/dev.test.counter-1.0.0'))
+    const target = await built
+    const code = await readFile(join(target, 'index.js'), 'utf8')
+    expect(code).toContain('./assets/icon.png')
+    expect(code).not.toMatch(/file:\/\/|node:|data:image/)
+    expect(await readFile(join(target, 'assets/icon.png'), 'utf8')).toBe('image')
+  }, 30_000)
+
   it('copies only allow-listed files into source/', async () => {
     const dir = await copyOf('counter')
     const files: [string, string][] = [['.env', 'SECRET=1'], ['.env.local', 'SECRET=2'], ['.git/HEAD', 'x'], ['.DS_Store', 'x'], ['node_modules/x/index.js', 'x'], ['src/node_modules/y.js', 'x'], ['dist/old.txt', 'x'], ['.npmrc', 'x'], ['src/.data.json', '{}']]

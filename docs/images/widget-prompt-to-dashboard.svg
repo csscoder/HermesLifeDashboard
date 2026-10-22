@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1320" viewBox="0 0 1920 1320" role="img" aria-labelledby="title description">
+<title id="title">From a prompt to your LifeDashboard</title>
+<desc id="description">Three example prompts for Codex lead to real dashboard captures of an analog clock, a persisted focus counter and live weather. Build each with the Widget SDK and install its folder in LifeDashboard. This is an illustrated workflow, not a recorded chat.</desc>
+<defs>
+  <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#20223b"/><stop offset="1" stop-color="#0d1018"/></linearGradient>
+  <linearGradient id="card" x2="0" y2="1"><stop stop-color="#24263d"/><stop offset="1" stop-color="#1b1d2f"/></linearGradient>
+  <clipPath id="crop"><rect width="552" height="552" rx="26"/></clipPath>
+</defs>
+<rect width="1920" height="1320" fill="url(#bg)"/>
+<rect x="42" y="34" width="1836" height="1252" rx="34" fill="none" stroke="#34374e"/>
+<g font-family="Arial, Helvetica, sans-serif">
+<text x="76" y="92" fill="#b4aaff" font-size="22" font-weight="700">LifeDashboard <tspan fill="#74798f" font-weight="400">/ Widget SDK</tspan></text>
+<text x="1844" y="90" text-anchor="end" fill="#9ca2bb" font-size="16" letter-spacing="1.5">EXAMPLE PROMPTS · REAL RESULTS</text>
+<text x="76" y="177" fill="#f4f4fb" font-size="64" font-weight="700" letter-spacing="-2">From a prompt to your dashboard.</text>
+<text x="76" y="224" fill="#b7bdd1" font-size="25">Describe a widget in Codex. Build it with the SDK. Install the result.</text>
+
+<rect x="76" y="278" width="552" height="194" rx="24" fill="url(#card)" stroke="#41435c"/>
+<text x="104" y="318" fill="#b4aaff" font-size="17" font-weight="700" letter-spacing="1.3">01 / ANALOG CLOCK</text>
+<text x="104" y="363" fill="#f0f1fa" font-size="25">
+<tspan x="104" dy="0">Create a frameless analog clock</tspan>
+<tspan x="104" dy="34">with a smooth second hand</tspan>
+<tspan x="104" dy="34">and the local date.</tspan>
+</text>
+<path d="M352 488v38m-9-9 9 9 9-9" fill="none" stroke="#a99bff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="382" y="512" fill="#a9afc7" font-size="17">Codex + Widget SDK</text>
+<g transform="translate(76,552)" clip-path="url(#crop)"><image href="widget-showcase-clock.png" width="552" height="552"/></g>
+<rect x="76" y="552" width="552" height="552" rx="26" fill="none" stroke="#43465f"/>
+<rect x="684" y="278" width="552" height="194" rx="24" fill="url(#card)" stroke="#41435c"/>
+<text x="712" y="318" fill="#b4aaff" font-size="17" font-weight="700" letter-spacing="1.3">02 / FOCUS COUNTER</text>
+<text x="712" y="363" fill="#f0f1fa" font-size="25">
+<tspan x="712" dy="0">Build a session counter with</tspan>
+<tspan x="712" dy="34">plus / minus controls, a goal,</tspan>
+<tspan x="712" dy="34">and progress saved after reload.</tspan>
+</text>
+<path d="M960 488v38m-9-9 9 9 9-9" fill="none" stroke="#a99bff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="990" y="512" fill="#a9afc7" font-size="17">Codex + Widget SDK</text>
+<g transform="translate(684,552)" clip-path="url(#crop)"><image href="widget-showcase-counter.png" width="552" height="552"/></g>
+<rect x="684" y="552" width="552" height="552" rx="26" fill="none" stroke="#43465f"/>
+<rect x="1292" y="278" width="552" height="194" rx="24" fill="url(#card)" stroke="#41435c"/>
+<text x="1320" y="318" fill="#b4aaff" font-size="17" font-weight="700" letter-spacing="1.3">03 / LIVE WEATHER</text>
+<text x="1320" y="363" fill="#f0f1fa" font-size="25">
+<tspan x="1320" dy="0">Make a London weather widget</tspan>
+<tspan x="1320" dy="34">with live data, no API key,</tspan>
+<tspan x="1320" dy="34">and a manual refresh button.</tspan>
+</text>
+<path d="M1568 488v38m-9-9 9 9 9-9" fill="none" stroke="#a99bff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1598" y="512" fill="#a9afc7" font-size="17">Codex + Widget SDK</text>
+<g transform="translate(1292,552)" clip-path="url(#crop)"><image href="widget-showcase-weather.png" width="552" height="552"/></g>
+<rect x="1292" y="552" width="552" height="552" rx="26" fill="none" stroke="#43465f"/>
+<rect x="76" y="1144" width="1768" height="104" rx="22" fill="#222438" stroke="#3a3d55"/>
+<text x="960" y="1187" text-anchor="middle" fill="#eeedf9" font-size="26" font-weight="700">Install the built widget folder → Add it to LifeDashboard</text>
+<text x="960" y="1222" text-anchor="middle" fill="#afb5ce" font-size="20">Independent packages · Theme-aware UI · Source code included</text>
+<text x="960" y="1274" text-anchor="middle" fill="#9097b2" font-size="15">Illustrated workflow with example prompts and actual development-build captures</text>
+</g></svg>

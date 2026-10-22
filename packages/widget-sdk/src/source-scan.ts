@@ -9,6 +9,93 @@ export function scanSource(file: string, text: string, network: readonly string[
     ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
     && node.expression.text === object && node.name.text === name
 
+  function initializer(node: TS.Identifier): TS.Expression | null | undefined {
+    const named = (name: TS.BindingName): boolean => ts.isIdentifier(name)
+      ? name.text === node.text : name.elements.some((entry) => ts.isBindingElement(entry) && named(entry.name))
+    for (let scope: TS.Node | undefined = node.parent; scope; scope = scope.parent) {
+      if (ts.isFunctionLike(scope) && scope.parameters.some((parameter) => named(parameter.name))) return null
+      if (!ts.isSourceFile(scope) && !ts.isBlock(scope)) continue
+      for (const statement of scope.statements) {
+        if (ts.isVariableStatement(statement)) {
+          const declaration = statement.declarationList.declarations.find((entry) => named(entry.name))
+          if (declaration) return ts.isIdentifier(declaration.name) && statement.declarationList.flags & ts.NodeFlags.Const
+            ? declaration.initializer ?? null : null
+        } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === node.text) return null
+        else if (ts.isImportDeclaration(statement) && statement.importClause) {
+          const { name, namedBindings } = statement.importClause
+          if (name?.text === node.text || (namedBindings && (ts.isNamespaceImport(namedBindings)
+            ? namedBindings.name.text === node.text : namedBindings.elements.some((entry) => entry.name.text === node.text)))) return null
+        }
+      }
+    }
+    return undefined
+  }
+
+  function value(node: TS.Expression | undefined, depth = 0): TS.Expression | undefined {
+    if (!node || depth > 10) return undefined
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isNonNullExpression(node)) return value(node.expression, depth + 1)
+    if (ts.isIdentifier(node)) return value(initializer(node) ?? undefined, depth + 1)
+    return node
+  }
+
+  function globalApi(node: TS.Expression, name: string): boolean {
+    return (ts.isIdentifier(node) && node.text === name && initializer(node) === undefined)
+      || (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+        && ['window', 'self', 'globalThis'].includes(node.expression.text) && initializer(node.expression) === undefined && node.name.text === name)
+  }
+
+  function urlText(node: TS.Expression | undefined): string | undefined {
+    const resolved = value(node)
+    if (!resolved) return undefined
+    if (ts.isStringLiteral(resolved) || ts.isNoSubstitutionTemplateLiteral(resolved)) return resolved.text
+    return ts.isTemplateExpression(resolved) ? resolved.head.text : undefined
+  }
+
+  function requestUrl(node: TS.Expression | undefined): TS.Expression | undefined {
+    const request = value(node)
+    if (!request || !ts.isObjectLiteralExpression(request)) return undefined
+    return request.properties.flatMap((property) => ts.isPropertyAssignment(property)
+      && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === 'url'
+      ? [property.initializer] : [])[0]
+  }
+
+  function checkRequest(node: TS.CallExpression | TS.NewExpression): void {
+    let url: TS.Expression | undefined
+    let transport: string | undefined
+    if (ts.isCallExpression(node) && globalApi(node.expression, 'fetch')) {
+      url = node.arguments[0]
+      transport = 'fetch'
+    } else if (ts.isNewExpression(node) && globalApi(node.expression, 'WebSocket')) {
+      url = node.arguments?.[0]
+      transport = 'WebSocket'
+    } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression
+      const receiver = value(method.expression)
+      if (method.name.text === 'open' && receiver && ts.isNewExpression(receiver) && globalApi(receiver.expression, 'XMLHttpRequest')) {
+        url = node.arguments[1]
+        transport = 'XMLHttpRequest'
+      } else if (ts.isPropertyAccessExpression(method.expression) && method.expression.name.text === 'http') {
+        if (method.name.text === 'get') url = node.arguments[0]
+        else if (method.name.text === 'send') url = requestUrl(node.arguments[0])
+      } else if (method.name.text === 'call' && ['http.get', 'http.send'].includes(urlText(node.arguments[0]) ?? '')) {
+        url = requestUrl(node.arguments[1])
+      }
+    }
+    const text = urlText(url)
+    if (text === undefined) return
+    if (transport && /^(?:(?:https?|wss?):)?\/\//i.test(text)) {
+      report(url!, 'network', `Direct ${transport} to an external URL does not work in the widget sandbox. Fix: use widget.http.get/send through the gateway; list its origin in widget.json "network" with the "network" permission. WebSocket connections are not supported.`)
+    } else if (!transport && /^https?:\/\//i.test(text)) {
+      let origin: string | undefined
+      try { origin = new URL(text).origin } catch { /* The authority is dynamic or incomplete. */ }
+      const resolved = value(url)
+      if (resolved && ts.isTemplateExpression(resolved) && !/^https?:\/\/[^/?#]*[/?#]/i.test(text)) return
+      if (origin !== undefined && !network.includes(origin)) {
+        report(url!, 'network', `URL origin ${origin} is not in widget.json "network". Fix: add "${origin}" to network and "network" to permissions, and call it with widget.http.get/send.`)
+      }
+    }
+  }
+
   function gpuTest(node: TS.Node, positive = false): boolean {
     if (ts.isParenthesizedExpression(node)) return gpuTest(node.expression, positive)
     if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
@@ -85,17 +172,7 @@ export function scanSource(file: string, text: string, network: readonly string[
     } else if (access(node, 'navigator', 'gpu') && !guardedGpu(node)) {
       report(node, 'sandbox-api', '"navigator.gpu" (WebGPU) is not in the runtime baseline. Fix: wrap the use in if (\'gpu\' in navigator) { … } and fall back to WebGL 2.')
     }
-    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node))
-      && /^https?:\/\//.test(node.text)
-      && !node.text.startsWith('http://www.w3.org/')
-      // A template head has a static origin only after its authority is terminated.
-      && (!ts.isTemplateHead(node) || /^https?:\/\/[^/?#]*[/?#]/.test(node.text))) {
-      let origin: string | undefined
-      try { origin = new URL(node.text).origin } catch { /* Not a complete static URL. */ }
-      if (origin !== undefined && !network.includes(origin)) {
-        report(node, 'network', `URL origin ${origin} is not in widget.json "network". Fix: add "${origin}" to network and "network" to permissions, and call it with widget.http.get/send.`)
-      }
-    }
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) checkRequest(node)
     ts.forEachChild(node, visit)
   }
   visit(source)

@@ -11,9 +11,11 @@ const commands: Record<string, (args: string[]) => Promise<number>> = {
   async dev(args) {
     let dir: string | undefined
     let port: number | undefined
+    let poll = false
     for (let index = 0; index < args.length; index++) {
       const arg = args[index]!
-      if (arg === '--port' && port === undefined) {
+      if (arg === '--poll' && !poll) poll = true
+      else if (arg === '--port' && port === undefined) {
         const value = args[++index]
         if (value === undefined || !/^\d+$/.test(value) || Number(value) > 65535) {
           console.error(usage)
@@ -24,7 +26,7 @@ const commands: Record<string, (args: string[]) => Promise<number>> = {
       else { console.error(usage); return 2 }
     }
     const root = resolve(dir ?? process.cwd())
-    const server = await startDevServer(root, { port })
+    const server = await startDevServer(root, { port, poll })
     try {
       console.log(`Dev shell: ${server.url}`)
       console.log('Log: .ld-widget/dev.log')

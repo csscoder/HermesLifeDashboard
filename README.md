@@ -8,6 +8,24 @@ The long-term goal is a beautiful, local-first desktop environment that can also
 
 > **Status: early development.** The project currently runs as a local web application. The Widget SDK and installable widget packages have an initial implementation; a local macOS desktop build exists (unsigned, arm64 only); Hermes integration and many planned widgets are not available yet. Interfaces and package contracts may evolve before a stable release.
 
+## Widget showcase
+
+![Example Codex prompts leading to an analog clock, a persisted counter and live weather in LifeDashboard](docs/images/widget-prompt-to-dashboard.png)
+
+Example prompts paired with real widgets running in a LifeDashboard development build. Create widgets with Codex and the open Widget SDK, then install each result as an independent package in your local workspace.
+
+See the [full dashboard capture](docs/images/widget-showcase.png) or the [illustration source](docs/images/widget-prompt-to-dashboard.svg). The illustration summarizes the workflow; it is not a recorded chat session.
+
+These three examples use the public SDK and the dashboard's theme tokens. Each builds into its own installable widget folder and includes its sources and tests.
+
+| Widget | Demonstrates | Source and build instructions |
+| --- | --- | --- |
+| [Analog clock](docs/images/widget-showcase-clock.png) | Frameless SVG, local time and date, visibility and reduced-motion support. | [showcase-clock](examples/widgets/showcase-clock) |
+| [Focus sessions](docs/images/widget-showcase-counter.png) | Interactive progress, configurable goal and saved state across reloads. | [showcase-counter](examples/widgets/showcase-counter) |
+| [Live weather](docs/images/widget-showcase-weather.png) | Real weather data through the permission-controlled HTTP gateway; no API key. | [showcase-weather](examples/widgets/showcase-weather) |
+
+Weather data: [Open-Meteo](https://open-meteo.com/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), with [provider attribution](https://open-meteo.com/en/licence). Displayed values are rounded model estimates at the captured time. The example uses the free endpoint for non-commercial use under [Open-Meteo's terms](https://open-meteo.com/en/terms).
+
 ## The idea
 
 LifeDashboard is a **widget platform first**. It is not a fixed productivity dashboard, a replacement for Hermes Agent, or another general-purpose AI chat application.
@@ -91,6 +109,7 @@ To rebuild an installed widget, copy its `source/` and `assets/` (paths are show
 
 **Existing examples:**
 
+- The [clock](examples/widgets/showcase-clock), [counter](examples/widgets/showcase-counter) and [weather](examples/widgets/showcase-weather) above are small, installable SDK examples with focused tests.
 - [`examples/widgets/hello`](examples/widgets/hello) demonstrates persisted state, revision conflicts, notifications, and a background video from `assets/`.
 - [`examples/widgets/hermes-tasks`](examples/widgets/hermes-tasks) shows and edits tasks of a local Hermes Tasks container on `127.0.0.1:8787` through `http.get`/`http.send`.
 - [`examples/widgets/hostile`](examples/widgets/hostile) is a security test fixture, **not** a production widget template.
@@ -106,7 +125,9 @@ pnpm -C examples/widgets/hello build
 
 Then start LifeDashboard and select **«Виджеты» → «Выбрать папку»**, pick that folder (or drop it on the dialog), review the permissions and sizes, install the widget, and place it using **«Добавить виджет…»**.
 
-A package already used by a board cannot be removed until its widget instances are removed. Installed versions are immutable, and placed instances remain associated with their selected version.
+A package already used by a board cannot be removed until its widget instances are removed. Installed versions are immutable: increment `widget.json.version` before importing changed code. Placed instances remain associated with their selected version.
+
+To update or roll back an instance, enter edit mode, open its settings, select an installed **«Версия»** and press **«Применить версию»**. This saves the board's pending edits, keeps the instance ID, persisted state, appearance and compatible settings, and fits its size to the new limits if there is room. Secret values are kept only when the setting key and network binding are unchanged; changed bindings need a new value. Widget authors remain responsible for reading or migrating their own persisted state format across versions.
 
 ### Creating widgets with Claude Code, Codex, or other AI tools
 
@@ -314,7 +335,7 @@ The core application and the Widget SDK are intended to remain open and extensib
 
 ## Contributing
 
-Bug reports, ideas, and contributions are welcome through the repository's [GitHub Issues](https://github.com/csscoder/HermesLifeDashboard/issues) and pull requests.
+Bug reports, ideas, and contributions are welcome through the repository's [GitHub Issues](https://github.com/csscoder/LifeDashboard/issues) and pull requests.
 
 Before contributing, review the existing TypeScript contracts, follow the widget permission model, add or update tests for behavior changes, and keep claims about shipped features separate from roadmap items. The implementation and test suites are the reference for **current behavior**; this README defines the **product direction**.
 

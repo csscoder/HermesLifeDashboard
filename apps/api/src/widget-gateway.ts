@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { findBuiltinWidget } from '@lifedashboard/contracts/builtin-widgets'
+import { parseWidgetSource } from '@lifedashboard/contracts/board'
 import {
   CONFIRMATION_TTL_MS,
   GATEWAY_OPS,
@@ -49,11 +50,18 @@ interface PendingConfirmation {
 }
 
 interface WidgetSession extends GatewayContext {
+  source: WidgetIdentity
   // Hash of the dashboard session that created it; a call must carry the same cookie.
   dashboard: string
   lastUsedAt: number
   // At most one; it ends with the session (DELETE, idle expiry, eviction, API restart).
   confirmation: PendingConfirmation | null
+}
+
+interface WidgetIdentity {
+  source_kind: string
+  source_type: string
+  source_version: string | null
 }
 
 type Handlers = { [Op in GatewayOp]: (context: GatewayContext, input: GatewayInputs[Op]) => unknown }
@@ -76,7 +84,7 @@ export interface WidgetGatewayDeps {
 }
 
 // Spec «Widget sessions» and «Gateway pipeline»: the widget never states who it is.
-export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetGatewayDeps): void {
+export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetGatewayDeps): (widgetIds: readonly string[]) => void {
   db.prepare('DELETE FROM widget_audit WHERE at < ?').run(new Date(now().getTime() - AUDIT_TTL_MS).toISOString())
   // ponytail: sessions and rate counters are in memory; a restart drops them and the host renews the session.
   const sessions = new Map<string, WidgetSession>()
@@ -119,6 +127,10 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     }
     const t = now().getTime()
     sessions.delete(token)
+    const current = db.prepare('SELECT source_kind, source_type, source_version FROM widgets WHERE id = ?').get(session.widgetId) as WidgetIdentity | undefined
+    if (!current || current.source_kind !== session.source.source_kind || current.source_type !== session.source.source_type || current.source_version !== session.source.source_version) {
+      throw new ApiError('SESSION_EXPIRED', 'Widget source changed')
+    }
     if (t - session.lastUsedAt >= SESSION_IDLE_MS) throw new ApiError('SESSION_EXPIRED', 'Widget session expired')
     session.lastUsedAt = t
     // Re-inserted last: the Map's first key is always the least recently used session.
@@ -140,13 +152,21 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     )
   }
 
-  app.post<{ Body: { widgetId?: unknown } | undefined }>('/api/v1/widget-sessions', async (request) => {
+  app.post<{ Body: { widgetId?: unknown; source?: unknown } | undefined }>('/api/v1/widget-sessions', async (request) => {
     const widgetId = request.body?.widgetId
     if (typeof widgetId !== 'string') throw new ApiError('VALIDATION_ERROR', 'widgetId must be a string')
-    const { packageId, grants, origins, settings } = resolveWidget(db, widgetId)
+    const { packageId, grants, origins, settings, source } = resolveWidget(db, widgetId)
+    if (request.body?.source !== undefined) {
+      const expected = parseWidgetSource(request.body.source)
+      if (!expected) throw new ApiError('VALIDATION_ERROR', 'source must be a widget source')
+      if (expected.kind !== source.source_kind || (expected.kind === 'package'
+        ? expected.packageId !== source.source_type || expected.version !== source.source_version
+        : expected.type !== source.source_type)) throw new ApiError('SESSION_EXPIRED', 'Widget source changed')
+    }
     const token = randomBytes(32).toString('base64url')
     sessions.set(token, {
       dashboard: request.sessionHash,
+      source,
       widgetId,
       packageId,
       grants: new Set(grants),
@@ -212,16 +232,22 @@ export function registerWidgetGateway(app: FastifyInstance, { db, now }: WidgetG
     }
     return ok(request, null)
   })
+
+  return (widgetIds) => {
+    const changed = new Set(widgetIds)
+    for (const [token, session] of sessions) if (changed.has(session.widgetId)) sessions.delete(token)
+  }
 }
 
 export function resolveWidget(db: DatabaseSync, widgetId: string): {
+  source: WidgetIdentity
   packageId: string | null
   grants: WidgetPermission[]
   origins: string[]
   settings: SettingsSchema | undefined
 } {
   const row = db.prepare('SELECT source_kind, source_type, source_version FROM widgets WHERE id = ?').get(widgetId) as
-    | { source_kind: string; source_type: string; source_version: string | null }
+    | WidgetIdentity
     | undefined
   if (!row) throw new ApiError('NOT_FOUND', 'Widget not found')
   if (row.source_kind === 'package') {
@@ -233,6 +259,7 @@ export function resolveWidget(db: DatabaseSync, widgetId: string): {
     const manifest = JSON.parse(installed.manifest) as WidgetPackageManifest
     const approved = new Set(originsOf(db, row.source_type))
     return {
+      source: row,
       packageId: row.source_type,
       grants: grantsOf(db, row.source_type).map((grant) => grant.permission),
       origins: (manifest.network ?? []).filter((origin) => approved.has(origin)),
@@ -241,7 +268,7 @@ export function resolveWidget(db: DatabaseSync, widgetId: string): {
   }
   const manifest = findBuiltinWidget(row.source_type)
   if (!manifest) throw new ApiError('NOT_FOUND', 'Unknown built-in widget')
-  return { packageId: null, grants: [...manifest.permissions], origins: [], settings: undefined }
+  return { source: row, packageId: null, grants: [...manifest.permissions], origins: [], settings: undefined }
 }
 
 function operationHandlers(db: DatabaseSync, now: () => Date): Handlers {

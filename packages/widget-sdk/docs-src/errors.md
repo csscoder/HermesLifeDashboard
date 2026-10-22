@@ -62,7 +62,7 @@ Widget: for a read, retry later with backoff. For `state.set`, read the state ag
 
 ### BRIDGE_CLOSED
 
-When it happens: the bridge between the widget and the host is closed. The current host does not raise this code; a closed widget gets `DECLINED`.
+When it happens: the host closes the bridge. Pending and subsequent bridge calls reject with this code. If the connection disappears without a close message, a pending call ends with `TIMEOUT`.
 
 Widget: stop calling. Do not retry in a loop; the widget must be mounted again.
 

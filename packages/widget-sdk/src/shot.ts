@@ -145,7 +145,7 @@ export async function takeShots(dir: string, options: ShotOptions = {}): Promise
   const server = await startDevServer(root, { port: 0 })
   let chrome: Awaited<ReturnType<typeof launch>> | undefined
   try {
-    const info = await (await fetch(new URL(DEV_PATHS.api + 'info', server.url))).json() as DevInfo
+    const info = await (await fetch(new URL(DEV_PATHS.api.slice(1) + 'info', server.url))).json() as DevInfo
     const combos = shotCombos(info.manifest.sizing, info.themes.map((theme) => theme.id), options)
     const out = join(root, '.ld-widget', 'shots')
     await mkdir(out, { recursive: true })

@@ -6,6 +6,7 @@ import {
   type NotificationInput,
 } from '@lifedashboard/contracts/widget-gateway'
 import { WidgetError, type WidgetCall } from '@lifedashboard/widget-sdk'
+import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { createHandshakes } from '@lifedashboard/widget-sdk/host'
 import type { api, ApiFailure, ApiResult } from '../api.ts'
 import type { ConfirmationAnswer } from '../confirmations.ts'
@@ -53,68 +54,76 @@ function toWidgetError(failure: ApiFailure): WidgetError {
 export function createGatewayClient(deps: {
   api: GatewayApi
   widgetId: string
+  source?: WidgetSource
   // The host dialog (confirmations.ts); `input` is the parsed value the API binds the id to.
   confirm(op: GatewayOp, input: unknown): Promise<ConfirmationAnswer>
   onNotify(message: NotificationInput): void
   onSessionLost(): void
 }): GatewayClient {
+  const source = deps.source === undefined ? undefined : { ...deps.source }
   let token: string | null = null
+  let starting: Promise<boolean> | null = null
   let closed = false
 
-  async function start(): Promise<boolean> {
-    const result = await deps.api.createWidgetSession(deps.widgetId)
-    // Closed while the session was created: nothing would ever end it.
-    if (closed && result.ok) void deps.api.endWidgetSession(result.data.widgetSession)
-    token = result.ok && !closed ? result.data.widgetSession : null
-    return token !== null
+  function start(): Promise<boolean> {
+    if (closed) return Promise.resolve(false)
+    if (token !== null) return Promise.resolve(true)
+    starting ??= (async () => {
+      const result = await (source === undefined ? deps.api.createWidgetSession(deps.widgetId) : deps.api.createWidgetSession(deps.widgetId, source))
+      // Closed while the session was created: nothing would ever end it.
+      if (closed && result.ok) void deps.api.endWidgetSession(result.data.widgetSession)
+      token = result.ok && !closed ? result.data.widgetSession : null
+      return token !== null
+    })().finally(() => { starting = null })
+    return starting
   }
 
   function closedError(): WidgetError {
     return new WidgetError('DECLINED', 'The widget was closed')
   }
 
-  async function send(op: string, input: unknown, confirmationId?: string): Promise<ApiResult<unknown> | null> {
+  // One call on its owning session; an approval repeats on that same session with the bound id.
+  async function attempt(op: GatewayOp, input: unknown): Promise<{ owner: string | null; result: ApiResult<unknown> | null }> {
     // A removed widget opens no session and no dialog.
     if (closed) throw closedError()
     if (token === null && !(await start())) {
       if (closed) throw closedError()
-      return null
+      return { owner: null, result: null }
     }
-    return deps.api.gateway(op, token!, input, confirmationId)
-  }
-
-  function lost(): WidgetError {
-    token = null
-    deps.onSessionLost()
-    return new WidgetError('SESSION_EXPIRED', 'Widget session expired')
-  }
-
-  // One call on the current session; a 428 asks the user, and an approval repeats it once with the id.
-  async function attempt(op: GatewayOp, input: unknown): Promise<ApiResult<unknown> | null> {
-    const result = await send(op, input)
-    if (!result || result.ok || result.kind !== 'confirmation-required') return result
+    if (closed) throw closedError()
+    const owner = token!
+    const result = await deps.api.gateway(op, owner, input, undefined)
+    if (result.ok || result.kind !== 'confirmation-required') return { owner, result }
     // Closed while the 428 was in flight: teardown already cancelled the queue, so do not add to it.
     if (closed) throw closedError()
-    const owner = token
     const answer = await deps.confirm(op, input)
     // Closed meanwhile: ending the session drops the id, so nothing is declined (spec «Error handling»).
     if (closed) throw closedError()
-    if (answer === 'approved') return send(op, input, result.confirmationId)
-    if (owner !== null) void deps.api.declineConfirmation(owner, result.confirmationId)
+    if (answer === 'approved') return { owner, result: await deps.api.gateway(op, owner, input, result.confirmationId) }
+    void deps.api.declineConfirmation(owner, result.confirmationId)
     throw new WidgetError('DECLINED', answer === 'expired' ? 'The confirmation expired' : 'The user declined the call')
+  }
+
+  function lost(owner: string | null): WidgetError {
+    if (token === owner) {
+      token = null
+      deps.onSessionLost()
+    }
+    return new WidgetError('SESSION_EXPIRED', 'Widget session expired')
   }
 
   async function call(op: string, input: unknown): Promise<unknown> {
     if (!isGatewayOp(op)) throw new WidgetError('UNKNOWN_OP', `Unknown operation "${op.slice(0, 100)}"`)
     const parsed = parseGatewayInput(op, input)
     if (!parsed.ok) throw new WidgetError('INVALID_INPUT', parsed.error)
-    let result = await attempt(op, parsed.value)
-    if (result && !result.ok && result.kind === 'session-expired') {
-      // The renewal resends without an id: the new session gets a new 428 and the user is asked again.
-      token = null
-      result = await attempt(op, parsed.value)
+    let response = await attempt(op, parsed.value)
+    if (response.result && !response.result.ok && response.result.kind === 'session-expired') {
+      // A late failure on an old token must not replace a session another call already renewed.
+      if (token === response.owner) token = null
+      response = await attempt(op, parsed.value)
     }
-    if (!result || (!result.ok && result.kind === 'session-expired')) throw lost()
+    const { result } = response
+    if (!result || (!result.ok && result.kind === 'session-expired')) throw lost(response.owner)
     if (!result.ok) throw toWidgetError(result)
     if (op === 'notifications.send') deps.onNotify(parsed.value as NotificationInput)
     return result.data

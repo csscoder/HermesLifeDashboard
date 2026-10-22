@@ -1,0 +1,15 @@
+{
+  "id": "dev.lifedashboard.showcase.clock",
+  "version": "1.0.0",
+  "title": "Analog clock",
+  "author": "LifeDashboard",
+  "entry": "index.js",
+  "styles": ["style.css"],
+  "frame": "frameless",
+  "sizing": {
+    "default": { "w": 6, "h": 6 },
+    "min": { "w": 3, "h": 3 },
+    "max": { "w": 10, "h": 10 }
+  },
+  "permissions": []
+}

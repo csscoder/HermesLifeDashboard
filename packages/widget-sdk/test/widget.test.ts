@@ -2,6 +2,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createSSRApp, defineComponent, h, reactive } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import type { HttpOutput, HttpSendInput, StateGetOutput, WidgetContext } from '@lifedashboard/contracts/widget-gateway'
+import { createBridge } from '../src/host.ts'
 import { createPortClient } from '../src/port-client.ts'
 import { createWidget, provideInProcessWidget, useWidget, WidgetError, type Widget, type WidgetCall } from '../src/widget.ts'
 
@@ -94,6 +95,7 @@ afterEach(() => {
   current?.close()
   current = undefined
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 // One suite, two transports: a widget must not notice which host runs it.
@@ -182,7 +184,21 @@ describe.each([
     await vi.waitFor(() => expect(current!.widget.context.size).toEqual({ w: 4, h: 2 }))
     expect(current.widget.context.sizeClass).toBe('s')
     ;(current.widget.context as WidgetContext).visible = false
+    ;(current.widget.context as WidgetContext).size.w = 99
+    ;(current.widget.context as WidgetContext).theme.tokens['--ld-bg'] = 'red'
     expect(current.widget.context.visible).toBe(true)
+    expect(current.widget.context.size).toEqual({ w: 4, h: 2 })
+    expect(current.widget.context.theme.tokens['--ld-bg']).toBe('#000')
+  })
+
+  it('types nested context fields as read-only', () => {
+    const mutate = (widget: Widget) => {
+      // @ts-expect-error The host owns nested size fields.
+      widget.context.size.w = 10
+      // @ts-expect-error The host owns theme tokens.
+      widget.context.theme.tokens['--ld-bg'] = 'red'
+    }
+    void mutate
   })
 })
 
@@ -194,6 +210,68 @@ describe('useWidget', () => {
 })
 
 describe('createPortClient', () => {
+  it('rejects pending and future calls when the host explicitly closes the bridge', async () => {
+    const { port1, port2 } = new MessageChannel()
+    let started = 0
+    const bridge = createBridge(port1, {
+      call: async () => { started += 1; return new Promise(() => {}) },
+      onError() {}, onClose() {},
+    })
+    try {
+      const call = createPortClient(port2, () => {})
+      const reads = [call('state.get', {}), call('notifications.send', { title: 'Hi', body: '' })]
+      let outcomes: unknown[] | undefined
+      void Promise.all(reads.map((read) => read.catch((error: unknown) => error))).then((errors) => { outcomes = errors })
+      await vi.waitFor(() => expect(started).toBe(2))
+      bridge.close()
+      await vi.waitFor(() => expect(outcomes).toEqual([
+        expect.objectContaining({ code: 'BRIDGE_CLOSED' }), expect.objectContaining({ code: 'BRIDGE_CLOSED' }),
+      ]))
+      await expect(call('state.get', {})).rejects.toMatchObject({ code: 'BRIDGE_CLOSED' })
+    } finally {
+      bridge.close()
+      port1.close()
+      port2.close()
+    }
+  })
+
+  it.each([
+    ['state.get', {}, 10_000],
+    ['http.send', { url: 'https://a.example/', method: 'POST' }, 250_000],
+  ] as const)('times out %s when its port stops answering', async (op, input, deadline) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { port1, port2 } = new MessageChannel()
+    try {
+      const call = createPortClient(port2, () => {})
+      let error: unknown
+      const pending = call(op, input).catch((caught: unknown) => { error = caught })
+      port1.close()
+      await vi.advanceTimersByTimeAsync(deadline - 1)
+      expect(error).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(error).toMatchObject({ code: 'TIMEOUT' })
+      await pending
+    } finally {
+      port1.close()
+      port2.close()
+    }
+  })
+
+  it('ignores malformed close controls and still accepts the response', async () => {
+    const { port1, port2 } = new MessageChannel()
+    try {
+      port1.onmessage = (event: MessageEvent) => {
+        for (const message of [{ t: 'close', extra: true }, { t: ['close'] }, null]) port1.postMessage(message)
+        port1.postMessage({ t: 'res', id: (event.data as { id: number }).id, ok: true, value: { revision: 1 } })
+      }
+      const call = createPortClient(port2, () => {})
+      expect(await call('state.set', { data: {}, expectedRevision: 0 })).toEqual({ revision: 1 })
+    } finally {
+      port1.close()
+      port2.close()
+    }
+  })
+
   it('rejects an input the port cannot clone with INVALID_INPUT', async () => {
     const { port1, port2 } = new MessageChannel()
     try {

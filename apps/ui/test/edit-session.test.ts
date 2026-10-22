@@ -1,6 +1,8 @@
 import { DEFAULT_SHADOW, parseScreenBoard, type ScreenBoard, type WidgetAppearance } from '@lifedashboard/contracts/board'
 import { describe, expect, it } from 'vitest'
 import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows } from '../app/board/edit-session'
+import * as edits from '../app/board/edit-session'
+import type { InstalledPackage } from '@lifedashboard/contracts/widget-package'
 
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
@@ -23,6 +25,41 @@ const board: ScreenBoard = {
     { instanceId: C, x: 0, y: 3, w: 1, h: 1 },
   ],
 }
+
+describe('setPackageVersion', () => {
+  const packages: InstalledPackage[] = [{ id: 'dev.test.upgrade', title: 'Upgrade', author: 'test', grants: [], origins: [], versions: [{
+    version: '2.0.0', hash: 'new-hash', paths: { source: null, assets: null }, manifest: {
+      format: 2, id: 'dev.test.upgrade', version: '2.0.0', title: 'Upgrade', author: 'test', sdk: 3,
+      entry: 'index.js', styles: [], permissions: [], sizing: { min: { w: 3, h: 3 }, default: { w: 4, h: 4 }, max: { w: 6, h: 6 } },
+      settings: { type: 'object', properties: { title: { type: 'string', title: 'Title', default: 'New' }, count: { type: 'integer', title: 'Count', default: 2, minimum: 1 } } },
+    },
+  }] }]
+  const original: ScreenBoard = { ...board, instances: [{ ...board.instances[0]!, source: { kind: 'package', packageId: 'dev.test.upgrade', version: '1.0.0' },
+    configVersion: 7, config: { title: 'Saved', count: -1, removed: true, token: 'never retain' }, appearance: { themeId: 'builtin:paper', shadow: null } }],
+    layout: [{ instanceId: A, x: 4, y: 0, w: 2, h: 2 }] }
+
+  it('keeps instance identity and appearance, normalizes compatible config, and fits the new minimum without moving', () => {
+    const before = structuredClone(original)
+    const result = edits.setPackageVersion(original, A, '2.0.0', packages)
+    expect(result).toEqual({ ok: true, value: { ...original,
+      instances: [{ ...original.instances[0], source: { kind: 'package', packageId: 'dev.test.upgrade', version: '2.0.0' }, config: { title: 'Saved', count: 2 } }],
+      layout: [{ instanceId: A, x: 4, y: 0, w: 3, h: 3 }],
+    } })
+    expect(original).toEqual(before)
+  })
+
+  it('rejects expansion into a neighbour instead of losing or moving widgets', () => {
+    const occupied = { ...original, layout: [...original.layout, { instanceId: B, x: 6, y: 0, w: 2, h: 2 }], instances: [...original.instances, board.instances[1]!] }
+    const before = structuredClone(occupied)
+    expect(edits.setPackageVersion(occupied, A, '2.0.0', packages).ok).toBe(false)
+    expect(occupied).toEqual(before)
+  })
+
+  it('rejects unknown versions and built-in widgets', () => {
+    expect(edits.setPackageVersion(original, A, 'missing', packages).ok).toBe(false)
+    expect(edits.setPackageVersion(board, A, '2.0.0', packages).ok).toBe(false)
+  })
+})
 
 describe('setPlacement', () => {
   it('changes only the target placement and does not mutate its input', () => {

@@ -161,7 +161,7 @@ it.each([
 ])('checks the media actually played by %s', async (template, message) => {
   const dir = await project()
   await mkdir(join(dir, 'assets'))
-  await writeFile(join(dir, 'assets/bg.webm'), 'unused fallback')
+  for (const file of ['bg.mp4', 'bg.webm', 'a.mp3', 'a.ogg']) await writeFile(join(dir, 'assets', file), 'media fixture')
   await component(dir, template)
   expect((await checkWidget(dir, deps)).problems).toEqual([{ rule: 'media', file: 'src/index.vue', line: 10, message }])
 })
@@ -173,7 +173,86 @@ it.each([
   '<video :src="\'assets/bg.mp4\'"><source src="assets/bg.mp4"></video>',
 ])('accepts compatible or bound media: %s', async (template) => {
   const dir = await project()
+  await mkdir(join(dir, 'assets'))
+  for (const file of ['clip.webm', 'clip-h264.mp4', 'a.opus', 'a.mp3', 'bg.mp4']) await writeFile(join(dir, 'assets', file), 'media fixture')
   await component(dir, template)
+  expect(await checkWidget(dir, deps)).toEqual({ ok: true, problems: [] })
+})
+
+it.each([
+  '<img src="assets/missing.png" />',
+  '<video src="assets/missing.webm" />',
+  '<video><source src="assets/missing.webm" /></video>',
+  '<video poster="assets/missing.png" />',
+  '<img :src="\'assets/missing.png\'" />',
+  '<svg><image href="assets/missing.svg#icon" /></svg>',
+  '<img srcset="assets/missing.png 1x, assets/other.png 2x" />',
+])('reports missing static template assets in %s', async (template) => {
+  const dir = await project()
+  await component(dir, template)
+  const result = await checkWidget(dir, deps)
+  expect(result.ok).toBe(false)
+  expect(result.problems).toContainEqual(expect.objectContaining({
+    rule: 'assets', file: 'src/index.vue', line: 10, message: expect.stringContaining('assets/missing.'),
+  }))
+})
+
+it('resolves template asset URLs from the package root, not the Vue source directory', async () => {
+  const dir = await project()
+  await writeFile(join(dir, 'src/icon.png'), 'source-only image')
+  await component(dir, '<img src="./icon.png" /><img src="/assets/icon.png" />')
+  const result = await checkWidget(dir, deps)
+  expect(result.problems).toEqual([
+    expect.objectContaining({ rule: 'assets', file: 'src/index.vue', line: 10, message: expect.stringContaining('./icon.png') }),
+    expect.objectContaining({ rule: 'assets', file: 'src/index.vue', line: 10, message: expect.stringContaining('/assets/icon.png') }),
+  ])
+})
+
+it('rejects root-absolute template URLs even when their suffix names an existing packaged asset', async () => {
+  const dir = await project()
+  await mkdir(join(dir, 'assets'))
+  await writeFile(join(dir, 'assets/icon.png'), 'image')
+  await component(dir, '<img src="/package/assets/icon.png" />')
+  expect((await checkWidget(dir, deps)).problems).toEqual([expect.objectContaining({
+    rule: 'assets', file: 'src/index.vue', line: 10, message: expect.stringContaining('/package/assets/icon.png'),
+  })])
+})
+
+it('accepts existing assets, inline URLs, fragments and imported Vue bindings', async () => {
+  const dir = await project()
+  await mkdir(join(dir, 'assets'))
+  await writeFile(join(dir, 'assets/icon.png'), 'image')
+  const path = join(dir, 'src/index.vue')
+  const source = (await readFile(path, 'utf8')).replace("import { ref } from 'vue'", "import { ref } from 'vue'\nimport icon from '../assets/icon.png'")
+  await writeFile(path, source)
+  await component(dir, '<img src="./assets/icon.png?size=2#preview" /><img :src="icon" /><img src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E" /><img src="blob:example" /><svg><use href="#icon" /></svg>')
+  expect(await checkWidget(dir, deps)).toEqual({ ok: true, problems: [] })
+})
+
+it('reports missing CSS URLs with the source file and line', async () => {
+  const dir = await project()
+  const path = join(dir, 'src/index.vue')
+  await writeFile(path, (await readFile(path, 'utf8')).replace('  color:', '  background: url("assets/missing.png");\n  color:'))
+  expect((await checkWidget(dir, deps)).problems).toEqual([expect.objectContaining({
+    rule: 'assets', file: 'src/index.vue', line: 15, message: expect.stringContaining('assets/missing.png'),
+  })])
+})
+
+it('checks standalone CSS while preserving source-relative imports and runtime asset URLs', async () => {
+  const dir = await project()
+  await mkdir(join(dir, 'assets'))
+  await writeFile(join(dir, 'assets/icon.png'), 'image')
+  await writeFile(join(dir, 'src/extra.css'), '.a { background: url(../assets/icon.png) }\n.b { background: url(assets/icon.png?x=1#preview) }\n.c { background: url(assets/missing.png) }')
+  const path = join(dir, 'src/index.vue')
+  await writeFile(path, (await readFile(path, 'utf8')).replace("import { ref } from 'vue'", "import { ref } from 'vue'\nimport './extra.css'"))
+  expect((await checkWidget(dir, deps)).problems).toEqual([expect.objectContaining({
+    rule: 'assets', file: 'src/extra.css', line: 3, message: expect.stringContaining('assets/missing.png'),
+  })])
+})
+
+it('ignores CSS comments, displayed url text and inline resources', async () => {
+  const dir = await project()
+  await writeFile(join(dir, 'src/extra.css'), '/* url(assets/missing.png) */\n.a { content: "url(assets/missing.png)"; background: url("data:image/svg+xml,%3Csvg%3E%3C/svg%3E"); mask: url(#icon) }')
   expect(await checkWidget(dir, deps)).toEqual({ ok: true, problems: [] })
 })
 

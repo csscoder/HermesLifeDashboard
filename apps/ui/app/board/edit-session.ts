@@ -7,7 +7,10 @@ import {
   type WidgetPlacement,
   type WidgetSource,
 } from '@lifedashboard/contracts/board'
-import { ROWS, type Rect } from '@lifedashboard/contracts/grid'
+import { isFree, ROWS, type Rect } from '@lifedashboard/contracts/grid'
+import type { InstalledPackage } from '@lifedashboard/contracts/widget-package'
+import { normalizeConfig, plainConfig } from '@lifedashboard/contracts/widget-settings'
+import type { ParseResult } from '@lifedashboard/contracts/parse'
 
 /** Board interaction mode: display only, the builder draft, or editing the placed widgets. */
 export type BoardMode = 'view' | 'build' | 'edit'
@@ -56,6 +59,26 @@ export function setConfig(board: ScreenBoard, instanceId: string, config: Record
     ...board,
     instances: board.instances.map((item) => item.id === instanceId ? { ...item, config } : item),
   }
+}
+
+/** Switches an instance within its installed package, keeping its ID, data and position. */
+export function setPackageVersion(board: ScreenBoard, id: string, version: string, packages: readonly InstalledPackage[]): ParseResult<ScreenBoard> {
+  const instance = board.instances.find((item) => item.id === id)
+  const rect = board.layout.find((item) => item.instanceId === id)
+  if (!instance || instance.source.kind !== 'package' || !rect) return { ok: false, error: 'Выберите установленный виджет' }
+  const source = instance.source
+  const target = packages.find((pkg) => pkg.id === source.packageId)?.versions.find((item) => item.version === version)
+  if (!target) return { ok: false, error: 'Версия виджета не установлена' }
+  const { sizing, settings } = target.manifest
+  const next = { ...rect, w: Math.max(sizing.min.w, Math.min(rect.w, sizing.max.w)), h: Math.max(sizing.min.h, Math.min(rect.h, sizing.max.h)) }
+  if (!isFree(next, board.layout.filter((item) => item.instanceId !== id), Math.max(board.rows, rect.y + rect.h))) {
+    return { ok: false, error: `Для этой версии нужно свободное место ${next.w}×${next.h}. Передвиньте виджет или освободите место рядом` }
+  }
+  const config = settings ? plainConfig(settings, normalizeConfig(settings, instance.config, new Set())) : {}
+  return { ok: true, value: { ...board,
+    instances: board.instances.map((item) => item.id === id ? { ...item, source: { ...source, version }, config } : item),
+    layout: board.layout.map((item) => item.instanceId === id ? next : item),
+  } }
 }
 
 /** The board with new configured rows; anything but an integer in ROWS.min..ROWS.max changes nothing. */

@@ -1,0 +1,19 @@
+{
+  "id": "dev.lifedashboard.showcase.weather",
+  "version": "1.0.0",
+  "title": "Live weather",
+  "author": "LifeDashboard",
+  "entry": "index.js",
+  "styles": ["style.css"],
+  "sizing": { "default": { "w": 6, "h": 6 }, "min": { "w": 4, "h": 4 }, "max": { "w": 10, "h": 10 } },
+  "permissions": ["network"],
+  "network": ["https://api.open-meteo.com"],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "city": { "type": "string", "title": "City label", "default": "London", "maxLength": 80 },
+      "latitude": { "type": "number", "title": "Latitude", "default": 51.5074, "minimum": -90, "maximum": 90 },
+      "longitude": { "type": "number", "title": "Longitude", "default": -0.1278, "minimum": -180, "maximum": 180 }
+    }
+  }
+}

@@ -19,6 +19,8 @@ npx ld-widget dev
 
 The dev server starts the shell. The shell shows the widget in a frame, at sizes between the manifest `min` and `max`, in every built-in theme, framed and frameless. It also shows a settings form generated from the schema and a log of gateway calls and errors.
 
+- Open the complete URL printed by the command. Its private session path protects project sources and changes when the server restarts.
+- If edits do not appear in the shell, restart with `npx ld-widget dev --poll`. Polling also watches manifest changes when native filesystem events are unavailable; it uses more CPU.
 - Runtime errors, CSP violations, gateway errors and content that overflows the frame are written to `.ld-widget/dev.log`.
 - After each change, read `.ld-widget/dev.log` and fix every entry in it.
 - Shell state is in the URL, so each combination can be opened and checked separately. Open the address `ld-widget dev` prints and add these query parameters:
@@ -68,11 +70,13 @@ npx ld-widget check
 - the manifest, the settings schema and secret bindings, for the declared `sdk` level;
 - types, against the SDK types and the generated `widget-env.d.ts`, using the project's own `vue-tsc`;
 - APIs that do not work in the sandbox or on the baseline (see [runtime.md](runtime.md));
-- HTTP URL literals whose origin is not in the manifest `network` list;
+- SDK HTTP calls whose statically known origin is not in the manifest `network` list;
+- direct external `fetch`, XHR and WebSocket calls, even to a declared origin: use `widget.http.get/send`;
+- missing statically referenced local assets in templates and CSS; template asset URLs resolve from the widget folder;
 - media: an MP4 without a WebM source, or audio without an Opus source, is an error;
 - the build itself and the code size limit (see [runtime.md](runtime.md)).
 
-Fix every reported problem. `check` does not verify codecs; media needs the engine checks below.
+Fix every reported problem. Computed URLs and asset names still need a live check. `check` does not verify codecs; media needs the engine checks below.
 
 ## build
 

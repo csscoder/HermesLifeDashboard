@@ -1,0 +1,19 @@
+{
+  "name": "@lifedashboard/example-showcase-clock",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ld-widget dev",
+    "check": "ld-widget check",
+    "build": "ld-widget build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run --exclude dist/**"
+  },
+  "devDependencies": {
+    "@lifedashboard/widget-sdk": "workspace:*",
+    "vue": "3.5.43",
+    "typescript": "6.0.3",
+    "vue-tsc": "3.3.12",
+    "vitest": "5.0.3"
+  }
+}

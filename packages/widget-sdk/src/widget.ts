@@ -1,4 +1,4 @@
-import { inject, provide, readonly, type InjectionKey } from 'vue'
+import { inject, provide, readonly, type DeepReadonly, type InjectionKey } from 'vue'
 import type { GatewayInputs, GatewayOp, GatewayOutputs, HttpOutput, HttpSendInput, StateSetOutput, WidgetContext, WidgetErrorCode } from '@lifedashboard/contracts/widget-gateway'
 
 /** One gateway call: resolves with the operation output or rejects with a WidgetError. */
@@ -26,7 +26,7 @@ export interface Widget {
    * Reactive, read-only context owned by the host; secret config values are set/unset booleans.
    * Requires no permission; has no operation limits and never rejects.
    */
-  readonly context: Readonly<Omit<WidgetContext, 'config'> & { config: Readonly<WidgetConfig> }>
+  readonly context: DeepReadonly<Omit<WidgetContext, 'config'> & { config: WidgetConfig }>
   /**
    * Instance-local persistence; requires `state`. See get/set for limits and WidgetError codes.
    */

@@ -7,9 +7,13 @@ import {
   type SaveBoardRequest,
   type ScreenBoard,
   type WidgetAppearance,
+  type WidgetPlacement,
   type WidgetSource,
 } from '@lifedashboard/contracts/board'
 import { ROWS } from '@lifedashboard/contracts/grid'
+import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
+import { secretsOf } from '@lifedashboard/contracts/widget-secrets'
+import type { SecretBinding } from '@lifedashboard/contracts/widget-settings'
 import {
   NEW_SPACE_ICON,
   NEW_SPACE_TITLE,
@@ -64,9 +68,10 @@ const SPACE_COLUMNS = 'SELECT id, title, icon, color, position, revision FROM sp
 export interface SpacesDeps {
   db: DatabaseSync
   now: () => Date
+  invalidateWidgetSessions(widgetIds: readonly string[]): void
 }
 
-export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): void {
+export function registerSpaces(app: FastifyInstance, { db, now, invalidateWidgetSessions }: SpacesDeps): void {
   app.get('/api/v1/spaces', async (request) => ok(request, listSpaces(db)))
 
   app.post('/api/v1/spaces', async (request) => ok(request, createSpace(db, now())))
@@ -78,7 +83,7 @@ export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): v
   app.delete<{ Params: { spaceId: string }; Body: DeleteRequest }>(
     '/api/v1/spaces/:spaceId',
     { schema: REVISION_SCHEMA },
-    async (request) => ok(request, deleteSpace(db, request.params.spaceId, request.body.expectedRevision)),
+    async (request) => ok(request, deleteSpace(db, request.params.spaceId, request.body.expectedRevision, invalidateWidgetSessions)),
   )
 
   app.post<{ Params: { spaceId: string }; Body: AddScreenRequest }>(
@@ -91,7 +96,7 @@ export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): v
     '/api/v1/spaces/:spaceId/screens/:screenId',
     { schema: REVISION_SCHEMA },
     async (request) =>
-      ok(request, deleteScreen(db, request.params.spaceId, request.params.screenId, request.body.expectedRevision, now())),
+      ok(request, deleteScreen(db, request.params.spaceId, request.params.screenId, request.body.expectedRevision, now(), invalidateWidgetSessions)),
   )
 
   app.get<{ Params: { spaceId: string } }>('/api/v1/spaces/:spaceId/board', async (request) =>
@@ -101,7 +106,7 @@ export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): v
   app.put<{ Params: { spaceId: string }; Body: SaveBoardRequest }>(
     '/api/v1/spaces/:spaceId/board',
     { schema: SAVE_SCHEMA },
-    async (request) => ok(request, saveBoard(db, request.params.spaceId, request.body, now())),
+    async (request) => ok(request, saveBoard(db, request.params.spaceId, request.body, now(), invalidateWidgetSessions)),
   )
 }
 
@@ -154,16 +159,19 @@ function updateSpace(db: DatabaseSync, spaceId: string, raw: unknown, now: Date)
 }
 
 // Cascades to the screens and widgets of the space (spec «Data»).
-function deleteSpace(db: DatabaseSync, spaceId: string, expectedRevision: number): null {
-  transaction(db, () => {
+function deleteSpace(db: DatabaseSync, spaceId: string, expectedRevision: number, invalidate: SpacesDeps['invalidateWidgetSessions']): null {
+  const removed = transaction(db, () => {
     if (spaceRevision(db, spaceId) !== expectedRevision) {
       throw new ApiError('REVISION_CONFLICT', 'The space changed since it was loaded')
     }
     const { count } = db.prepare('SELECT COUNT(*) AS count FROM spaces').get() as { count: number }
     if (count <= 1) throw new ApiError('VALIDATION_ERROR', 'The last space cannot be deleted')
+    const ids = (db.prepare('SELECT w.id FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.space_id = ?').all(spaceId) as { id: string }[]).map(({ id }) => id)
     db.prepare('DELETE FROM spaces WHERE id = ?').run(spaceId)
     dropOrphanWidgetData(db)
+    return ids
   })
+  invalidate(removed)
   return null
 }
 
@@ -182,8 +190,8 @@ function addScreen(db: DatabaseSync, spaceId: string, expectedRevision: number, 
 }
 
 // Cascades to the widgets of the screen (spec «Data»).
-function deleteScreen(db: DatabaseSync, spaceId: string, screenId: string, expectedRevision: number, now: Date): SpaceBoard {
-  transaction(db, () => {
+function deleteScreen(db: DatabaseSync, spaceId: string, screenId: string, expectedRevision: number, now: Date, invalidate: SpacesDeps['invalidateWidgetSessions']): SpaceBoard {
+  const removed = transaction(db, () => {
     const revision = spaceRevision(db, spaceId)
     const screen = db.prepare('SELECT position FROM screens WHERE id = ? AND space_id = ?').get(screenId, spaceId) as
       | { position: number }
@@ -192,13 +200,16 @@ function deleteScreen(db: DatabaseSync, spaceId: string, screenId: string, expec
     if (revision !== expectedRevision) throw new ApiError('REVISION_CONFLICT', 'The space changed since it was loaded')
     const { count } = db.prepare('SELECT COUNT(*) AS count FROM screens WHERE space_id = ?').get(spaceId) as { count: number }
     if (count <= 1) throw new ApiError('VALIDATION_ERROR', 'The last screen cannot be deleted; delete the space')
+    const ids = (db.prepare('SELECT id FROM widgets WHERE screen_id = ?').all(screenId) as { id: string }[]).map(({ id }) => id)
     db.prepare('DELETE FROM screens WHERE id = ?').run(screenId)
     dropOrphanWidgetData(db)
     // Two steps: the first moves the later screens below zero, so the unique index never sees a duplicate position.
     db.prepare('UPDATE screens SET position = -position - 1 WHERE space_id = ? AND position > ?').run(spaceId, screen.position)
     db.prepare('UPDATE screens SET position = -position - 2 WHERE space_id = ? AND position < 0').run(spaceId)
     db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
+    return ids
   })
+  invalidate(removed)
   return readBoard(db, spaceId)
 }
 
@@ -265,14 +276,52 @@ function checkPackagesInstalled(db: DatabaseSync, screens: ScreenBoard[]): void 
   }
 }
 
+function sameBinding(a: SecretBinding, b: SecretBinding): boolean {
+  return a.origin === b.origin && ('header' in a
+    ? 'header' in b && a.header.toLowerCase() === b.header.toLowerCase() && (a.prefix ?? '') === (b.prefix ?? '')
+    : 'query' in b && a.query === b.query)
+}
+
+/** Runs inside the board transaction, before replacing an existing widget's source. */
+function reconcileWidgetData(db: DatabaseSync, previous: WidgetRow, source: WidgetSource, place: WidgetPlacement): void {
+  const samePackage = previous.source_kind === 'package' && source.kind === 'package' && previous.source_type === source.packageId
+  if (samePackage && previous.source_version === source.version) return
+  if (previous.source_kind === 'builtin' && source.kind === 'builtin' && previous.source_type === source.type) return
+  if (!samePackage || source.kind !== 'package') {
+    db.prepare('DELETE FROM widget_state WHERE widget_id = ?').run(previous.id)
+    db.prepare('DELETE FROM widget_secrets WHERE widget_id = ?').run(previous.id)
+    return
+  }
+  const read = db.prepare('SELECT manifest FROM widget_package_versions WHERE package_id = ? AND version = ?')
+  const next = JSON.parse((read.get(source.packageId, source.version) as { manifest: string }).manifest) as WidgetPackageManifest
+  const { min, max } = next.sizing
+  if (place.w < min.w || place.h < min.h || place.w > max.w || place.h > max.h) {
+    throw new ApiError('VALIDATION_ERROR', `Widget ${previous.id} size must fit ${source.packageId}@${source.version}`)
+  }
+  const old = read.get(previous.source_type, previous.source_version) as { manifest: string } | undefined
+  const previousSecrets = new Map(secretsOf(old ? (JSON.parse(old.manifest) as WidgetPackageManifest).settings : undefined)
+    .map(({ key, bind }) => [key, bind]))
+  const retained = new Set(secretsOf(next.settings).filter(({ key, bind }) => {
+    const before = previousSecrets.get(key)
+    return before !== undefined && sameBinding(before, bind)
+  }).map(({ key }) => key))
+  const remove = db.prepare('DELETE FROM widget_secrets WHERE widget_id = ? AND key = ?')
+  for (const { key } of db.prepare('SELECT key FROM widget_secrets WHERE widget_id = ?').all(previous.id) as { key: string }[]) {
+    if (!retained.has(key)) remove.run(previous.id, key)
+  }
+}
+
 // One transaction: 404, then 409, then 400, then the replacement (spec «PUT /spaces/:spaceId/board»).
-function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, now: Date): SpaceBoard {
-  transaction(db, () => {
+function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, now: Date, invalidate: SpacesDeps['invalidateWidgetSessions']): SpaceBoard {
+  const changed = transaction(db, () => {
     if (spaceRevision(db, spaceId) !== body.expectedRevision) {
       throw new ApiError('REVISION_CONFLICT', 'The board changed since it was loaded')
     }
     const screens = validateScreens(body.screens as unknown[], screenIds(db, spaceId))
     checkPackagesInstalled(db, screens)
+    const previous = new Map((db.prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.space_id = ?')
+      .all(spaceId) as unknown as WidgetRow[]).map((row) => [row.id, row]))
+    const changedIds = new Set(previous.keys())
     const setRows = db.prepare('UPDATE screens SET rows = ? WHERE id = ?')
     for (const screen of screens) setRows.run(screen.rows, screen.id)
     db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE space_id = ?)').run(spaceId)
@@ -284,6 +333,11 @@ function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, no
         // parseScreenBoard guarantees exactly one placement per instance.
         const place = screen.layout.find((item) => item.instanceId === instance.id)!
         const { source } = instance
+        const before = previous.get(instance.id)
+        if (before) {
+          reconcileWidgetData(db, before, source, place)
+          if (JSON.stringify(sourceOf(before)) === JSON.stringify(source)) changedIds.delete(instance.id)
+        }
         try {
           insert.run(
             instance.id,
@@ -310,7 +364,9 @@ function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, no
     }
     dropOrphanWidgetData(db)
     db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
+    return [...changedIds]
   })
+  invalidate(changed)
   return readBoard(db, spaceId)
 }
 

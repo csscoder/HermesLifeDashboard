@@ -2,7 +2,7 @@ import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
 import type { SpaceSummary } from '@lifedashboard/contracts/space'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
-import { call, errorCode, pair, testApp, type TestApp } from './helpers.ts'
+import { call, errorCode, installPackage, pair, testApp, widgetPackage, type TestApp } from './helpers.ts'
 
 const SPACES = '/api/v1/spaces'
 const BOARD = `/api/v1/spaces/${SEED_SPACE_ID}/board`
@@ -541,6 +541,114 @@ describe('package widgets on the board', () => {
     const onlyA: ScreenBoard = { id: SEED_SCREEN_ID, rows: 12, instances: [withPackage.instances[0]!], layout: [withPackage.layout[0]!] }
     expect((await put({ expectedRevision: 2, screens: [onlyA] })).statusCode).toBe(200)
     expect(t.db.prepare('SELECT widget_id FROM widget_state').all()).toEqual([{ widget_id: A }])
+  })
+})
+
+describe('package widget version transitions', () => {
+  const origin = 'https://api.example.com'
+  const nextOrigin = 'https://other.example.com'
+  const header = (name: string, prefix?: string) => ({ origin, header: name, ...(prefix === undefined ? {} : { prefix }) })
+  const query = (name: string) => ({ origin, query: name })
+  const beforeBindings = {
+    sameHeader: header('X-Key'), sameQuery: query('token'), changedHeader: header('X-Old'),
+    changedOrigin: header('X-Origin'), changedPrefix: header('X-Prefix', 'Bearer '),
+    changedQuery: query('old'), changedKind: header('X-Kind'), removed: header('X-Removed'), plain: header('X-Plain'),
+  }
+  let original: ScreenBoard
+
+  beforeEach(async () => {
+    for (const version of ['1.0.0', '2.0.0']) {
+      await installPackage(t, cookie, widgetPackage((pkg) => {
+        pkg.manifest.sdk = 2
+        pkg.manifest.version = version
+        pkg.manifest.permissions = ['state', 'network']
+        pkg.manifest.network = [origin, nextOrigin]
+        const bindings = version === '1.0.0' ? beforeBindings : {
+          sameHeader: header('x-key'), sameQuery: query('token'), changedHeader: header('X-New'),
+          changedOrigin: { origin: nextOrigin, header: 'X-Origin' }, changedPrefix: header('X-Prefix', 'Basic '),
+          changedQuery: query('new'), changedKind: query('kind'),
+        }
+        pkg.manifest.settings = { type: 'object', properties: Object.fromEntries(Object.entries(bindings)
+          .map(([key, bind]) => [key, { type: 'secret', title: key, bind }])) }
+        if (version === '2.0.0') {
+          pkg.manifest.sizing = { default: { w: 4, h: 4 }, min: { w: 4, h: 4 }, max: { w: 6, h: 6 } }
+          pkg.manifest.settings.properties.plain = { type: 'string', title: 'Plain', default: '' }
+        }
+      }))
+    }
+    original = oneWidget(A, SEED_SCREEN_ID)
+    original.instances[0]!.source = { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' }
+    original.instances[0]!.appearance = { themeId: 'builtin:glass', shadow: null }
+    original.layout[0] = { instanceId: A, x: 0, y: 0, w: 3, h: 3 }
+    const saved = await put({ expectedRevision: 1, screens: [original] })
+    expect(saved.statusCode, saved.body).toBe(200)
+    t.db.prepare('INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES (?, ?, 7, ?)').run(A, '{"count":42}', 'x')
+    for (const key of Object.keys(beforeBindings)) {
+      const saved = await call(t.app, { method: 'PUT', url: `/api/v1/widgets/${A}/secrets/${key}`, cookie, payload: { value: 'test-secret-value' } })
+      expect(saved.statusCode).toBe(200)
+    }
+  })
+
+  function upgrade(w = 4, h = 4): ScreenBoard {
+    const next = structuredClone(original)
+    next.instances[0]!.source = { kind: 'package', packageId: 'dev.test.hello', version: '2.0.0' }
+    next.layout[0] = { instanceId: A, x: 0, y: 0, w, h }
+    return next
+  }
+
+  function state() { return t.db.prepare('SELECT data, revision FROM widget_state WHERE widget_id = ?').get(A) }
+  function secretKeys() { return (t.db.prepare('SELECT key FROM widget_secrets WHERE widget_id = ? ORDER BY key').all(A) as { key: string }[]).map(({ key }) => key) }
+
+  it('preserves state and only secrets with unchanged key and binding', async () => {
+    const next = upgrade()
+    const response = await put({ expectedRevision: 2, screens: [next] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.screens).toEqual([next])
+    expect(state()).toEqual({ data: '{"count":42}', revision: 7 })
+    expect(secretKeys()).toEqual(['sameHeader', 'sameQuery'])
+  })
+
+  it.each([[3, 4], [4, 3], [7, 4], [4, 7]])('rejects target sizing %sx%s without changing source or data', async (w, h) => {
+    const response = await put({ expectedRevision: 2, screens: [upgrade(w, h)] })
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect((await getBoard()).screens).toEqual([original])
+    expect(state()).toEqual({ data: '{"count":42}', revision: 7 })
+    expect(secretKeys()).toEqual(Object.keys(beforeBindings).sort())
+  })
+
+  it('retains source and secrets after a revision conflict', async () => {
+    const response = await put({ expectedRevision: 1, screens: [upgrade()] })
+    expect([response.statusCode, errorCode(response)]).toEqual([409, 'REVISION_CONFLICT'])
+    expect((await getBoard()).screens).toEqual([original])
+    expect(state()).toEqual({ data: '{"count":42}', revision: 7 })
+    expect(secretKeys()).toEqual(Object.keys(beforeBindings).sort())
+  })
+
+  it('rolls back secret cleanup when a later widget fails target sizing', async () => {
+    const before = structuredClone(original)
+    before.instances.push({ ...structuredClone(original.instances[0]!), id: B })
+    before.layout.push({ instanceId: B, x: 6, y: 0, w: 3, h: 3 })
+    expect((await put({ expectedRevision: 2, screens: [before] })).statusCode).toBe(200)
+    const next = upgrade()
+    next.instances.push({ ...structuredClone(next.instances[0]!), id: B })
+    next.layout.push({ instanceId: B, x: 6, y: 0, w: 3, h: 4 })
+    const response = await put({ expectedRevision: 3, screens: [next] })
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+    expect((await getBoard()).screens).toEqual([before])
+    expect(state()).toEqual({ data: '{"count":42}', revision: 7 })
+    expect(secretKeys()).toEqual(Object.keys(beforeBindings).sort())
+  })
+
+  it.each(['builtin', 'package'] as const)('drops state and secrets when the same UUID changes to another %s source', async (kind) => {
+    await installPackage(t, cookie, widgetPackage((pkg) => { pkg.manifest.id = 'dev.test.other' }))
+    const next = structuredClone(original)
+    next.instances[0]!.source = kind === 'builtin' ? { ...placeholder } : { kind: 'package', packageId: 'dev.test.other', version: '1.0.0' }
+    expect((await put({ expectedRevision: 2, screens: [next] })).statusCode).toBe(200)
+    expect((await getBoard()).screens).toEqual([next])
+    expect(state()).toBeUndefined()
+    expect(secretKeys()).toEqual([])
   })
 })
 

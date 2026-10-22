@@ -15,7 +15,7 @@ import Toolbar from './Toolbar.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import LogPanel from './LogPanel.vue'
 
-const props = defineProps<{ paths: typeof import('../src/dev/server.ts').DEV_PATHS }>()
+const props = defineProps<{ paths: import('../src/dev/server.ts').DevPaths }>()
 // Keep the API payload plain: theme tokens must be structured-cloneable over MessagePort.
 const info = shallowRef<DevInfo>()
 const state = ref<ShellState>()

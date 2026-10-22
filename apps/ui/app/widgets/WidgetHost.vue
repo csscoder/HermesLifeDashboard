@@ -51,6 +51,7 @@ if (props.widgetId && props.source.kind === 'builtin') {
   const client = createGatewayClient({
     api,
     widgetId,
+    source: { ...props.source },
     // Built-ins count as `allow`; only `always` operations ask.
     confirm: (op, input) => requestConfirmation({ widgetId, title: title.value, op, input }),
     onNotify: (message) => showToast({ source: title.value, ...message }),
@@ -69,7 +70,7 @@ if (props.widgetId && props.source.kind === 'builtin') {
   <WidgetFrame ref="frameBox" :theme-id="themeId" :skin="skin" :foreign="foreign" :shadow="shadow">
     <div v-if="!widgetId" class="grid place-items-center h-full text-center text-base font-strong text-secondary">{{ title }}</div>
     <component :is="renderer" v-else-if="renderer" />
-    <SandboxWidget v-else-if="info?.hash" :widget-id="widgetId" :hash="info.hash" :title="title" :context="context" />
+    <SandboxWidget v-else-if="info?.hash && source.kind === 'package'" :key="info.hash" :widget-id="widgetId" :hash="info.hash" :title="title" :package-id="source.packageId" :version="source.version" :context="context" />
     <div v-else class="grid place-items-center h-full text-center text-sm text-muted">Неизвестный виджет</div>
   </WidgetFrame>
 </template>

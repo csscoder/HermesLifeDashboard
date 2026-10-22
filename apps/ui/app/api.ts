@@ -1,4 +1,4 @@
-import type { SpaceBoard, SaveBoardRequest } from '@lifedashboard/contracts/board'
+import type { SpaceBoard, SaveBoardRequest, WidgetSource } from '@lifedashboard/contracts/board'
 import type { SpacePatch, SpaceSummary } from '@lifedashboard/contracts/space'
 import type { WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
 import type { FolderFile, Grant, GrantMode, InstalledPackage, PackageInspection, UploadCreated, WidgetPermission } from '@lifedashboard/contracts/widget-package'
@@ -104,7 +104,8 @@ export const api = {
     apiRequest<Record<string, boolean>>('PUT', `/widgets/${encodeURIComponent(widgetId)}/secrets/${encodeURIComponent(key)}`, { value }),
   clearWidgetSecret: (widgetId: string, key: string) =>
     apiRequest<Record<string, boolean>>('DELETE', `/widgets/${encodeURIComponent(widgetId)}/secrets/${encodeURIComponent(key)}`, {}),
-  createWidgetSession: (widgetId: string) => apiRequest<WidgetSessionResponse>('POST', '/widget-sessions', { widgetId }),
+  createWidgetSession: (widgetId: string, source?: WidgetSource) =>
+    apiRequest<WidgetSessionResponse>('POST', '/widget-sessions', { widgetId, ...(source === undefined ? {} : { source }) }),
   endWidgetSession: (token: string) => apiRequest<null>('DELETE', `/widget-sessions/${encodeURIComponent(token)}`, {}),
   gateway: (op: string, token: string, input: unknown, confirmationId?: string) =>
     apiRequest<unknown>('POST', `/widget-gateway/${encodeURIComponent(op)}`, input, API_TIMEOUT_MS, {

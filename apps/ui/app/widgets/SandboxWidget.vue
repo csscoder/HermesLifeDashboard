@@ -6,10 +6,11 @@ import { cancelConfirmations, requestConfirmation } from '../confirmations'
 import { showToast } from '../toasts'
 import { createBridge, createGatewayClient, listenForHello, type Bridge, type GatewayClient } from './broker'
 
-const props = defineProps<{ widgetId: string; hash: string; title: string; context: WidgetContext }>()
+const props = defineProps<{ widgetId: string; hash: string; title: string; packageId: string; version: string; context: WidgetContext }>()
 
 const state = ref<'loading' | 'ready' | 'error'>('loading')
 const showFrame = ref(false)
+const failure = ref('')
 const iframe = useTemplateRef<HTMLIFrameElement>('frameBox')
 let client: GatewayClient | null = null
 let bridge: Bridge | null = null
@@ -36,18 +37,29 @@ function teardown() {
   showFrame.value = false
 }
 
-function fail() {
+function fail(message = 'Не удалось запустить виджет или потеряно соединение с ним') {
+  failure.value = message.slice(0, 1000)
   teardown()
   state.value = 'error'
+}
+
+async function copyFailure() {
+  try {
+    await navigator.clipboard.writeText(`${props.packageId}@${props.version}\n${failure.value}`)
+  } catch {
+    // The selectable details remain available if clipboard access is refused.
+  }
 }
 
 async function start() {
   teardown()
   state.value = 'loading'
+  failure.value = ''
   loads = 0
   const current = createGatewayClient({
     api,
     widgetId: props.widgetId,
+    source: { kind: 'package', packageId: props.packageId, version: props.version },
     confirm: (op, input) => requestConfirmation({ widgetId: props.widgetId, title: props.title, op, input }),
     onNotify: (message) => showToast({ source: props.title, ...message }),
     onSessionLost: () => {
@@ -76,7 +88,7 @@ function connect(frameWindow: Window, current: GatewayClient) {
   stopWaiting = null
   const channel = new MessageChannel()
   frameWindow.postMessage({ t: 'ld:init', context: snapshot() }, '*', [channel.port2])
-  bridge = createBridge(channel.port1, { call: current.call, onError: fail, onClose: fail })
+  bridge = createBridge(channel.port1, { call: current.call, onError: fail, onClose: () => fail() })
   state.value = 'ready'
 }
 
@@ -111,8 +123,14 @@ onUnmounted(teardown)
       @load="onLoad"
     />
     <p v-if="state === 'loading'" class="sandbox__status">Загрузка…</p>
-    <div v-else-if="state === 'error'" class="sandbox__status" role="alert">
+    <div v-else-if="state === 'error'" class="sandbox__status sandbox__status--error" role="alert" tabindex="0">
       <p class="sandbox__text">Ошибка виджета</p>
+      <details class="sandbox__details">
+        <summary>Подробности</summary>
+        <p>{{ packageId }}@{{ version }}</p>
+        <pre>{{ failure }}</pre>
+        <button type="button" class="sandbox__retry" @click="copyFailure">Копировать ошибку</button>
+      </details>
       <button type="button" class="sandbox__retry" @click="start">Повторить</button>
     </div>
   </div>
@@ -153,9 +171,34 @@ onUnmounted(teardown)
   margin: 0;
 }
 
+.sandbox__status--error {
+  display: block;
+  box-sizing: border-box;
+  padding: 0.25rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  text-align: start;
+  font-size: 0.75rem;
+}
+
+.sandbox__details {
+  max-width: 100%;
+  margin: 0.25rem 0;
+  text-align: start;
+}
+
+.sandbox__details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .sandbox__retry {
-  height: var(--ld-control-height);
-  padding: 0 0.875rem;
+  box-sizing: border-box;
+  min-height: var(--ld-control-height);
+  max-width: 100%;
+  white-space: normal;
+  padding: 0.25rem;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: var(--ld-radius-control);
   background: var(--ld-surface-3);

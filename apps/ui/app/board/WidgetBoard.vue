@@ -6,10 +6,10 @@ import { api } from '../api'
 import { askDelete, pendingDelete } from '../spaces/confirm-delete'
 import { afterDelete, needsDeleteConfirm } from '../spaces/nav'
 import { resolveWidgetLook } from '../theme/resolve'
-import { describeSource } from '../widgets/catalog'
-import { useSecretFlags } from '../widgets/secret-flags'
+import { describeSource, installedPackages } from '../widgets/catalog'
+import { refreshSecretFlags, useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
+import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPackageVersion, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterManage, afterSave, afterStaySave, useSpaceSync, type Reaction } from './space-sync'
 import { screenNamed, useScreenModel } from './screen-model'
@@ -401,6 +401,27 @@ const settingsInstance = computed(() => working.value.instances.find((item) => i
 const settingsSchema = computed(() => settingsInstance.value ? describeSource(settingsInstance.value.source)?.settings : undefined)
 const settingsWidgetId = computed(() => doc.value.instances.find((item) => item.id === settingsInstance.value?.id)?.id ?? null)
 const settingsSecrets = useSecretFlags(() => settingsSchema.value && settingsWidgetId.value ? settingsWidgetId.value : undefined)
+const settingsVersion = computed(() => settingsInstance.value?.source.kind === 'package' ? settingsInstance.value.source.version : '')
+const settingsVersions = computed(() => {
+  const source = settingsInstance.value?.source
+  return source?.kind === 'package' ? installedPackages.value.find((pkg) => pkg.id === source.packageId)?.versions.map((item) => item.version) ?? [] : []
+})
+
+async function changeVersion(version: string) {
+  if (!editing.value || saving.value || !settingsId.value) return
+  const id = settingsId.value
+  const next = setPackageVersion(working.value, id, version, installedPackages.value)
+  if (!next.ok) { emit('notice', next.error); return }
+  const outcome = await saveAndStay(next.value)
+  await apply(afterStaySave(outcome))
+  if (outcome !== 'saved') return
+  refreshSecretFlags(id, {})
+  working.value = doc.value
+  const rect = working.value.layout.find((item) => item.instanceId === id)
+  if (activeId.value === id && rect) activate(rect)
+  const flags = await api.widgetSecrets(id)
+  if (flags.ok) refreshSecretFlags(id, flags.data)
+}
 
 // The panel closes with its widget, when the mode leaves edit and when a save starts.
 watch(
@@ -633,8 +654,11 @@ defineExpose({
       :config="settingsInstance?.config ?? {}"
       :widget-id="settingsWidgetId"
       :secrets="settingsSecrets"
+      :version="settingsVersion"
+      :versions="settingsVersions"
       @change="changeAppearance"
       @config="changeConfig"
+      @version="changeVersion"
       @toggle="onSettingsToggle"
     />
     <p class="board__live" aria-live="polite">{{ liveLabel }}</p>

@@ -41,7 +41,7 @@ function mediaImportGuard(): Plugin {
 }
 
 export function widgetVitePlugins(): Plugin[] {
-  return [mediaImportGuard(), vue({ template: { transformAssetUrls: false } })]
+  return [mediaImportGuard(), vue({ template: { transformAssetUrls: { tags: {} } } })]
 }
 
 // Rolldown's `//#region <path>` markers embed the build directory, which would make the same sources build to different

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CONFIRMATION_DIALOG_MS, type GatewayOp } from '@lifedashboard/contracts/widget-gateway'
+import type { WidgetSource } from '@lifedashboard/contracts/board'
+import { CONFIRMATION_DIALOG_MS, type GatewayOp, type WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
 import { WidgetError, type WidgetCall } from '@lifedashboard/widget-sdk'
 import { API_TIMEOUT_MS, type ApiResult } from '../app/api'
 import { cancelConfirmations, confirmations, requestConfirmation, type ConfirmationAnswer } from '../app/confirmations'
@@ -15,7 +16,7 @@ type Confirm = (op: GatewayOp, input: unknown) => Promise<ConfirmationAnswer>
 function fakeApi(answer: Answer) {
   let created = 0
   return {
-    createWidgetSession: vi.fn(async (_widgetId: string) => ({ ok: true as const, data: { widgetSession: `s${++created}`, grants: [] } })),
+    createWidgetSession: vi.fn(async (_widgetId: string, _source?: WidgetSource): Promise<ApiResult<WidgetSessionResponse>> => ({ ok: true, data: { widgetSession: `s${++created}`, grants: [] } })),
     endWidgetSession: vi.fn(async (_token: string) => ({ ok: true as const, data: null })),
     gateway: vi.fn(answer),
     declineConfirmation: vi.fn(async (_token: string, _id: string) => ({ ok: true as const, data: null })),
@@ -38,6 +39,12 @@ const note = { title: 'Hi', body: '' }
 
 function asked(confirmationId: string): ApiResult<unknown> {
   return { ok: false, kind: 'confirmation-required', confirmationId }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
 }
 
 // The real queue and its deadline, as SandboxWidget wires it.
@@ -66,6 +73,119 @@ describe('createGatewayClient', () => {
     expect(await client.call('state.get', {})).toEqual({ data: null, revision: 0 })
     expect(api.gateway.mock.calls.map((call) => call[1])).toEqual(['s1', 's2'])
     expect(onSessionLost).not.toHaveBeenCalled()
+  })
+
+  it('renews only the original rendered source and stops when another tab changed it', async () => {
+    const source: WidgetSource = { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' }
+    const api = fakeApi(async () => ({ ok: false, kind: 'session-expired' }))
+    let starts = 0
+    api.createWidgetSession.mockImplementation(async (_widgetId, expectedSource) => {
+      if (++starts === 1) return { ok: true, data: { widgetSession: 'old', grants: [] } }
+      return expectedSource?.kind === 'package' && expectedSource.version === '1.0.0'
+        ? { ok: false, kind: 'session-expired' }
+        : { ok: true, data: { widgetSession: 'new-version', grants: [] } }
+    })
+    const onSessionLost = vi.fn()
+    const client = createGatewayClient({ api, widgetId: 'w1', source, confirm: async () => 'approved', onNotify() {}, onSessionLost })
+    await client.start()
+    source.version = '2.0.0'
+    await expect(client.call('state.get', {})).rejects.toMatchObject({ code: 'SESSION_EXPIRED' })
+    expect(api.gateway.mock.calls.map((call) => call[1])).toEqual(['old'])
+    expect(onSessionLost).toHaveBeenCalledOnce()
+    await client.close()
+  })
+
+  it('shares one session when calls start concurrently', async () => {
+    const session = deferred<ApiResult<{ widgetSession: string; grants: [] }>>()
+    const { api, client } = setup(async () => ({ ok: true, data: { data: null, revision: 0 } }))
+    api.createWidgetSession.mockImplementation(() => session.promise)
+    const reads = [client.call('state.get', {}), client.call('state.get', {})]
+    session.resolve({ ok: true, data: { widgetSession: 'shared', grants: [] } })
+    expect(await Promise.all(reads)).toEqual([{ data: null, revision: 0 }, { data: null, revision: 0 }])
+    await client.close()
+    expect(api.createWidgetSession).toHaveBeenCalledTimes(1)
+    expect(api.endWidgetSession.mock.calls).toEqual([['shared']])
+  })
+
+  it('keeps a renewed session when an older call reports expiry during confirmation', async () => {
+    const expired = deferred<ApiResult<unknown>>()
+    const approval = deferred<ConfirmationAnswer>()
+    const dialog = deferred<void>()
+    const { api, client, onSessionLost } = setup(async (op, token, _input, confirmationId) => {
+      if (token === 's1') return op === 'state.get' ? expired.promise : { ok: false, kind: 'session-expired' }
+      if (op === 'state.get') return { ok: true, data: { data: null, revision: 0 } }
+      if (confirmationId === undefined) return asked(`c-${token}`)
+      return confirmationId === `c-${token}`
+        ? { ok: true, data: { ok: true } }
+        : { ok: false, kind: 'invalid', code: 'CONFIRMATION_INVALID', message: 'Wrong session' }
+    }, () => { dialog.resolve(); return approval.promise })
+    await client.start()
+    const read = client.call('state.get', {})
+    const notification = client.call('notifications.send', note)
+    await dialog.promise
+    expired.resolve({ ok: false, kind: 'session-expired' })
+    expect(await read).toEqual({ data: null, revision: 0 })
+    approval.resolve('approved')
+    expect(await notification).toEqual({ ok: true })
+    expect(api.createWidgetSession).toHaveBeenCalledTimes(2)
+    expect(onSessionLost).not.toHaveBeenCalled()
+    await client.close()
+    expect(api.endWidgetSession.mock.calls).toEqual([['s2']])
+  })
+
+  it('repeats an approval on its owning session before asking again on the renewed session', async () => {
+    const firstApproval = deferred<ConfirmationAnswer>()
+    const firstDialog = deferred<void>()
+    let dialogs = 0
+    let restarted = false
+    const { api, client } = setup(async (op, token, _input, confirmationId) => {
+      if (op === 'state.get') {
+        restarted = true
+        return token === 's1' ? { ok: false, kind: 'session-expired' } : { ok: true, data: { data: null, revision: 0 } }
+      }
+      if (restarted && token === 's1') return { ok: false, kind: 'session-expired' }
+      if (confirmationId === undefined) return asked(`c-${token}`)
+      return confirmationId === `c-${token}`
+        ? { ok: true, data: { ok: true } }
+        : { ok: false, kind: 'invalid', code: 'CONFIRMATION_INVALID', message: 'Wrong session' }
+    }, () => {
+      if (++dialogs > 1) return Promise.resolve('approved')
+      firstDialog.resolve()
+      return firstApproval.promise
+    })
+    await client.start()
+    const notification = client.call('notifications.send', note)
+    await firstDialog.promise
+    expect(await client.call('state.get', {})).toEqual({ data: null, revision: 0 })
+    firstApproval.resolve('approved')
+    expect(await notification).toEqual({ ok: true })
+    expect(dialogs).toBe(2)
+    expect(api.gateway.mock.calls.filter((call) => call[0] === 'notifications.send').map((call) => [call[1], call[3]])).toEqual([
+      ['s1', undefined], ['s1', 'c-s1'], ['s2', undefined], ['s2', 'c-s2'],
+    ])
+    await client.close()
+  })
+
+  it('keeps a newer session when the last retry fails on an older token', async () => {
+    const expiredRetry = deferred<ApiResult<unknown>>()
+    const retryStarted = deferred<void>()
+    const { client, onSessionLost } = setup(async (op, token) => {
+      if (token === 's1') return { ok: false, kind: 'session-expired' }
+      if (token === 's2') {
+        if (op === 'state.get') { retryStarted.resolve(); return expiredRetry.promise }
+        return { ok: false, kind: 'session-expired' }
+      }
+      return { ok: true, data: op === 'state.get' ? { data: null, revision: 0 } : { ok: true } }
+    })
+    await client.start()
+    const read = client.call('state.get', {}).catch((error: unknown) => error)
+    await retryStarted.promise
+    expect(await client.call('notifications.send', note)).toEqual({ ok: true })
+    expiredRetry.resolve({ ok: false, kind: 'session-expired' })
+    expect(await read).toMatchObject({ code: 'SESSION_EXPIRED' })
+    expect(onSessionLost).not.toHaveBeenCalled()
+    expect(await client.call('state.get', {})).toEqual({ data: null, revision: 0 })
+    await client.close()
   })
 
   it('reports a second SESSION_EXPIRED as a lost session, not as pairing', async () => {
@@ -229,5 +349,17 @@ describe('createGatewayClient', () => {
     await expect(pending).rejects.toMatchObject({ code: 'DECLINED' })
     expect(api.gateway).not.toHaveBeenCalled()
     expect(api.endWidgetSession).toHaveBeenCalledWith('late')
+  })
+
+  it('sends no operation when close runs after session creation but before the waiting call resumes', async () => {
+    const session = deferred<ApiResult<{ widgetSession: string; grants: [] }>>()
+    const { api, client } = setup(async () => ({ ok: true, data: { data: null, revision: 0 } }))
+    api.createWidgetSession.mockImplementation(() => session.promise)
+    const pending = client.call('state.get', {}).catch((error: unknown) => error)
+    void session.promise.then(() => client.close())
+    session.resolve({ ok: true, data: { widgetSession: 'created-before-close', grants: [] } })
+    expect(await pending).toMatchObject({ code: 'DECLINED' })
+    expect(api.gateway).not.toHaveBeenCalled()
+    expect(api.endWidgetSession.mock.calls).toEqual([['created-before-close']])
   })
 })

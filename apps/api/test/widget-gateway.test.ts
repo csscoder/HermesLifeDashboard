@@ -4,6 +4,8 @@ import type { AddressInfo } from 'node:net'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { needsConfirmation, RATE_LIMITS } from '../src/widget-gateway.ts'
+import { createGatewayClient } from '../../ui/app/widgets/broker.ts'
+import { api as uiApi } from '../../ui/app/api.ts'
 import { call, DAY, errorCode, HOUR, installPackage, pair, T0, testApp, widgetPackage, type TestApp } from './helpers.ts'
 
 const BOARD = `/api/v1/spaces/${SEED_SPACE_ID}/board`
@@ -71,6 +73,47 @@ async function pairAgain(): Promise<string> {
 }
 
 describe('POST /widget-sessions', () => {
+  it.each([
+    { kind: 'package', packageId: 'dev.test.hello', version: '2.0.0' },
+    { kind: 'package', packageId: 'dev.test.other', version: '1.0.0' },
+    { kind: 'builtin', type: 'placeholder' },
+  ])('rejects an expected source that no longer owns the UUID: %j', async (source) => {
+    const response = await call(t.app, { method: 'POST', url: '/api/v1/widget-sessions', cookie, payload: { widgetId: PKG_WIDGET, source } })
+    expect(response.statusCode).toBe(401)
+    expect(errorCode(response)).toBe('SESSION_EXPIRED')
+  })
+
+  it('rejects malformed expected sources instead of treating them as omitted', async () => {
+    const response = await call(t.app, { method: 'POST', url: '/api/v1/widget-sessions', cookie, payload: { widgetId: PKG_WIDGET, source: null } })
+    expect(response.statusCode).toBe(400)
+    expect(errorCode(response)).toBe('VALIDATION_ERROR')
+  })
+
+  it('does not let an old host renew onto the version saved by another tab', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const response = await call(t.app, { method: init?.method as 'POST' | 'DELETE', url: String(url), cookie,
+        headers: init?.headers as Record<string, string>, payload: init?.body as string })
+      return new Response(response.body, { status: response.statusCode, headers: { 'content-type': 'application/json' } })
+    })
+    const onSessionLost = vi.fn()
+    const client = createGatewayClient({ api: uiApi, widgetId: PKG_WIDGET,
+      source: { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' },
+      confirm: async () => 'approved', onNotify() {}, onSessionLost })
+    try {
+      expect(await client.start()).toBe(true)
+      await installPackage(t, cookie, widgetPackage((pkg) => { pkg.manifest.version = '2.0.0' }))
+      const board = (await call(t.app, { url: BOARD, cookie })).json().data
+      board.screens[0].instances.find((instance: { id: string }) => instance.id === PKG_WIDGET).source.version = '2.0.0'
+      expect((await call(t.app, { method: 'PUT', url: BOARD, cookie, payload: { expectedRevision: board.revision, screens: board.screens } })).statusCode).toBe(200)
+      await expect(client.call('state.set', { data: { oldCode: true }, expectedRevision: 0 })).rejects.toMatchObject({ code: 'SESSION_EXPIRED' })
+      expect(onSessionLost).toHaveBeenCalledOnce()
+      expect(t.db.prepare('SELECT data FROM widget_state WHERE widget_id = ?').get(PKG_WIDGET)).toBeUndefined()
+    } finally {
+      await client.close()
+      fetchMock.mockRestore()
+    }
+  })
+
   it('returns a random session with the package grants', async () => {
     const response = await createSession(PKG_WIDGET)
     expect(response.statusCode).toBe(200)
@@ -145,6 +188,21 @@ describe('gateway pipeline', () => {
     expect(errorCode(await gateway('state.get', token))).toBe('SESSION_EXPIRED')
   })
 
+  it.each([
+    ['version', "UPDATE widgets SET source_version = '2.0.0' WHERE id = ?"],
+    ['package', "UPDATE widgets SET source_type = 'dev.test.other' WHERE id = ?"],
+    ['kind', "UPDATE widgets SET source_kind = 'builtin', source_type = 'placeholder', source_version = NULL WHERE id = ?"],
+    ['removal', 'DELETE FROM widgets WHERE id = ?'],
+  ])('expires a session before using cached metadata after widget %s changes', async (_name, sql) => {
+    const token = await openSession(PKG_WIDGET)
+    t.db.prepare(sql).run(PKG_WIDGET)
+    const response = await gateway('state.set', token, { data: { leaked: true }, expectedRevision: 0 })
+    expect(response.statusCode).toBe(401)
+    expect(errorCode(response)).toBe('SESSION_EXPIRED')
+    expect(t.db.prepare('SELECT data FROM widget_state WHERE widget_id = ?').get(PKG_WIDGET)).toBeUndefined()
+    expect(auditRows()).toEqual([])
+  })
+
   it('evicts the least recently used session beyond 200', async () => {
     const first = await openSession(PKG_WIDGET)
     const second = await openSession(PKG_WIDGET)
@@ -152,6 +210,56 @@ describe('gateway pipeline', () => {
     for (let index = 0; index < 199; index++) await openSession(PKG_WIDGET)
     expect((await gateway('state.get', first)).statusCode).toBe(200)
     expect(errorCode(await gateway('state.get', second))).toBe('SESSION_EXPIRED')
+  })
+
+  it.each(['board', 'screen', 'space'])('keeps sessions expired after %s removal and recreation of the same UUID', async (removedBy) => {
+    let board = (await call(t.app, { url: BOARD, cookie })).json().data
+    const instance = board.screens[0].instances.find((item: { id: string }) => item.id === PKG_WIDGET)
+    const placement = board.screens[0].layout.find((item: { instanceId: string }) => item.instanceId === PKG_WIDGET)
+    const detach = (screen: { instances: { id: string }[]; layout: { instanceId: string }[] }) => {
+      screen.instances = screen.instances.filter((item) => item.id !== PKG_WIDGET)
+      screen.layout = screen.layout.filter((item) => item.instanceId !== PKG_WIDGET)
+    }
+    const save = async (value: typeof board) => {
+      const response = await call(t.app, { method: 'PUT', url: `/api/v1/spaces/${value.spaceId}/board`, cookie,
+        payload: { expectedRevision: value.revision, screens: value.screens } })
+      expect(response.statusCode).toBe(200)
+      return response.json().data
+    }
+    if (removedBy === 'screen') {
+      const added = await call(t.app, { method: 'POST', url: `/api/v1/spaces/${SEED_SPACE_ID}/screens`, cookie, payload: { expectedRevision: board.revision } })
+      expect(added.statusCode).toBe(200)
+      board = added.json().data
+      detach(board.screens[0])
+      board.screens[1].instances.push(instance)
+      board.screens[1].layout.push(placement)
+      board = await save(board)
+    } else if (removedBy === 'space') {
+      const created = await call(t.app, { method: 'POST', url: '/api/v1/spaces', cookie, payload: {} })
+      expect(created.statusCode).toBe(200)
+      detach(board.screens[0])
+      await save(board)
+      board = (await call(t.app, { url: `/api/v1/spaces/${created.json().data.id}/board`, cookie })).json().data
+      board.screens[0].instances.push(instance)
+      board.screens[0].layout.push(placement)
+      board = await save(board)
+    }
+    const token = await openSession(PKG_WIDGET)
+    if (removedBy === 'board') {
+      detach(board.screens[0])
+      await save(board)
+    } else {
+      const url = removedBy === 'screen' ? `/api/v1/spaces/${board.spaceId}/screens/${board.screens[1].id}` : `/api/v1/spaces/${board.spaceId}`
+      expect((await call(t.app, { method: 'DELETE', url, cookie, payload: { expectedRevision: board.revision } })).statusCode).toBe(200)
+    }
+    const recreated = (await call(t.app, { url: BOARD, cookie })).json().data
+    recreated.screens[0].instances.push(instance)
+    recreated.screens[0].layout.push(placement)
+    await save(recreated)
+    const old = await gateway('state.get', token)
+    expect(old.statusCode).toBe(401)
+    expect(errorCode(old)).toBe('SESSION_EXPIRED')
+    expect((await gateway('state.get', await openSession(PKG_WIDGET))).statusCode).toBe(200)
   })
 
   it('answers 404 UNKNOWN_OP, 403 PERMISSION_DENIED and 400 INVALID_INPUT and audits each', async () => {
@@ -346,6 +454,59 @@ describe('confirmation', () => {
         outcome,
       })),
     )
+  })
+
+  it('expires the old session and confirmation after a saved package version switch', async () => {
+    const token = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    const board = (await call(t.app, { url: BOARD, cookie })).json().data
+    board.screens[0].instances.find((instance: { id: string }) => instance.id === PKG_WIDGET).source.version = '1.1.0'
+    const saved = await call(t.app, { method: 'PUT', url: BOARD, cookie, payload: { expectedRevision: board.revision, screens: board.screens } })
+    expect(saved.statusCode).toBe(200)
+    const approved = await send(token, id)
+    expect(approved.statusCode).toBe(401)
+    expect(errorCode(approved)).toBe('SESSION_EXPIRED')
+    expect(outcomes()).toEqual(['CONFIRMATION_REQUIRED'])
+    const current = await openSession(PKG_WIDGET)
+    const reused = await send(current, id)
+    expect([reused.statusCode, errorCode(reused)]).toEqual([409, 'CONFIRMATION_INVALID'])
+  })
+
+  it('invalidates unused sessions and confirmations across a version roundtrip', async () => {
+    const unused = await openSession(PKG_WIDGET)
+    const token = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    for (const version of ['1.1.0', '1.0.0']) {
+      const board = (await call(t.app, { url: BOARD, cookie })).json().data
+      board.screens[0].instances.find((instance: { id: string }) => instance.id === PKG_WIDGET).source.version = version
+      expect((await call(t.app, { method: 'PUT', url: BOARD, cookie, payload: { expectedRevision: board.revision, screens: board.screens } })).statusCode).toBe(200)
+    }
+    const read = await gateway('state.get', unused)
+    expect(read.statusCode).toBe(401)
+    expect(errorCode(read)).toBe('SESSION_EXPIRED')
+    const approved = await send(token, id)
+    expect(approved.statusCode).toBe(401)
+    expect(errorCode(approved)).toBe('SESSION_EXPIRED')
+    expect(outcomes()).toEqual(['CONFIRMATION_REQUIRED'])
+  })
+
+  it.each(['ordinary', 'conflict', 'invalid sizing'])('preserves confirmation sessions after an %s board save', async (change) => {
+    const token = await openSession(PKG_WIDGET)
+    const id = await issue(token)
+    const board = (await call(t.app, { url: BOARD, cookie })).json().data
+    const instance = board.screens[0].instances.find((item: { id: string }) => item.id === PKG_WIDGET)
+    let expectedStatus = 200
+    if (change === 'ordinary') {
+      instance.config = { title: 'Changed' }
+      board.screens[0].layout[0].y = 1
+    } else {
+      instance.source.version = '1.1.0'
+      if (change === 'conflict') { board.revision -= 1; expectedStatus = 409 }
+      else { board.screens[0].layout[0].w = 7; board.screens[0].layout[1].x = 10; expectedStatus = 400 }
+    }
+    const saved = await call(t.app, { method: 'PUT', url: BOARD, cookie, payload: { expectedRevision: board.revision, screens: board.screens } })
+    expect(saved.statusCode).toBe(expectedStatus)
+    expect((await send(token, id)).statusCode).toBe(200)
   })
 
   it('spends an approved id even when the mode flipped to allow mid-dialog', async () => {

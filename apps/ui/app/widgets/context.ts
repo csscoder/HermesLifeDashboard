@@ -40,7 +40,7 @@ export function useWidgetContext(source: {
     rootFontSize: 16,
     config: source.config(),
     locale: navigator.language,
-    visible: document.visibilityState === 'visible',
+    visible: document.visibilityState === 'visible' && typeof IntersectionObserver === 'undefined',
   })
 
   // Tokens are read after the frame re-renders with the new theme class.
@@ -54,9 +54,16 @@ export function useWidgetContext(source: {
   const onResize = () => {
     context.rootFontSize = rootFontSize()
   }
-  const onVisibility = () => {
-    context.visible = document.visibilityState === 'visible'
-  }
+  let inViewport = typeof IntersectionObserver === 'undefined'
+  let observer: IntersectionObserver | undefined
+  const onVisibility = () => { context.visible = document.visibilityState === 'visible' && inViewport }
+  watch(source.frame, (frame, previous) => {
+    if (!observer) return
+    if (previous) observer.unobserve(previous)
+    inViewport = false
+    onVisibility()
+    if (frame) observer.observe(frame)
+  }, { flush: 'post' })
 
   watch(
     () => [source.size().w, source.size().h] as const,
@@ -75,12 +82,23 @@ export function useWidgetContext(source: {
   // board switches Glass → Paper), so the pair is watched.
   watch(() => [source.themeId(), source.foreign()] as const, readTheme)
   onMounted(() => {
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver((entries) => {
+        const entry = entries.find((entry) => entry.target === source.frame())
+        if (!entry) return
+        inViewport = entry.isIntersecting
+        onVisibility()
+      })
+      const frame = source.frame()
+      if (frame) observer.observe(frame)
+    }
     onResize()
     void readTheme()
     window.addEventListener('resize', onResize)
     document.addEventListener('visibilitychange', onVisibility)
   })
   onUnmounted(() => {
+    observer?.disconnect()
     window.removeEventListener('resize', onResize)
     document.removeEventListener('visibilitychange', onVisibility)
   })
