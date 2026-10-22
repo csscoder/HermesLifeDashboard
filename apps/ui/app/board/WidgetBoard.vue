@@ -11,7 +11,7 @@ import { useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
-import { afterLoad, afterManage, afterSave, useSpaceSync, type Reaction } from './space-sync'
+import { afterLoad, afterManage, afterSave, afterStaySave, useSpaceSync, type Reaction } from './space-sync'
 import { runDeleteScreen, runPreSave } from './switch-flow'
 import { useActiveRect } from './use-active-rect'
 import WidgetSettings from './WidgetSettings.vue'
@@ -188,12 +188,15 @@ async function save(next: ScreenBoard) {
 
 // Saves pending edits before a switch. A failure applies its reaction and keeps the working copy.
 async function saveIfDirty(): Promise<boolean> {
+  const pending = dirty.value
   const result = await runPreSave({
     editing: editing.value,
-    dirty: dirty.value,
+    dirty: pending,
     saveAndStay: () => saveAndStay(working.value),
   })
   if (!result.ok) await apply(result.reaction)
+  // A save that went through clears an earlier failure notice and the API status.
+  else if (pending) await apply(afterStaySave('saved'))
   return result.ok
 }
 
