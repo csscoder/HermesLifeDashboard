@@ -140,7 +140,7 @@ export function afterStaySave(outcome: SaveOutcome): Reaction {
     case 'skipped':
       return {}
     case 'conflict':
-      return { notice: 'Доска изменена в другой вкладке' }
+      return { notice: 'Доска изменена в другой вкладке. Нажмите «Отмена» и повторите' }
     case 'unauthorized':
       return { leaveMode: true, app: 'pairing' }
     case 'invalid':

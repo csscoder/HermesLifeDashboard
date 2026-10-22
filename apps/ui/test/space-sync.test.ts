@@ -323,7 +323,7 @@ describe('reactions', () => {
     ['saved', { notice: null, api: 'ok' }],
     ['skipped', {}],
     // Stays in edit mode: the working copy is kept for a retry (spec «Revision checks»).
-    ['conflict', { notice: 'Доска изменена в другой вкладке' }],
+    ['conflict', { notice: 'Доска изменена в другой вкладке. Нажмите «Отмена» и повторите' }],
     ['unauthorized', { leaveMode: true, app: 'pairing' }],
     ['invalid', { notice: 'Не удалось сохранить: данные отклонены' }],
     ['unavailable', { notice: 'Не удалось сохранить, повторите', api: 'down' }],
