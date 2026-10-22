@@ -41,6 +41,40 @@ describe('apiRequest', () => {
     expect(init?.body).toBe('{"expectedRevision":3,"screens":[]}')
   })
 
+  it('sends space and screen mutations as JSON', async () => {
+    const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.createSpace()
+    await api.deleteSpace('s1', 2)
+    await api.addScreen('s1', 3)
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([
+      ['/api/v1/spaces', 'POST', '{}'],
+      ['/api/v1/spaces/s1', 'DELETE', '{"expectedRevision":2}'],
+      ['/api/v1/spaces/s1/screens', 'POST', '{"expectedRevision":3}'],
+    ])
+  })
+
+  it('updates a space with PATCH and the JSON patch', async () => {
+    const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.updateSpace('space 1', { title: 'Дом', color: 'teal' })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/spaces/space%201')
+    expect(init?.method).toBe('PATCH')
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' })
+    expect(init?.body).toBe('{"title":"Дом","color":"teal"}')
+  })
+
+  it('deletes a screen with its revision', async () => {
+    const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
+    vi.stubGlobal('fetch', fetchMock)
+    await api.deleteScreen('s1', 'sc 2', 4)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/v1/spaces/s1/screens/sc%202')
+    expect(init?.method).toBe('DELETE')
+    expect(init?.body).toBe('{"expectedRevision":4}')
+  })
+
   it('sends an empty JSON object for a new pairing code', async () => {
     const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
     vi.stubGlobal('fetch', fetchMock)

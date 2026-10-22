@@ -1,5 +1,5 @@
 import type { SpaceBoard, SaveBoardRequest } from '@lifedashboard/contracts/board'
-import type { SpaceSummary } from '@lifedashboard/contracts/space'
+import type { SpacePatch, SpaceSummary } from '@lifedashboard/contracts/space'
 import type { WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
 import type { FolderFile, Grant, GrantMode, InstalledPackage, PackageInspection, UploadCreated, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 
@@ -27,7 +27,7 @@ export type ApiResult<T> = { ok: true; data: T } | ({ ok: false } & ApiFailure)
  * A `Blob` body is sent raw as `application/octet-stream`.
  */
 export async function apiRequest<T>(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
   timeout: number | AbortSignal = API_TIMEOUT_MS,
@@ -74,12 +74,19 @@ export async function apiRequest<T>(
   return { ok: false, kind: 'unavailable' }
 }
 
-const boardPath = (spaceId: string) => `/spaces/${encodeURIComponent(spaceId)}/board`
+const spacePath = (spaceId: string) => `/spaces/${encodeURIComponent(spaceId)}`
+const boardPath = (spaceId: string) => `${spacePath(spaceId)}/board`
 
 export const api = {
   spaces: () => apiRequest<SpaceSummary[]>('GET', '/spaces'),
+  createSpace: () => apiRequest<SpaceSummary>('POST', '/spaces', {}),
+  updateSpace: (spaceId: string, patch: SpacePatch) => apiRequest<SpaceSummary>('PATCH', spacePath(spaceId), patch),
+  deleteSpace: (spaceId: string, expectedRevision: number) => apiRequest<null>('DELETE', spacePath(spaceId), { expectedRevision }),
   board: (spaceId: string) => apiRequest<SpaceBoard>('GET', boardPath(spaceId)),
   saveBoard: (spaceId: string, request: SaveBoardRequest) => apiRequest<SpaceBoard>('PUT', boardPath(spaceId), request),
+  addScreen: (spaceId: string, expectedRevision: number) => apiRequest<SpaceBoard>('POST', `${spacePath(spaceId)}/screens`, { expectedRevision }),
+  deleteScreen: (spaceId: string, screenId: string, expectedRevision: number) =>
+    apiRequest<SpaceBoard>('DELETE', `${spacePath(spaceId)}/screens/${encodeURIComponent(screenId)}`, { expectedRevision }),
   pair: (code: string) => apiRequest<null>('POST', '/auth/pair', { code }),
   // The API requires a JSON body on every mutation, DELETE included.
   pairCode: () => apiRequest<null>('POST', '/auth/pair-code', {}),

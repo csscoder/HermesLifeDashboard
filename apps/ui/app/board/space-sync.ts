@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
-import type { api } from '../api'
+import type { api, ApiResult } from '../api'
 
 export type ConnectResult = { state: 'ready'; spaceId: string } | { state: 'pairing' | 'unavailable' }
 export type LoadOutcome = 'loaded' | 'ignored' | 'unauthorized' | 'unavailable'
@@ -27,7 +27,11 @@ export async function connect(client: Pick<typeof api, 'spaces'>): Promise<Conne
  * finishes after a mode opened is dropped, so a working copy is always saved with the revision of
  * the snapshot it was taken from (DATA-06); the save then meets any conflict or error itself.
  */
-export function useSpaceSync(client: Pick<typeof api, 'board' | 'saveBoard'>, spaceId: () => string, idle: () => boolean) {
+export function useSpaceSync(
+  client: Pick<typeof api, 'board' | 'saveBoard' | 'addScreen' | 'deleteScreen'>,
+  spaceId: () => string,
+  idle: () => boolean,
+) {
   const space = ref<SpaceBoard | null>(null)
   // True while a PUT runs: the board ignores input so the working copy cannot change meanwhile.
   const saving = ref(false)
@@ -43,25 +47,59 @@ export function useSpaceSync(client: Pick<typeof api, 'board' | 'saveBoard'>, sp
     return 'loaded'
   }
 
-  // Saves one screen with the loaded revision; the server decides about conflicts.
-  async function save(next: ScreenBoard): Promise<SaveOutcome> {
+  // Shared by every request that answers with the whole board, so each one is guarded and mapped alike.
+  async function replaceBoard(
+    request: (current: SpaceBoard) => Promise<ApiResult<SpaceBoard>>,
+  ): Promise<{ outcome: SaveOutcome; board?: SpaceBoard }> {
     const current = space.value
-    if (!current || saving.value) return 'skipped'
+    if (!current || saving.value) return { outcome: 'skipped' }
     saving.value = true
-    const result = await client.saveBoard(spaceId(), {
-      expectedRevision: current.revision,
-      screens: current.screens.map((screen) => (screen.id === next.id ? next : screen)),
-    })
+    const result = await request(current)
     saving.value = false
-    if (result.ok) {
-      space.value = result.data
-      return 'saved'
+    if (!result.ok) {
+      const kept = result.kind === 'conflict' || result.kind === 'unauthorized' || result.kind === 'invalid'
+      return { outcome: kept ? result.kind : 'unavailable' }
     }
-    if (result.kind === 'conflict' || result.kind === 'unauthorized' || result.kind === 'invalid') return result.kind
-    return 'unavailable'
+    space.value = result.data
+    return { outcome: 'saved', board: result.data }
   }
 
-  return { space, saving, loaded, load, save }
+  // Saves one screen with the loaded revision; the server decides about conflicts.
+  async function save(next: ScreenBoard): Promise<SaveOutcome> {
+    const { outcome } = await replaceBoard((current) =>
+      client.saveBoard(spaceId(), {
+        expectedRevision: current.revision,
+        screens: current.screens.map((screen) => (screen.id === next.id ? next : screen)),
+      }),
+    )
+    return outcome
+  }
+
+  // Same PUT as save; the caller's reaction (afterStaySave) keeps edit mode open.
+  const saveAndStay = save
+
+  // Loads the space of spaceId() regardless of idle(): only called once the working copy is saved or discarded.
+  async function switchSpace(): Promise<LoadOutcome> {
+    const result = await client.board(spaceId())
+    if (result.ok) {
+      space.value = result.data
+      return 'loaded'
+    }
+    return result.kind === 'unauthorized' ? 'unauthorized' : 'unavailable'
+  }
+
+  async function addScreen(): Promise<{ outcome: SaveOutcome; screenId?: string }> {
+    const { outcome, board } = await replaceBoard((current) => client.addScreen(spaceId(), current.revision))
+    // The API appends the new screen, so it is the last one.
+    return { outcome, screenId: board?.screens.at(-1)?.id }
+  }
+
+  async function deleteScreen(screenId: string): Promise<SaveOutcome> {
+    const { outcome } = await replaceBoard((current) => client.deleteScreen(spaceId(), screenId, current.revision))
+    return outcome
+  }
+
+  return { space, saving, loaded, load, save, saveAndStay, switchSpace, addScreen, deleteScreen }
 }
 
 export function afterLoad(outcome: LoadOutcome): Reaction {
@@ -86,4 +124,29 @@ export function afterSave(outcome: SaveOutcome): Reaction {
     case 'unavailable':
       return { notice: 'Не удалось сохранить, повторите', api: 'down' }
   }
+}
+
+/** Reaction of a save that keeps edit mode open: the caller decides whether to leave it. */
+export function afterStaySave(outcome: SaveOutcome): Reaction {
+  switch (outcome) {
+    case 'saved':
+      return { notice: null, api: 'ok' }
+    case 'skipped':
+      return {}
+    case 'conflict':
+      return { notice: 'Доска изменена в другой вкладке' }
+    case 'unauthorized':
+      return { leaveMode: true, app: 'pairing' }
+    case 'invalid':
+      return { notice: 'Не удалось сохранить: данные отклонены' }
+    case 'unavailable':
+      return { notice: 'Не удалось сохранить, повторите', api: 'down' }
+  }
+}
+
+/** Reaction of a space or screen operation. It keeps edit mode open, so «Отмена» can retry it. */
+export function afterManage(outcome: SaveOutcome): Reaction {
+  if (outcome === 'conflict') return { notice: 'Пространство изменено в другой вкладке. Нажмите «Отмена» и повторите' }
+  if (outcome === 'invalid') return { notice: 'Не удалось выполнить действие' }
+  return afterStaySave(outcome)
 }
