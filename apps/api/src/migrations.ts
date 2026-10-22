@@ -9,7 +9,7 @@ export interface MigrationContext {
 // A function migration runs inside the same transaction as SQL ones; its file writes are not rolled back.
 export type Migration = string | ((db: DatabaseSync, context: MigrationContext) => void)
 
-export const SEED_ROOM_ID = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
+export const SEED_SPACE_ID = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
 export const SEED_SCREEN_ID = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
 
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
@@ -90,9 +90,9 @@ CREATE TABLE sessions (
 );
 
 INSERT INTO rooms (id, title, position, revision, created_at, updated_at)
-VALUES ('${SEED_ROOM_ID}', 'Главная', 0, 1, ${NOW}, ${NOW});
+VALUES ('${SEED_SPACE_ID}', 'Главная', 0, 1, ${NOW}, ${NOW});
 
-INSERT INTO screens (id, room_id, position) VALUES ('${SEED_SCREEN_ID}', '${SEED_ROOM_ID}', 0);
+INSERT INTO screens (id, room_id, position) VALUES ('${SEED_SCREEN_ID}', '${SEED_SPACE_ID}', 0);
 `,
   `
 CREATE TABLE widget_packages (
@@ -175,5 +175,12 @@ CREATE TABLE widget_secrets (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (widget_id, key)
 );
+`,
+  `
+-- Spec 2026-10-21-spaces-and-screens: rooms are called spaces; each has an icon and a colour.
+ALTER TABLE rooms RENAME TO spaces;
+ALTER TABLE screens RENAME COLUMN room_id TO space_id;
+ALTER TABLE spaces ADD COLUMN icon TEXT NOT NULL DEFAULT '🏠';
+ALTER TABLE spaces ADD COLUMN color TEXT NOT NULL DEFAULT 'violet';
 `,
 ]

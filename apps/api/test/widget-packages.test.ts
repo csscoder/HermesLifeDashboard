@@ -1,11 +1,11 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
+import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { call, errorCode, installPackage, pair, testApp, uploadPackage, widgetPackage, type TestApp } from './helpers.ts'
 
 const PACKAGES = '/api/v1/widget-packages'
-const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
+const BOARD = `/api/v1/spaces/${SEED_SPACE_ID}/board`
 const W = '00000000-0000-4000-8000-0000000000c1'
 
 let t: TestApp

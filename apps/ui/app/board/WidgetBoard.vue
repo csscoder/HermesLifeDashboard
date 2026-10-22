@@ -9,12 +9,12 @@ import { useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
-import { afterLoad, afterSave, useRoomSync, type Reaction } from './room-sync'
+import { afterLoad, afterSave, useSpaceSync, type Reaction } from './space-sync'
 import { useActiveRect } from './use-active-rect'
 import WidgetSettings from './WidgetSettings.vue'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
-const props = defineProps<{ roomId: string; themeId: string; draftSource: WidgetSource }>()
+const props = defineProps<{ spaceId: string; themeId: string; draftSource: WidgetSource }>()
 const emit = defineEmits<{
   notice: [message: string | null]
   // 'down' after a failed save: the board stays, the header shows the API as unavailable.
@@ -36,13 +36,13 @@ const emptyScreen: ScreenBoard = { id: '', rows: ROWS.default, instances: [], la
 const draftSizing = computed(() => describeSource(props.draftSource)?.sizing ?? null)
 
 // A load that finishes while a mode is open is dropped (DATA-06); `saving` blocks input during a PUT.
-const { room, saving, loaded, load: loadRoom, save: saveRoom } = useRoomSync(
+const { space, saving, loaded, load: loadSpace, save: saveSpace } = useSpaceSync(
   api,
-  () => props.roomId,
+  () => props.spaceId,
   () => mode.value === 'view',
 )
 // The board shows the first screen; screens get their own UI in step 3 of GO-3.
-const doc = computed<ScreenBoard>(() => room.value?.screens[0] ?? emptyScreen)
+const doc = computed<ScreenBoard>(() => space.value?.screens[0] ?? emptyScreen)
 // Edit mode changes a working copy; `doc` keeps the loaded screen for the «unchanged» check.
 const working = ref<ScreenBoard>(emptyScreen)
 const activeId = ref<string | null>(null)
@@ -138,7 +138,7 @@ function area(rect: Rect) {
   return { gridColumn: `${rect.x + 1} / span ${rect.w}`, gridRow: `${rect.y + 1} / span ${rect.h}` }
 }
 
-// Applies a tested reaction (room-sync); no decisions here.
+// Applies a tested reaction (space-sync); no decisions here.
 async function apply(reaction: Reaction) {
   if (reaction.leaveMode) stop()
   if (reaction.notice !== undefined) emit('notice', reaction.notice)
@@ -149,11 +149,11 @@ async function apply(reaction: Reaction) {
 }
 
 async function load() {
-  await apply(afterLoad(await loadRoom()))
+  await apply(afterLoad(await loadSpace()))
 }
 
 async function save(next: ScreenBoard) {
-  await apply(afterSave(await saveRoom(next)))
+  await apply(afterSave(await saveSpace(next)))
 }
 
 function start() {

@@ -7,7 +7,7 @@ import { resolveThemeId, resolveWidgetLook, themeClass } from '../app/theme/reso
 describe('resolveThemeId', () => {
   const known = new Set(['builtin:glass', 'builtin:paper', 'builtin:obsidian'])
 
-  it('returns the first set and known id (widget, room, workspace)', () => {
+  it('returns the first set and known id (widget, space, workspace)', () => {
     expect(resolveThemeId(['builtin:obsidian', 'builtin:paper'], known)).toBe('builtin:obsidian')
     expect(resolveThemeId([null, 'builtin:paper'], known)).toBe('builtin:paper')
   })

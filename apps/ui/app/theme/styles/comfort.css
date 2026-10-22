@@ -9,7 +9,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .room,
+    .space,
     .widget {
       --ld-duration-fast: 0ms;
       --ld-duration-base: 0ms;

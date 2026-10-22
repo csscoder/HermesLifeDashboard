@@ -2,13 +2,13 @@
 @layer ld.frame {
   /* Typography and colour are declared on every theme scope, not only inherited from the root,
      so a widget with its own theme uses its own token values. */
-  .room,
+  .space,
   .widget {
     color: var(--ld-text-primary);
     font-family: var(--ld-font-ui);
     line-height: var(--ld-leading);
     letter-spacing: var(--ld-tracking);
-    /* Optional tokens must not leak from the Room theme into a widget theme that omits them.
+    /* Optional tokens must not leak from the Space theme into a widget theme that omits them.
        Keep equal to OPTIONAL_TOKENS in contract.ts (theme-contract.test.ts checks it). */
     --ld-shadow-widget: initial;
     --ld-shadow-raised: initial;
@@ -17,14 +17,14 @@
     --ld-edge-highlight: initial;
   }
 
-  .room {
+  .space {
     position: relative;
     isolation: isolate;
     min-height: 100dvh;
     background: var(--ld-bg);
   }
 
-  .room__backdrop {
+  .space__backdrop {
     position: fixed;
     inset: 0;
     z-index: -1;

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DB_FILE, openDatabase } from '../src/db.ts'
-import { MIGRATIONS, SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
+import { MIGRATIONS, SEED_SCREEN_ID, SEED_SPACE_ID } from '../src/migrations.ts'
 
 let dir: string
 let file: string
@@ -29,13 +29,13 @@ function tables(db: DatabaseSync): string[] {
 }
 
 describe('openDatabase', () => {
-  it('creates the schema and the seed room with one screen', async () => {
+  it('creates the schema and the seed space with one screen', async () => {
     const db = await openDatabase(':memory:', ctx())
     expect(userVersion(db)).toBe(MIGRATIONS.length)
     expect(tables(db)).toEqual([
-      'rooms',
       'screens',
       'sessions',
+      'spaces',
       'widget_audit',
       'widget_grants',
       'widget_network_origins',
@@ -45,11 +45,11 @@ describe('openDatabase', () => {
       'widget_state',
       'widgets',
     ])
-    expect(db.prepare('SELECT id, title, position, revision FROM rooms').all()).toEqual([
-      { id: SEED_ROOM_ID, title: 'Главная', position: 0, revision: 1 },
+    expect(db.prepare('SELECT id, title, position, revision FROM spaces').all()).toEqual([
+      { id: SEED_SPACE_ID, title: 'Главная', position: 0, revision: 1 },
     ])
-    expect(db.prepare('SELECT id, room_id, position, rows FROM screens').all()).toEqual([
-      { id: SEED_SCREEN_ID, room_id: SEED_ROOM_ID, position: 0, rows: 12 },
+    expect(db.prepare('SELECT id, space_id, position, rows FROM screens').all()).toEqual([
+      { id: SEED_SCREEN_ID, space_id: SEED_SPACE_ID, position: 0, rows: 12 },
     ])
     db.close()
   })
@@ -104,7 +104,7 @@ describe('openDatabase', () => {
     expect(db.prepare('SELECT count(*) AS n FROM widget_state').get()).toEqual({ n: 0 })
     // Only a room that lost widgets gets a new revision: a stale tab of it must reload.
     expect(db.prepare('SELECT id, revision FROM rooms ORDER BY position').all()).toEqual([
-      { id: SEED_ROOM_ID, revision: 2 },
+      { id: SEED_SPACE_ID, revision: 2 },
       { id: 'r2', revision: 5 },
     ])
     expect(db.prepare('SELECT count(*) AS n FROM widget_package_versions').get()).toEqual({ n: 1 })
@@ -155,7 +155,7 @@ describe('openDatabase', () => {
     ;(await openDatabase(file, ctx())).close()
     const db = await openDatabase(file, ctx())
     expect(userVersion(db)).toBe(MIGRATIONS.length)
-    expect(db.prepare('SELECT count(*) AS n FROM rooms').get()).toEqual({ n: 1 })
+    expect(db.prepare('SELECT count(*) AS n FROM spaces').get()).toEqual({ n: 1 })
     expect(existsSync(`${file}.bak-v1`)).toBe(false)
     db.close()
   })
@@ -251,5 +251,29 @@ describe('migration 6: package files to disk', () => {
     expect(userVersion(raw)).toBe(5)
     expect(raw.prepare('SELECT files FROM widget_package_versions').get()).toBeDefined()
     raw.close()
+  })
+})
+
+describe('migration 9: rooms become spaces', () => {
+  it('renames rooms to spaces, keeps data and adds icon and colour', async () => {
+    const v8 = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 8))
+    v8.exec(`
+      INSERT INTO rooms (id, title, position, revision, created_at, updated_at) VALUES ('r2', 'Вторая', 1, 5, 'x', 'x');
+      INSERT INTO screens (id, room_id, position) VALUES ('s2', 'r2', 0);
+      INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
+      VALUES ('w1', 's2', 'builtin', 'placeholder', '{}', 1, 0, 0, 2, 2);
+    `)
+    v8.close()
+    const db = await openDatabase(file, ctx())
+    expect(tables(db)).toContain('spaces')
+    expect(tables(db)).not.toContain('rooms')
+    expect(db.prepare('SELECT id, title, revision, icon, color FROM spaces ORDER BY position').all()).toEqual([
+      { id: SEED_SPACE_ID, title: 'Главная', revision: 1, icon: '🏠', color: 'violet' },
+      { id: 'r2', title: 'Вторая', revision: 5, icon: '🏠', color: 'violet' },
+    ])
+    expect(db.prepare('SELECT id, space_id FROM screens WHERE id = ?').get('s2')).toEqual({ id: 's2', space_id: 'r2' })
+    db.exec("DELETE FROM spaces WHERE id = 'r2'")
+    expect(db.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 0 })
+    db.close()
   })
 })

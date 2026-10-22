@@ -50,7 +50,7 @@ describe('static UI', () => {
   })
 
   it('falls back to index.html for an extensionless SPA path', async () => {
-    const response = await call(t.app, { url: '/rooms/main/screen' })
+    const response = await call(t.app, { url: '/spaces/main/screen' })
     expect([response.statusCode, response.body]).toEqual([200, INDEX])
   })
 

@@ -1,5 +1,5 @@
 /* Glass: dark, translucent widget surfaces over a violet radial backdrop. Skin: glass. */
-.room--theme-glass, .widget--theme-glass {
+.space--theme-glass, .widget--theme-glass {
   color-scheme: dark;
   --ld-bg: oklch(0.2 0.02 280);
   --ld-backdrop: radial-gradient(circle at 20% 10%, oklch(0.38 0.07 280), oklch(0.2 0.02 280) 60%);

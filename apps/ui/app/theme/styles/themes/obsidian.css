@@ -1,5 +1,5 @@
 /* Obsidian: dark, opaque neutral surfaces with a cool accent. Skin: solid. */
-.room--theme-obsidian, .widget--theme-obsidian {
+.space--theme-obsidian, .widget--theme-obsidian {
   color-scheme: dark;
   --ld-bg: oklch(0.16 0.005 260);
   --ld-backdrop: oklch(0.16 0.005 260);

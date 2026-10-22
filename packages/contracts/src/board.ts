@@ -48,14 +48,14 @@ export interface ScreenBoard {
   layout: WidgetPlacement[]
 }
 
-export interface RoomBoard {
-  roomId: string
+export interface SpaceBoard {
+  spaceId: string
   revision: number
   // Ordered by screen position.
   screens: ScreenBoard[]
 }
 
-export interface RoomSummary {
+export interface SpaceSummary {
   id: string
   title: string
   position: number
@@ -111,7 +111,7 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
     const appearance = parseAppearance(item.appearance)
     if (appearance === null) return fail(`instances[${index}]: invalid appearance`)
     ids.add(item.id)
-    // appearance goes last, as rooms.ts reads it back: isSameBoard compares JSON.
+    // appearance goes last, as spaces.ts reads it back: isSameBoard compares JSON.
     instances.push({ id: item.id, source, configVersion: version, config: item.config, ...(appearance && { appearance }) })
   }
 

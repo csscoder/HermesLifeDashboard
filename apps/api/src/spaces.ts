@@ -2,8 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
 import {
   parseScreenBoard,
-  type RoomBoard,
-  type RoomSummary,
+  type SpaceBoard,
+  type SpaceSummary,
   type SaveBoardRequest,
   type ScreenBoard,
   type WidgetAppearance,
@@ -39,51 +39,51 @@ const SAVE_SCHEMA = {
   },
 } as const
 
-export interface RoomsDeps {
+export interface SpacesDeps {
   db: DatabaseSync
   now: () => Date
 }
 
-export function registerRooms(app: FastifyInstance, { db, now }: RoomsDeps): void {
-  app.get('/api/v1/rooms', async (request) => ok(request, listRooms(db)))
+export function registerSpaces(app: FastifyInstance, { db, now }: SpacesDeps): void {
+  app.get('/api/v1/spaces', async (request) => ok(request, listSpaces(db)))
 
-  app.get<{ Params: { roomId: string } }>('/api/v1/rooms/:roomId/board', async (request) =>
-    ok(request, readBoard(db, request.params.roomId)),
+  app.get<{ Params: { spaceId: string } }>('/api/v1/spaces/:spaceId/board', async (request) =>
+    ok(request, readBoard(db, request.params.spaceId)),
   )
 
-  app.put<{ Params: { roomId: string }; Body: SaveBoardRequest }>(
-    '/api/v1/rooms/:roomId/board',
+  app.put<{ Params: { spaceId: string }; Body: SaveBoardRequest }>(
+    '/api/v1/spaces/:spaceId/board',
     { schema: SAVE_SCHEMA },
-    async (request) => ok(request, saveBoard(db, request.params.roomId, request.body, now())),
+    async (request) => ok(request, saveBoard(db, request.params.spaceId, request.body, now())),
   )
 }
 
-function listRooms(db: DatabaseSync): RoomSummary[] {
-  return db.prepare('SELECT id, title, position, revision FROM rooms ORDER BY position, created_at').all() as unknown as RoomSummary[]
+function listSpaces(db: DatabaseSync): SpaceSummary[] {
+  return db.prepare('SELECT id, title, position, revision FROM spaces ORDER BY position, created_at').all() as unknown as SpaceSummary[]
 }
 
-function roomRevision(db: DatabaseSync, roomId: string): number {
-  const room = db.prepare('SELECT revision FROM rooms WHERE id = ?').get(roomId) as { revision: number } | undefined
-  if (!room) throw new ApiError('NOT_FOUND', 'Room not found')
-  return room.revision
+function spaceRevision(db: DatabaseSync, spaceId: string): number {
+  const space = db.prepare('SELECT revision FROM spaces WHERE id = ?').get(spaceId) as { revision: number } | undefined
+  if (!space) throw new ApiError('NOT_FOUND', 'Space not found')
+  return space.revision
 }
 
-function screenIds(db: DatabaseSync, roomId: string): string[] {
-  const rows = db.prepare('SELECT id FROM screens WHERE room_id = ? ORDER BY position').all(roomId) as unknown as { id: string }[]
+function screenIds(db: DatabaseSync, spaceId: string): string[] {
+  const rows = db.prepare('SELECT id FROM screens WHERE space_id = ? ORDER BY position').all(spaceId) as unknown as { id: string }[]
   return rows.map((row) => row.id)
 }
 
-function readBoard(db: DatabaseSync, roomId: string): RoomBoard {
-  const revision = roomRevision(db, roomId)
+function readBoard(db: DatabaseSync, spaceId: string): SpaceBoard {
+  const revision = spaceRevision(db, spaceId)
   // rowid keeps the insertion order: instances read back in the sent order, the layout follows them.
   const widgets = db
-    .prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.room_id = ? ORDER BY w.rowid')
-    .all(roomId) as unknown as WidgetRow[]
+    .prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.space_id = ? ORDER BY w.rowid')
+    .all(spaceId) as unknown as WidgetRow[]
   const screens = db
-    .prepare('SELECT id, rows FROM screens WHERE room_id = ? ORDER BY position')
-    .all(roomId) as unknown as { id: string; rows: number }[]
+    .prepare('SELECT id, rows FROM screens WHERE space_id = ? ORDER BY position')
+    .all(spaceId) as unknown as { id: string; rows: number }[]
   return {
-    roomId,
+    spaceId,
     revision,
     screens: screens.map(({ id, rows }) => {
       const placed = widgets.filter((row) => row.screen_id === id)
@@ -119,18 +119,18 @@ function checkPackagesInstalled(db: DatabaseSync, screens: ScreenBoard[]): void 
   }
 }
 
-// One transaction: 404, then 409, then 400, then the replacement (spec «PUT /rooms/:roomId/board»).
-function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now: Date): RoomBoard {
+// One transaction: 404, then 409, then 400, then the replacement (spec «PUT /spaces/:spaceId/board»).
+function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, now: Date): SpaceBoard {
   db.exec('BEGIN IMMEDIATE')
   try {
-    if (roomRevision(db, roomId) !== body.expectedRevision) {
+    if (spaceRevision(db, spaceId) !== body.expectedRevision) {
       throw new ApiError('REVISION_CONFLICT', 'The board changed since it was loaded')
     }
-    const screens = validateScreens(body.screens as unknown[], screenIds(db, roomId))
+    const screens = validateScreens(body.screens as unknown[], screenIds(db, spaceId))
     checkPackagesInstalled(db, screens)
     const setRows = db.prepare('UPDATE screens SET rows = ? WHERE id = ?')
     for (const screen of screens) setRows.run(screen.rows, screen.id)
-    db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE room_id = ?)').run(roomId)
+    db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE space_id = ?)').run(spaceId)
     const insert = db.prepare(
       'INSERT INTO widgets (id, screen_id, source_kind, source_type, source_version, config, config_version, appearance, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
@@ -166,13 +166,13 @@ function saveBoard(db: DatabaseSync, roomId: string, body: SaveBoardRequest, now
     // widget_state has no foreign key (spec «Data»): drop the state of widgets this save removed.
     db.prepare('DELETE FROM widget_state WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
     db.prepare('DELETE FROM widget_secrets WHERE widget_id NOT IN (SELECT id FROM widgets)').run()
-    db.prepare('UPDATE rooms SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), roomId)
+    db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
     db.exec('COMMIT')
   } catch (error) {
     db.exec('ROLLBACK')
     throw error
   }
-  return readBoard(db, roomId)
+  return readBoard(db, spaceId)
 }
 
 function validateScreens(raw: unknown[], expectedIds: string[]): ScreenBoard[] {
@@ -191,7 +191,7 @@ function validateScreens(raw: unknown[], expectedIds: string[]): ScreenBoard[] {
   }
   // Step 1 of GO-3 cannot create or delete screens.
   if (screens.map((screen) => screen.id).join() !== expectedIds.join()) {
-    throw new ApiError('VALIDATION_ERROR', 'Screens do not match the room')
+    throw new ApiError('VALIDATION_ERROR', 'Screens do not match the space')
   }
   return screens
 }

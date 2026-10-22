@@ -1,9 +1,9 @@
-import type { RoomBoard, ScreenBoard } from '@lifedashboard/contracts/board'
+import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
+import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { call, errorCode, pair, testApp, type TestApp } from './helpers.ts'
 
-const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
+const BOARD = `/api/v1/spaces/${SEED_SPACE_ID}/board`
 const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
 const placeholder = { kind: 'builtin', type: 'placeholder' } as const
@@ -36,7 +36,7 @@ afterEach(async () => {
   await t.close()
 })
 
-async function getBoard(): Promise<RoomBoard> {
+async function getBoard(): Promise<SpaceBoard> {
   const response = await call(t.app, { url: BOARD, cookie })
   expect(response.statusCode).toBe(200)
   return response.json().data
@@ -46,36 +46,36 @@ function put(payload: unknown, url = BOARD) {
   return call(t.app, { method: 'PUT', url, cookie, payload })
 }
 
-describe('GET /api/v1/rooms', () => {
-  it('lists the seed room', async () => {
-    const response = await call(t.app, { url: '/api/v1/rooms', cookie })
+describe('GET /api/v1/spaces', () => {
+  it('lists the seed space', async () => {
+    const response = await call(t.app, { url: '/api/v1/spaces', cookie })
     expect(response.statusCode).toBe(200)
-    expect(response.json().data).toEqual([{ id: SEED_ROOM_ID, title: 'Главная', position: 0, revision: 1 }])
+    expect(response.json().data).toEqual([{ id: SEED_SPACE_ID, title: 'Главная', position: 0, revision: 1 }])
   })
 })
 
-describe('GET /api/v1/rooms/:roomId/board', () => {
+describe('GET /api/v1/spaces/:spaceId/board', () => {
   it('returns the empty seed board', async () => {
     expect(await getBoard()).toEqual({
-      roomId: SEED_ROOM_ID,
+      spaceId: SEED_SPACE_ID,
       revision: 1,
       screens: [EMPTY_SCREEN],
     })
   })
 
-  it('answers 404 for an unknown room', async () => {
-    const response = await call(t.app, { url: '/api/v1/rooms/00000000-0000-4000-8000-000000000000/board', cookie })
+  it('answers 404 for an unknown space', async () => {
+    const response = await call(t.app, { url: '/api/v1/spaces/00000000-0000-4000-8000-000000000000/board', cookie })
     expect(response.statusCode).toBe(404)
     expect(errorCode(response)).toBe('NOT_FOUND')
   })
 })
 
-describe('PUT /api/v1/rooms/:roomId/board', () => {
+describe('PUT /api/v1/spaces/:spaceId/board', () => {
   it('stores rows and reads them back, also on an empty screen', async () => {
     const response = await put({ expectedRevision: 1, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
     expect(response.statusCode).toBe(200)
-    expect(response.json().data).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
-    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
+    expect(response.json().data).toEqual({ spaceId: SEED_SPACE_ID, revision: 2, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
+    expect(await getBoard()).toEqual({ spaceId: SEED_SPACE_ID, revision: 2, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
   })
 
   it('accepts a placement below the configured rows', async () => {
@@ -88,8 +88,8 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
   it('saves, increments the revision and round-trips order and nested config', async () => {
     const response = await put({ expectedRevision: 1, screens: [screen] })
     expect(response.statusCode).toBe(200)
-    const saved: RoomBoard = response.json().data
-    expect(saved).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [screen] })
+    const saved: SpaceBoard = response.json().data
+    expect(saved).toEqual({ spaceId: SEED_SPACE_ID, revision: 2, screens: [screen] })
     expect(JSON.stringify(saved.screens[0])).toBe(JSON.stringify(screen))
     expect(await getBoard()).toEqual(saved)
   })
@@ -112,7 +112,7 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
     const response = await put({ expectedRevision: 1, screens: [{ ...EMPTY_SCREEN, rows: 30 }] })
     expect(response.statusCode).toBe(409)
     expect(errorCode(response)).toBe('REVISION_CONFLICT')
-    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 2, screens: [screen] })
+    expect(await getBoard()).toEqual({ spaceId: SEED_SPACE_ID, revision: 2, screens: [screen] })
   })
 
   const overlapping = structuredClone(screen)
@@ -154,27 +154,27 @@ describe('PUT /api/v1/rooms/:roomId/board', () => {
     expect(await getBoard()).toEqual(before)
   })
 
-  it('answers 400 when a widget id belongs to another room and changes neither room', async () => {
-    const otherRoom = '00000000-0000-4000-8000-0000000000aa'
-    const otherRoomScreen = '00000000-0000-4000-8000-0000000000ab'
+  it('answers 400 when a widget id belongs to another space and changes neither space', async () => {
+    const otherSpace = '00000000-0000-4000-8000-0000000000aa'
+    const otherSpaceScreen = '00000000-0000-4000-8000-0000000000ab'
     t.db.exec(`
-      INSERT INTO rooms (id, title, position, revision, created_at, updated_at) VALUES ('${otherRoom}', 'Other', 1, 1, 'x', 'x');
-      INSERT INTO screens (id, room_id, position) VALUES ('${otherRoomScreen}', '${otherRoom}', 0);
+      INSERT INTO spaces (id, title, position, revision, created_at, updated_at) VALUES ('${otherSpace}', 'Other', 1, 1, 'x', 'x');
+      INSERT INTO screens (id, space_id, position) VALUES ('${otherSpaceScreen}', '${otherSpace}', 0);
       INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, x, y, w, h)
-      VALUES ('${A}', '${otherRoomScreen}', 'builtin', 'placeholder', '{}', 1, 0, 0, 1, 1);
+      VALUES ('${A}', '${otherSpaceScreen}', 'builtin', 'placeholder', '{}', 1, 0, 0, 1, 1);
     `)
-    // The target room already holds B, so a partial replacement would be visible.
+    // The target space already holds B, so a partial replacement would be visible.
     const onlyB: ScreenBoard = { id: SEED_SCREEN_ID, rows: 12, instances: [screen.instances[0]!], layout: [screen.layout[0]!] }
     const before = (await put({ expectedRevision: 1, screens: [onlyB] })).json().data
     const response = await put({ expectedRevision: 2, screens: [screen] })
     expect(response.statusCode).toBe(400)
     expect(response.json().error.message).toContain(A)
     expect(await getBoard()).toEqual(before)
-    expect(t.db.prepare('SELECT screen_id FROM widgets WHERE id = ?').get(A)).toEqual({ screen_id: otherRoomScreen })
+    expect(t.db.prepare('SELECT screen_id FROM widgets WHERE id = ?').get(A)).toEqual({ screen_id: otherSpaceScreen })
   })
 
-  it('answers 404 for an unknown room', async () => {
-    const response = await put({ expectedRevision: 1, screens: [screen] }, '/api/v1/rooms/00000000-0000-4000-8000-000000000000/board')
+  it('answers 404 for an unknown space', async () => {
+    const response = await put({ expectedRevision: 1, screens: [screen] }, '/api/v1/spaces/00000000-0000-4000-8000-000000000000/board')
     expect(response.statusCode).toBe(404)
   })
 
@@ -225,7 +225,7 @@ describe('package widgets on the board', () => {
     const response = await put({ expectedRevision: 1, screens: [withPackage] })
     expect(response.statusCode).toBe(400)
     expect(response.json().error.message).toContain('dev.test.hello@1.0.0 is not installed')
-    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 1, screens: [EMPTY_SCREEN] })
+    expect(await getBoard()).toEqual({ spaceId: SEED_SPACE_ID, revision: 1, screens: [EMPTY_SCREEN] })
   })
 
   it('keeps widget state across a save that keeps the widget and drops it with the widget', async () => {
@@ -267,6 +267,6 @@ describe('widget appearance', () => {
     const response = await put({ expectedRevision: 1, screens: [styled({ themeId: null, shadow: { ...look.shadow, blur: 49 } })] })
     expect(response.statusCode).toBe(400)
     expect(errorCode(response)).toBe('VALIDATION_ERROR')
-    expect(await getBoard()).toEqual({ roomId: SEED_ROOM_ID, revision: 1, screens: [EMPTY_SCREEN] })
+    expect(await getBoard()).toEqual({ spaceId: SEED_SPACE_ID, revision: 1, screens: [EMPTY_SCREEN] })
   })
 })

@@ -59,7 +59,7 @@ export const REQUIRED_TOKENS: Readonly<Record<string, TokenSpec>> = {
   'control-height': rem(1.75, 2.75),
 }
 
-// Reset to `initial` on every theme scope in styles/frame.css, so they never leak from the Room
+// Reset to `initial` on every theme scope in styles/frame.css, so they never leak from the Space
 // theme into a widget theme; skins read them with a fallback.
 export const OPTIONAL_TOKENS: Readonly<Record<string, TokenSpec>> = {
   'shadow-widget': { type: 'shadow' },

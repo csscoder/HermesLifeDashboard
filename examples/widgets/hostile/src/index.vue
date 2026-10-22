@@ -31,7 +31,7 @@ onMounted(async () => {
   await probe('document.cookie', () => document.cookie)
   await probe('parent.document', () => parent.document.title)
   await probe('localStorage', () => localStorage.length)
-  await probe('fetch /api/v1/rooms', async () => (await fetch('/api/v1/rooms')).status)
+  await probe('fetch /api/v1/spaces', async () => (await fetch('/api/v1/spaces')).status)
   // The manifest grants `state` only.
   await probe('notifications.send', () => widget.notify({ title: 'hostile' }))
   await probe('fetch https://example.com/', async () => (await fetch('https://example.com/')).status)

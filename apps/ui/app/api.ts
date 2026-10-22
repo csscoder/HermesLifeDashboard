@@ -1,4 +1,4 @@
-import type { RoomBoard, RoomSummary, SaveBoardRequest } from '@lifedashboard/contracts/board'
+import type { SpaceBoard, SpaceSummary, SaveBoardRequest } from '@lifedashboard/contracts/board'
 import type { WidgetSessionResponse } from '@lifedashboard/contracts/widget-gateway'
 import type { FolderFile, Grant, GrantMode, InstalledPackage, PackageInspection, UploadCreated, WidgetPermission } from '@lifedashboard/contracts/widget-package'
 
@@ -73,12 +73,12 @@ export async function apiRequest<T>(
   return { ok: false, kind: 'unavailable' }
 }
 
-const boardPath = (roomId: string) => `/rooms/${encodeURIComponent(roomId)}/board`
+const boardPath = (spaceId: string) => `/spaces/${encodeURIComponent(spaceId)}/board`
 
 export const api = {
-  rooms: () => apiRequest<RoomSummary[]>('GET', '/rooms'),
-  board: (roomId: string) => apiRequest<RoomBoard>('GET', boardPath(roomId)),
-  saveBoard: (roomId: string, request: SaveBoardRequest) => apiRequest<RoomBoard>('PUT', boardPath(roomId), request),
+  spaces: () => apiRequest<SpaceSummary[]>('GET', '/spaces'),
+  board: (spaceId: string) => apiRequest<SpaceBoard>('GET', boardPath(spaceId)),
+  saveBoard: (spaceId: string, request: SaveBoardRequest) => apiRequest<SpaceBoard>('PUT', boardPath(spaceId), request),
   pair: (code: string) => apiRequest<null>('POST', '/auth/pair', { code }),
   // The API requires a JSON body on every mutation, DELETE included.
   pairCode: () => apiRequest<null>('POST', '/auth/pair-code', {}),

@@ -14,7 +14,7 @@ A theme is a record `{ id, name, mode, skin, css }`.
 - `css`: exactly **one rule** and nothing else:
 
 ```css
-.room--theme-<slug>, .widget--theme-<slug> {
+.space--theme-<slug>, .widget--theme-<slug> {
   color-scheme: dark;
   --ld-bg: oklch(0.2 0.02 280);
   /* … every required token, optional tokens if wanted */

@@ -6,7 +6,7 @@ import type { SkinId } from './contract'
 export type FrameSkin = SkinId | 'bare'
 
 /**
- * The theme of a scope: the first id in the chain (widget, room, workspace) that is set and known.
+ * The theme of a scope: the first id in the chain (widget, space, workspace) that is set and known.
  * An unknown id (deleted theme) counts as unset; the stored reference is not rewritten.
  */
 export function resolveThemeId(chain: readonly (string | null)[], known: ReadonlySet<string>): string {

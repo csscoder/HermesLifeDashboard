@@ -36,7 +36,7 @@ The following describes the implementation in the repository as of **October 202
 | Widget SDK | Initial `useWidget()` API, `ld-widget build` CLI, reactive widget context, persisted state, and host notifications. |
 | Isolation | Third-party widget packages run in sandboxed iframes with a restricted bridge to the host and API. |
 | Local access | Pairing code, authenticated browser sessions, and local API origin checks. |
-| Rooms and screens | Data contracts exist, but the UI currently displays the initial room and its first screen; management/navigation is planned. |
+| Spaces and screens | Data contracts exist, but the UI currently displays the initial space and its first screen; management/navigation is planned. |
 | Hermes Agent | Planned; no Hermes adapter or chat UI is implemented in the current application. |
 | Desktop app | Local macOS (Apple Silicon) build with Tauri: the app runs the same API and UI; ad-hoc signed, not notarized or distributed. |
 | Animated backgrounds | Planned; there is no animated-background system yet. |
@@ -198,7 +198,7 @@ LifeDashboard UI (Nuxt 4 / Vue 3)
              ▼
 LifeDashboard Core (Fastify)
   ├── Authentication and pairing
-  ├── Rooms and board persistence
+  ├── Spaces and board persistence
   ├── Widget package registry and gateway
   └── SQLite storage
 
@@ -287,7 +287,7 @@ The roadmap describes intended directions rather than release promises or delive
 
 1. **Widget experience:** polish the board editor, broaden the built-in library, improve animations and appearance controls, and support static/animated backgrounds.
 2. **Widget SDK developer experience:** stable versioned contracts and richer asset support.
-3. **Workspace organization:** multiple editable rooms/screens, presets, portable layouts, and import/export of configurations.
+3. **Workspace organization:** multiple editable spaces/screens, presets, portable layouts, and import/export of configurations.
 4. **Widget ecosystem:** practical and decorative widget collections, themed packs, easier package discovery and updates, and optional independently sold premium packs.
 5. **Data and AI integrations:** permission-controlled data sources, external service access, device integrations, and Hermes sessions/conversations and AI-powered widgets.
 6. **Desktop release:** Tauri packaging, native lifecycle and security checks, installation, and platform-specific testing.

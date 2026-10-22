@@ -10,7 +10,7 @@ import { performHttp } from '@lifedashboard/contracts/widget-http'
 import type { WidgetPackageManifest } from '@lifedashboard/contracts/widget-package'
 import { secretsOf } from '@lifedashboard/contracts/widget-secrets'
 import { describe, expect, it, vi } from 'vitest'
-import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../../../apps/api/src/migrations.ts'
+import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../../../apps/api/src/migrations.ts'
 import { call, installPackage, pair, testApp, widgetPackage } from '../../../apps/api/test/helpers.ts'
 import { REQUIRED_TOKENS } from '../../../apps/ui/app/theme/contract.ts'
 import { createDevGateway } from '../src/dev/gateway.ts'
@@ -130,7 +130,7 @@ describe('dev gateway rules', () => {
         instances: [{ id: widgetId, source: { kind: 'package', packageId: 'dev.test.hello', version: '1.0.0' }, configVersion: 1, config: {} }],
         layout: [{ instanceId: widgetId, x: 0, y: 0, w: 3, h: 3 }],
       }
-      const board = { method: 'PUT', url: `/api/v1/rooms/${SEED_ROOM_ID}/board`, cookie, payload: { expectedRevision: 1, screens: [screen] } } as const
+      const board = { method: 'PUT', url: `/api/v1/spaces/${SEED_SPACE_ID}/board`, cookie, payload: { expectedRevision: 1, screens: [screen] } } as const
       expect((await call(t.app, board)).statusCode).toBe(200)
       const opened = await call(t.app, { method: 'POST', url: '/api/v1/widget-sessions', cookie, payload: { widgetId } })
       const headers = { 'x-widget-session': opened.json().data.widgetSession }

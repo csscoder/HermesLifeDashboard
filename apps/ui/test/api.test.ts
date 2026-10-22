@@ -21,9 +21,9 @@ describe('apiRequest', () => {
   it('returns the data of a success envelope and sends a same-origin request with a timeout signal', async () => {
     const fetchMock = respond(200, { data: [{ id: 'r' }], meta: { requestId: 'x' } })
     vi.stubGlobal('fetch', fetchMock)
-    expect(await api.rooms()).toEqual({ ok: true, data: [{ id: 'r' }] })
+    expect(await api.spaces()).toEqual({ ok: true, data: [{ id: 'r' }] })
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toBe('/api/v1/rooms')
+    expect(url).toBe('/api/v1/spaces')
     expect(init?.method).toBe('GET')
     expect(init?.credentials).toBe('same-origin')
     expect(init?.signal).toBeInstanceOf(AbortSignal)
@@ -33,9 +33,9 @@ describe('apiRequest', () => {
   it('sends a JSON body on PUT', async () => {
     const fetchMock = respond(200, { data: null, meta: { requestId: 'x' } })
     vi.stubGlobal('fetch', fetchMock)
-    await api.saveBoard('room 1', { expectedRevision: 3, screens: [] })
+    await api.saveBoard('space 1', { expectedRevision: 3, screens: [] })
     const [url, init] = fetchMock.mock.calls[0]!
-    expect(url).toBe('/api/v1/rooms/room%201/board')
+    expect(url).toBe('/api/v1/spaces/space%201/board')
     expect(init?.method).toBe('PUT')
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(init?.body).toBe('{"expectedRevision":3,"screens":[]}')
@@ -56,19 +56,19 @@ describe('apiRequest', () => {
     [502, 'unavailable'],
   ])('maps %i to %s', async (status, kind) => {
     vi.stubGlobal('fetch', respond(status, { error: { code: 'X', message: 'm', requestId: 'x', retryable: false } }))
-    expect(await api.rooms()).toEqual({ ok: false, kind })
+    expect(await api.spaces()).toEqual({ ok: false, kind })
   })
 
   it('keeps the message of a 502 UPSTREAM_ERROR; another 502 stays unavailable', async () => {
     vi.stubGlobal('fetch', respond(502, { error: { code: 'UPSTREAM_ERROR', message: 'The service is unreachable', requestId: 'x', retryable: false } }))
     expect(await api.gateway('http.get', 't', { url: 'http://127.0.0.1:8787/' })).toEqual({ ok: false, kind: 'upstream', message: 'The service is unreachable' })
     vi.stubGlobal('fetch', respond(502, { error: { code: 'X', message: 'm', requestId: 'x', retryable: false } }))
-    expect(await api.rooms()).toEqual({ ok: false, kind: 'unavailable' })
+    expect(await api.spaces()).toEqual({ ok: false, kind: 'unavailable' })
   })
 
   it('maps another 4xx to invalid with the server message', async () => {
     vi.stubGlobal('fetch', respond(400, { error: { code: 'VALIDATION_ERROR', message: 'bad rect', requestId: 'x', retryable: false } }))
-    expect(await api.rooms()).toEqual({ ok: false, kind: 'invalid', code: 'VALIDATION_ERROR', message: 'bad rect' })
+    expect(await api.spaces()).toEqual({ ok: false, kind: 'invalid', code: 'VALIDATION_ERROR', message: 'bad rect' })
   })
 
   it('maps 401 SESSION_EXPIRED apart from a lost dashboard session', async () => {
@@ -150,19 +150,19 @@ describe('apiRequest', () => {
 
   it('maps a network error to unavailable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
-    expect(await api.rooms()).toEqual({ ok: false, kind: 'unavailable' })
+    expect(await api.spaces()).toEqual({ ok: false, kind: 'unavailable' })
   })
 
   it('maps a non-JSON body to unavailable', async () => {
     vi.stubGlobal('fetch', respond(200, '<html>proxy error</html>'))
-    expect(await api.rooms()).toEqual({ ok: false, kind: 'unavailable' })
+    expect(await api.spaces()).toEqual({ ok: false, kind: 'unavailable' })
   })
 
   it('times out when the headers never arrive', async () => {
     vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
       new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))),
     ))
-    expect(await apiRequest('GET', '/rooms', undefined, 20)).toEqual({ ok: false, kind: 'unavailable' })
+    expect(await apiRequest('GET', '/spaces', undefined, 20)).toEqual({ ok: false, kind: 'unavailable' })
   })
 
   it('times out when the body never arrives', async () => {
@@ -172,7 +172,7 @@ describe('apiRequest', () => {
       status: 200,
       json: () => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))),
     })))
-    expect(await apiRequest('GET', '/rooms', undefined, 20)).toEqual({ ok: false, kind: 'unavailable' })
+    expect(await apiRequest('GET', '/spaces', undefined, 20)).toEqual({ ok: false, kind: 'unavailable' })
   })
 })
 

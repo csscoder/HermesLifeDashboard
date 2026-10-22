@@ -200,7 +200,7 @@ export function validateThemeCss(css: string, { slug, mode }: { slug: string; mo
   } catch (error) {
     return fail('syntax', `CSS does not parse: ${(error as Error).message}`)
   }
-  const expected = [`.room--theme-${slug}`, `.widget--theme-${slug}`]
+  const expected = [`.space--theme-${slug}`, `.widget--theme-${slug}`]
   const nodes = root.nodes.filter((node) => node.type !== 'comment')
   const rule = nodes[0]
   if (nodes.length !== 1 || rule?.type !== 'rule')

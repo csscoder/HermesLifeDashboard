@@ -26,7 +26,7 @@ describe('validateThemeCss', () => {
     ['an extra rule', `${base}\n.widget__box { opacity: 0 }`, 'single-block', /exactly one rule/],
     ['an @import', `@import "other.css";\n${base}`, 'single-block', /exactly one rule/],
     ['a @media wrapper', `@media (min-width: 1px) { ${base} }`, 'single-block', /exactly one rule/],
-    ['another selector', base.replace('.widget--theme-obsidian', '.widget'), 'selector', /must be "\.room--theme-obsidian, \.widget--theme-obsidian"/],
+    ['another selector', base.replace('.widget--theme-obsidian', '.widget'), 'selector', /must be "\.space--theme-obsidian, \.widget--theme-obsidian"/],
     ['an unknown token', base.replace(/}\s*$/, '--ld-foo: 1;\n}'), 'unknown-property', /--ld-foo is not a contract token/],
     ['a prototype property token', base.replace(/}\s*$/, '--ld-constructor: 1;\n}'), 'unknown-property', /--ld-constructor is not a contract token/],
     ['a non-token property', base.replace(/}\s*$/, 'opacity: 0;\n}'), 'unknown-property', /opacity is not a contract token/],
@@ -164,7 +164,7 @@ describe('stylesheets', () => {
   it('frame.css resets exactly the optional tokens on every theme scope', () => {
     const reset: string[] = []
     postcss.parse(styleFile('frame.css')).walkRules((rule) => {
-      if (rule.selectors.join(',') !== '.room,.widget') return
+      if (rule.selectors.join(',') !== '.space,.widget') return
       rule.walkDecls((decl) => {
         if (decl.value === 'initial') reset.push(decl.prop)
       })

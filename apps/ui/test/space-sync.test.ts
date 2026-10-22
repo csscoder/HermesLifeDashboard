@@ -1,8 +1,8 @@
-import type { RoomBoard, ScreenBoard } from '@lifedashboard/contracts/board'
+import type { SpaceBoard, ScreenBoard } from '@lifedashboard/contracts/board'
 import { describe, expect, it, vi } from 'vitest'
-import { afterLoad, afterSave, connect, useRoomSync } from '../app/board/room-sync'
+import { afterLoad, afterSave, connect, useSpaceSync } from '../app/board/space-sync'
 
-const ROOM = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
+const SPACE = '0b9f4a52-4d1c-4a8e-9d3b-2f6c1e7a5b01'
 const SCREEN = '5c2e8d17-93a4-4f6b-8e21-7d4b0a9c3e02'
 const OTHER_SCREEN = '00000000-0000-4000-8000-0000000000ff'
 const A = '00000000-0000-4000-8000-00000000000a'
@@ -16,8 +16,8 @@ function screen(ids: string[]): ScreenBoard {
   }
 }
 
-function board(revision: number, ids: string[] = []): RoomBoard {
-  return { roomId: ROOM, revision, screens: [screen(ids), { id: OTHER_SCREEN, rows: 12, instances: [], layout: [] }] }
+function board(revision: number, ids: string[] = []): SpaceBoard {
+  return { spaceId: SPACE, revision, screens: [screen(ids), { id: OTHER_SCREEN, rows: 12, instances: [], layout: [] }] }
 }
 
 const ok = <T>(data: T) => ({ ok: true as const, data })
@@ -33,7 +33,7 @@ function deferred<T>() {
 function setup() {
   const client = { board: vi.fn(), saveBoard: vi.fn() }
   const view = { idle: true }
-  const sync = useRoomSync(client, () => ROOM, () => view.idle)
+  const sync = useSpaceSync(client, () => SPACE, () => view.idle)
   return { client, view, sync }
 }
 
@@ -45,33 +45,33 @@ async function loaded(revision = 1) {
 }
 
 describe('connect', () => {
-  it('is ready with the first room', async () => {
-    const rooms = vi.fn().mockResolvedValue(ok([{ id: 'r1' }, { id: 'r2' }]))
-    expect(await connect({ rooms })).toEqual({ state: 'ready', roomId: 'r1' })
+  it('is ready with the first space', async () => {
+    const spaces = vi.fn().mockResolvedValue(ok([{ id: 'r1' }, { id: 'r2' }]))
+    expect(await connect({ spaces })).toEqual({ state: 'ready', spaceId: 'r1' })
   })
 
   it('asks for pairing on 401', async () => {
-    const rooms = vi.fn().mockResolvedValue({ ok: false, kind: 'unauthorized' })
-    expect(await connect({ rooms })).toEqual({ state: 'pairing' })
+    const spaces = vi.fn().mockResolvedValue({ ok: false, kind: 'unauthorized' })
+    expect(await connect({ spaces })).toEqual({ state: 'pairing' })
   })
 
   it.each([
-    ['no room', ok([])],
+    ['no space', ok([])],
     ['an unavailable API', { ok: false, kind: 'unavailable' }],
     ['a rejected request', { ok: false, kind: 'invalid', code: 'VALIDATION_ERROR', message: 'm' }],
   ])('is unavailable for %s', async (_name, result) => {
-    expect(await connect({ rooms: vi.fn().mockResolvedValue(result) })).toEqual({ state: 'unavailable' })
+    expect(await connect({ spaces: vi.fn().mockResolvedValue(result) })).toEqual({ state: 'unavailable' })
   })
 })
 
 describe('load', () => {
-  it('stores the board of the room', async () => {
+  it('stores the board of the space', async () => {
     const { client, sync } = setup()
     client.board.mockResolvedValueOnce(ok(board(1)))
     expect(sync.loaded.value).toBe(false)
     expect(await sync.load()).toBe('loaded')
-    expect(client.board).toHaveBeenCalledWith(ROOM)
-    expect(sync.room.value).toEqual(board(1))
+    expect(client.board).toHaveBeenCalledWith(SPACE)
+    expect(sync.space.value).toEqual(board(1))
     expect(sync.loaded.value).toBe(true)
   })
 
@@ -83,14 +83,14 @@ describe('load', () => {
     const { client, sync } = setup()
     client.board.mockResolvedValueOnce({ ok: false, kind })
     expect(await sync.load()).toBe(outcome)
-    expect(sync.room.value).toBeNull()
+    expect(sync.space.value).toBeNull()
   })
 
   it('replaces the board on a later load in view mode', async () => {
     const { client, sync } = await loaded(1)
     client.board.mockResolvedValueOnce(ok(board(2, [A])))
     expect(await sync.load()).toBe('loaded')
-    expect(sync.room.value?.revision).toBe(2)
+    expect(sync.space.value?.revision).toBe(2)
   })
 
   it('ignores a load that finishes after a mode was opened, so the save keeps the old revision', async () => {
@@ -101,7 +101,7 @@ describe('load', () => {
     view.idle = false // «Изменить» was pressed before the response
     late.resolve(ok(board(2, [A])))
     expect(await pending).toBe('ignored')
-    expect(sync.room.value).toEqual(board(1))
+    expect(sync.space.value).toEqual(board(1))
 
     client.saveBoard.mockResolvedValueOnce({ ok: false, kind: 'conflict' })
     expect(await sync.save(screen([]))).toBe('conflict')
@@ -113,7 +113,7 @@ describe('load', () => {
     view.idle = false
     client.board.mockResolvedValueOnce({ ok: false, kind: 'unavailable' })
     expect(await sync.load()).toBe('ignored')
-    expect(sync.room.value).toEqual(board(1))
+    expect(sync.space.value).toEqual(board(1))
   })
 
   it('reports 401 even when it arrives after a mode was opened', async () => {
@@ -138,8 +138,8 @@ describe('save', () => {
     const { client, sync } = await loaded(1)
     client.saveBoard.mockResolvedValueOnce(ok(board(2, [A])))
     expect(await sync.save(screen([A]))).toBe('saved')
-    expect(client.saveBoard).toHaveBeenCalledWith(ROOM, { expectedRevision: 1, screens: board(2, [A]).screens })
-    expect(sync.room.value).toEqual(board(2, [A]))
+    expect(client.saveBoard).toHaveBeenCalledWith(SPACE, { expectedRevision: 1, screens: board(2, [A]).screens })
+    expect(sync.space.value).toEqual(board(2, [A]))
     expect(sync.saving.value).toBe(false)
   })
 
@@ -166,7 +166,7 @@ describe('save', () => {
     const { client, sync } = await loaded(1)
     client.saveBoard.mockResolvedValueOnce({ ok: false, kind, message: 'm' })
     expect(await sync.save(screen([A]))).toBe(outcome)
-    expect(sync.room.value).toEqual(board(1))
+    expect(sync.space.value).toEqual(board(1))
     expect(sync.saving.value).toBe(false)
   })
 })

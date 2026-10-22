@@ -1,5 +1,5 @@
 /* Paper: light, warm opaque surfaces with ink-like text. Skin: paper. */
-.room--theme-paper, .widget--theme-paper {
+.space--theme-paper, .widget--theme-paper {
   color-scheme: light;
   --ld-bg: oklch(0.95 0.01 85);
   --ld-backdrop: oklch(0.95 0.01 85);

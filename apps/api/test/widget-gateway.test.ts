@@ -2,11 +2,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
 import type { AddressInfo } from 'node:net'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { SEED_ROOM_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
+import { SEED_SPACE_ID, SEED_SCREEN_ID } from '../src/migrations.ts'
 import { needsConfirmation, RATE_LIMITS } from '../src/widget-gateway.ts'
 import { call, DAY, errorCode, HOUR, installPackage, pair, T0, testApp, widgetPackage, type TestApp } from './helpers.ts'
 
-const BOARD = `/api/v1/rooms/${SEED_ROOM_ID}/board`
+const BOARD = `/api/v1/spaces/${SEED_SPACE_ID}/board`
 const PKG_WIDGET = '00000000-0000-4000-8000-0000000000a1'
 const BUILTIN_WIDGET = '00000000-0000-4000-8000-0000000000b1'
 // JSON of 'x'.repeat(n) is n + 2 bytes.

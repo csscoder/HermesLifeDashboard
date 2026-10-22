@@ -5,7 +5,7 @@ import { ROWS } from '@lifedashboard/contracts/grid'
 import { api } from './api'
 import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
-import { connect } from './board/room-sync'
+import { connect } from './board/space-sync'
 import PairingForm from './PairingForm.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { toasts } from './toasts'
@@ -18,8 +18,8 @@ import { resolveThemeId, themeClass } from './theme/resolve'
 type AppState = 'checking' | 'pairing' | 'ready' | 'unavailable'
 
 const state = ref<AppState>('checking')
-// The first room; the rooms UI arrives with step 2 of GO-3.
-const roomId = ref<string | null>(null)
+// The first space; the spaces UI arrives with step 2 of GO-3.
+const spaceId = ref<string | null>(null)
 // A failed save keeps the board but marks the API as unavailable in the header.
 const apiDown = ref(false)
 const mode = ref<BoardMode>('view')
@@ -50,7 +50,7 @@ const apiLabel = computed(() => {
   return state.value === 'checking' ? 'API: проверка…' : 'API: работает'
 })
 
-// Workspace theme; Rooms (E2) will put their own id in front of it in the chain.
+// Workspace theme; Spaces (E2) will put their own id in front of it in the chain.
 const storedThemeId = loadAppearance().themeId
 const themeId = ref(resolveThemeId([storedThemeId], BUILTIN_THEME_IDS))
 // An unknown stored id (deleted theme) is kept as it is; the default theme is shown meanwhile.
@@ -66,9 +66,9 @@ function selectTheme(event: Event) {
 }
 
 const rootClass = computed(() => [
-  'room',
-  `room--theme-${themeClass(themeId.value)}`,
-  `room--skin-${themeMeta(themeId.value).skin}`,
+  'space',
+  `space--theme-${themeClass(themeId.value)}`,
+  `space--skin-${themeMeta(themeId.value).skin}`,
 ])
 
 async function check() {
@@ -78,7 +78,7 @@ async function check() {
   apiDown.value = false
   const result = await connect(api)
   if (result.state === 'ready') {
-    roomId.value = result.roomId
+    spaceId.value = result.spaceId
     void loadPackages(api)
   }
   state.value = result.state
@@ -101,7 +101,7 @@ onMounted(check)
 
 <template>
   <div :class="rootClass">
-    <div class="room__backdrop" />
+    <div class="space__backdrop" />
     <div class="app">
       <header class="app__header">
         <h1 class="app__title">LifeDashboard</h1>
@@ -162,10 +162,10 @@ onMounted(check)
           <button type="button" class="app__button" @click="check">Повторить</button>
         </div>
         <WidgetBoard
-          v-else-if="roomId"
+          v-else-if="spaceId"
           ref="board"
           v-model:mode="mode"
-          :room-id="roomId"
+          :space-id="spaceId"
           :theme-id="themeId"
           :draft-source="draftSource"
           @notice="notice = $event"

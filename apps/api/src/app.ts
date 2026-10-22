@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { registerAuth } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { newRequestId, registerErrorHandling } from './errors.ts'
-import { registerRooms } from './rooms.ts'
+import { registerSpaces } from './spaces.ts'
 import { registerSandbox } from './sandbox.ts'
 import { registerUiStatic } from './ui-static.ts'
 import { registerWidgetGateway } from './widget-gateway.ts'
@@ -24,7 +24,7 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   registerErrorHandling(app)
   app.get('/health', async () => ({ status: 'ok' as const }))
   registerAuth(app, { db, config, now, onPairingCode })
-  registerRooms(app, { db, now })
+  registerSpaces(app, { db, now })
   registerWidgetPackages(app, { db, now, dataDir: config.dataDir })
   registerWidgetUploads(app, { db, now, dataDir: config.dataDir })
   registerWidgetGateway(app, { db, now })
