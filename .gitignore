@@ -27,3 +27,6 @@ dist-bundle/
 
 # Claude Code local instructions
 CLAUDE.local.md
+
+# Superpowers brainstorm mockups and plan workspaces
+.superpowers/
