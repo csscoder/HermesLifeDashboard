@@ -12,6 +12,7 @@ import WidgetHost from '../widgets/WidgetHost.vue'
 import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterManage, afterSave, afterStaySave, useSpaceSync, type Reaction } from './space-sync'
+import { screenNamed, useScreenModel } from './screen-model'
 import { runDeleteScreen, runPreSave } from './switch-flow'
 import { useActiveRect } from './use-active-rect'
 import WidgetSettings from './WidgetSettings.vue'
@@ -58,17 +59,10 @@ const {
   () => mode.value === 'view',
 )
 // The screen screenId names; the first one when it names none (the board never shows an empty space).
-function screenOf(id: string | null): ScreenBoard | null {
-  const screens = space.value?.screens ?? []
-  return screens.find((screen) => screen.id === id) ?? screens[0] ?? null
-}
-const doc = computed<ScreenBoard>(() => screenOf(screenId.value) ?? emptyScreen)
+const screenModel = useScreenModel({ space, spaceId, screenId })
+const doc = computed<ScreenBoard>(() => screenModel.doc.value ?? emptyScreen)
 const screens = computed(() => space.value?.screens.map((screen) => screen.id) ?? [])
 const revision = computed(() => space.value?.revision ?? null)
-// Keeps the model on the screen on display.
-watch(doc, (screen) => {
-  if (screen.id && screen.id !== screenId.value) screenId.value = screen.id
-})
 // Edit mode changes a working copy; `doc` keeps the loaded screen for the «unchanged» check.
 const working = ref<ScreenBoard>(emptyScreen)
 // Direction of the last screen switch: the grid slides in from that side for one frame.
@@ -204,7 +198,7 @@ async function saveIfDirty(): Promise<boolean> {
 function openWorking(id: string | null) {
   deactivate()
   activeId.value = null
-  working.value = screenOf(id) ?? emptyScreen
+  working.value = screenNamed(space.value?.screens ?? [], id) ?? emptyScreen
 }
 
 // Slides the grid in from the side the move comes from. The start pose is applied for one frame,
@@ -240,24 +234,14 @@ async function switchSpace(target: string, screen: string | null, opts?: { disca
     switching.value = false
   }
 }
-// Switches space and loads it. The id model is set first, because the sync loads the id it reads from it.
+// Switches space and loads it. The screen id is written after the load, to the screen the board shows then.
 async function runSwitchSpace(target: string, screen: string | null, opts?: { discard: boolean }): Promise<boolean> {
   if (saving.value || mode.value === 'build') return false
   if (!opts?.discard && !(await saveIfDirty())) return false
-  const previousSpace = spaceId.value
-  const previousScreen = screenId.value
-  spaceId.value = target
-  screenId.value = screen
-  await nextTick()
-  const outcome = await loadSwitchedSpace()
-  if (outcome !== 'loaded') {
-    spaceId.value = previousSpace
-    screenId.value = previousScreen
-    await apply(afterLoad(outcome))
-    return false
-  }
-  await apply(afterLoad(outcome))
-  if (editing.value) openWorking(screen)
+  const switched = await screenModel.switchTo(target, screen, loadSwitchedSpace)
+  await apply(afterLoad(switched.outcome))
+  if (switched.outcome !== 'loaded') return false
+  if (editing.value) openWorking(switched.screenId)
   return true
 }
 
