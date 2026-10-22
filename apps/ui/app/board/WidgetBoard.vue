@@ -3,18 +3,24 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import type { ScreenBoard, WidgetAppearance, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID_COLS, ROWS, findFreeRect, gridRows, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
+import { askDelete, pendingDelete } from '../spaces/confirm-delete'
+import { afterDelete, needsDeleteConfirm } from '../spaces/nav'
 import { resolveWidgetLook } from '../theme/resolve'
 import { describeSource } from '../widgets/catalog'
 import { useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
 import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPlacement, withRows, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
-import { afterLoad, afterSave, useSpaceSync, type Reaction } from './space-sync'
+import { afterLoad, afterManage, afterSave, useSpaceSync, type Reaction } from './space-sync'
+import { runDeleteScreen, runPreSave } from './switch-flow'
 import { useActiveRect } from './use-active-rect'
 import WidgetSettings from './WidgetSettings.vue'
 
 const mode = defineModel<BoardMode>('mode', { required: true })
-const props = defineProps<{ spaceId: string; themeId: string; draftSource: WidgetSource }>()
+// Both ids are v-model: the app reads them, the board writes them when it switches.
+const spaceId = defineModel<string>('spaceId', { required: true })
+const screenId = defineModel<string | null>('screenId', { required: true })
+const props = defineProps<{ themeId: string; draftSource: WidgetSource }>()
 const emit = defineEmits<{
   notice: [message: string | null]
   // 'down' after a failed save: the board stays, the header shows the API as unavailable.
@@ -36,15 +42,37 @@ const emptyScreen: ScreenBoard = { id: '', rows: ROWS.default, instances: [], la
 const draftSizing = computed(() => describeSource(props.draftSource)?.sizing ?? null)
 
 // A load that finishes while a mode is open is dropped (DATA-06); `saving` blocks input during a PUT.
-const { space, saving, loaded, load: loadSpace, save: saveSpace } = useSpaceSync(
+const {
+  space,
+  saving,
+  loaded,
+  load: loadSpace,
+  save: saveSpace,
+  saveAndStay,
+  switchSpace: loadSwitchedSpace,
+  addScreen: createScreen,
+  deleteScreen: deleteScreenOnServer,
+} = useSpaceSync(
   api,
-  () => props.spaceId,
+  () => spaceId.value,
   () => mode.value === 'view',
 )
-// The board shows the first screen; screens get their own UI in step 3 of GO-3.
-const doc = computed<ScreenBoard>(() => space.value?.screens[0] ?? emptyScreen)
+// The screen screenId names; the first one when it names none (the board never shows an empty space).
+function screenOf(id: string | null): ScreenBoard | null {
+  const screens = space.value?.screens ?? []
+  return screens.find((screen) => screen.id === id) ?? screens[0] ?? null
+}
+const doc = computed<ScreenBoard>(() => screenOf(screenId.value) ?? emptyScreen)
+const screens = computed(() => space.value?.screens.map((screen) => screen.id) ?? [])
+const revision = computed(() => space.value?.revision ?? null)
+// Keeps the model on the screen on display.
+watch(doc, (screen) => {
+  if (screen.id && screen.id !== screenId.value) screenId.value = screen.id
+})
 // Edit mode changes a working copy; `doc` keeps the loaded screen for the «unchanged» check.
 const working = ref<ScreenBoard>(emptyScreen)
+// Direction of the last screen switch: the grid slides in from that side for one frame.
+const slide = ref<'enter-next' | 'enter-prev' | null>(null)
 const activeId = ref<string | null>(null)
 // Template ref keys must differ from setup bindings: ref="draft" would overwrite a setup binding.
 const gridEl = useTemplateRef<HTMLElement>('gridBox')
@@ -62,6 +90,8 @@ let openAtPress: boolean | null = null
 const editing = computed(() => mode.value === 'edit')
 // The screen on display: the working copy in edit mode, the loaded screen otherwise.
 const shown = computed(() => (editing.value ? working.value : doc.value))
+// Pending widget edits: the working copy differs from the saved screen.
+const dirty = computed(() => editing.value && !isSameBoard(working.value, doc.value))
 
 const placed = computed(() =>
   shown.value.layout.flatMap((placement) => {
@@ -154,6 +184,107 @@ async function load() {
 
 async function save(next: ScreenBoard) {
   await apply(afterSave(await saveSpace(next)))
+}
+
+// Saves pending edits before a switch. A failure applies its reaction and keeps the working copy.
+async function saveIfDirty(): Promise<boolean> {
+  const result = await runPreSave({
+    editing: editing.value,
+    dirty: dirty.value,
+    saveAndStay: () => saveAndStay(working.value),
+  })
+  if (!result.ok) await apply(result.reaction)
+  return result.ok
+}
+
+// Puts the working copy on a screen and drops any widget selection of the previous one.
+function openWorking(id: string | null) {
+  deactivate()
+  activeId.value = null
+  working.value = screenOf(id) ?? emptyScreen
+}
+
+// Slides the grid in from the side the move comes from. The start pose is applied for one frame,
+// then released, so the transition runs from it.
+async function slideIn(from: number, to: number) {
+  slide.value = to < from ? 'enter-prev' : 'enter-next'
+  await nextTick()
+  void gridEl.value?.getBoundingClientRect()
+  slide.value = null
+}
+
+// Switches screen. In edit mode the pending edits are saved first and edit mode continues on the target.
+async function switchScreen(id: string): Promise<boolean> {
+  if (saving.value || mode.value === 'build' || !screens.value.includes(id)) return false
+  if (id === doc.value.id) return true
+  if (!(await saveIfDirty())) return false
+  const from = screens.value.indexOf(doc.value.id)
+  const to = screens.value.indexOf(id)
+  screenId.value = id
+  if (editing.value) openWorking(id)
+  void slideIn(from, to)
+  return true
+}
+
+// Switches space and loads it. The id model is set first, because the sync loads the id it reads from it.
+async function switchSpace(target: string, screen: string | null, opts?: { discard: boolean }): Promise<boolean> {
+  if (saving.value || mode.value === 'build') return false
+  if (!opts?.discard && !(await saveIfDirty())) return false
+  const previousSpace = spaceId.value
+  const previousScreen = screenId.value
+  spaceId.value = target
+  screenId.value = screen
+  await nextTick()
+  const outcome = await loadSwitchedSpace()
+  if (outcome !== 'loaded') {
+    spaceId.value = previousSpace
+    screenId.value = previousScreen
+    await apply(afterLoad(outcome))
+    return false
+  }
+  await apply(afterLoad(outcome))
+  if (editing.value) openWorking(screen)
+  return true
+}
+
+// Adds a screen after the last one and switches to it; edit mode continues on the empty screen.
+async function addScreen(): Promise<boolean> {
+  if (saving.value || mode.value === 'build') return false
+  if (!(await saveIfDirty())) return false
+  const from = screens.value.indexOf(doc.value.id)
+  const result = await createScreen()
+  await apply(afterManage(result.outcome))
+  if (result.outcome !== 'saved' || !result.screenId) return false
+  screenId.value = result.screenId
+  if (editing.value) openWorking(result.screenId)
+  void slideIn(from, screens.value.indexOf(result.screenId))
+  return true
+}
+
+// ✕ on the active screen. It does not save pending edits: the working copy is kept until the delete succeeds.
+// 'last' is the space's only screen; the caller deletes the space instead.
+async function removeScreen(): Promise<'deleted' | 'last' | 'cancelled' | 'failed'> {
+  if (saving.value || mode.value === 'build') return 'cancelled'
+  if (screens.value.length <= 1) return 'last'
+  const id = doc.value.id
+  const ids = screens.value
+  const saved = space.value?.screens.find((screen) => screen.id === id)
+  const result = await runDeleteScreen({
+    needsConfirm: needsDeleteConfirm(saved, editing.value ? working.value : null),
+    ask: () => askDelete('Удалить экран? Виджеты на нём будут удалены.'),
+    remove: () => deleteScreenOnServer(id),
+  })
+  if ('cancelled' in result) return 'cancelled'
+  if (!result.ok) {
+    await apply(result.reaction)
+    return 'failed'
+  }
+  await apply(afterManage('saved'))
+  const target = afterDelete(ids, id)
+  screenId.value = target
+  if (editing.value) openWorking(target)
+  if (target) void slideIn(ids.indexOf(id), screens.value.indexOf(target))
+  return 'deleted'
 }
 
 function start() {
@@ -302,7 +433,11 @@ function confirm() {
 }
 
 function cancel() {
-  if (!saving.value) stop()
+  if (saving.value) return
+  const leavingEdit = editing.value
+  stop()
+  // A save from another tab may have moved the space on: reload after leaving, so a retry uses the fresh revision.
+  if (leavingEdit) void load()
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -310,6 +445,8 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && event.repeat) return
   // The open panel owns the keyboard: Esc closes only it (native), Backspace never deletes, Enter never confirms.
   if (settings.value?.isOpen()) return
+  // The open screen-delete dialog owns it too: its Esc declines the delete and must not leave edit mode.
+  if (pendingDelete.value) return
   if (saving.value || mode.value === 'view' || isFormControlTarget(event.target)) return
   const arrow = arrows[event.key]
   if (arrow) {
@@ -368,7 +505,22 @@ function setRows(value: number) {
   if (editing.value && !saving.value) working.value = withRows(working.value, value)
 }
 
-defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
+defineExpose({
+  confirm,
+  cancel,
+  saving,
+  loaded,
+  rows,
+  setRows,
+  screens,
+  revision,
+  dirty,
+  switchScreen,
+  switchSpace,
+  addScreen,
+  saveIfDirty,
+  removeScreen,
+})
 </script>
 
 <template>
@@ -376,7 +528,11 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
     <div
       ref="gridBox"
       class="board__grid"
-      :class="{ 'board__grid--building': mode === 'build' }"
+      :class="{
+        'board__grid--building': mode === 'build',
+        'board__grid--enter-next': slide === 'enter-next',
+        'board__grid--enter-prev': slide === 'enter-prev',
+      }"
       :style="{ '--grid-rows': renderedRows }"
       :inert="saving"
     >
@@ -493,6 +649,7 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
   box-sizing: border-box;
   container-type: inline-size;
   height: 100%;
+  overflow-x: hidden; /* the screen slide starts beyond the padding */
   overflow-y: auto;
   scrollbar-gutter: stable;
   padding: 1rem;
@@ -504,6 +661,34 @@ defineExpose({ confirm, cancel, saving, loaded, rows, setRows })
   grid-template-columns: repeat(24, 1fr);
   grid-template-rows: repeat(var(--grid-rows), var(--ld-cell));
   gap: 0.5rem;
+  transition:
+    transform var(--ld-duration-slow) var(--ld-ease-standard),
+    opacity var(--ld-duration-slow) var(--ld-ease-standard);
+}
+
+/* Screen switch: the grid starts beside its place and settles into it (see slideIn). */
+.board__grid--enter-next,
+.board__grid--enter-prev {
+  transition: none;
+  opacity: 0;
+}
+
+.board__grid--enter-next {
+  transform: translateX(2.5rem);
+}
+
+.board__grid--enter-prev {
+  transform: translateX(-2.5rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board__grid,
+  .board__grid--enter-next,
+  .board__grid--enter-prev {
+    transition: none;
+    transform: none;
+    opacity: 1;
+  }
 }
 
 .board__dot {

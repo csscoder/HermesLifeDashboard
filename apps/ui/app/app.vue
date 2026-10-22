@@ -2,12 +2,16 @@
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { ROWS } from '@lifedashboard/contracts/grid'
+import { SPACE_LIMITS } from '@lifedashboard/contracts/space'
 import { api } from './api'
 import WidgetBoard from './board/WidgetBoard.vue'
 import type { BoardMode } from './board/edit-session'
 import { connect } from './board/space-sync'
 import PairingForm from './PairingForm.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import ConfirmDelete from './spaces/ConfirmDelete.vue'
+import { headerTitle } from './spaces/nav'
+import ScreenDots from './spaces/ScreenDots.vue'
 import { toasts } from './toasts'
 import { installedPackages, loadPackages, pickerEntries } from './widgets/catalog'
 import PackagesDialog from './widgets/PackagesDialog.vue'
@@ -20,6 +24,9 @@ type AppState = 'checking' | 'pairing' | 'ready' | 'unavailable'
 const state = ref<AppState>('checking')
 // The first space; the spaces UI arrives with step 2 of GO-3.
 const spaceId = ref<string | null>(null)
+// The screen on display; the board keeps it in step with what it shows.
+const screenId = ref<string | null>(null)
+const spaceTitle = ref('')
 // A failed save keeps the board but marks the API as unavailable in the header.
 const apiDown = ref(false)
 const mode = ref<BoardMode>('view')
@@ -43,6 +50,15 @@ function pickWidget(event: Event) {
 // An empty or out-of-range value leaves the working copy unchanged; :invalid marks the field.
 function setRows(event: Event) {
   boardRef.value?.setRows((event.target as HTMLInputElement).valueAsNumber)
+}
+
+const screenCount = computed(() => boardRef.value?.screens.length ?? 0)
+const screenIndex = computed(() => Math.max(0, boardRef.value?.screens.indexOf(screenId.value ?? '') ?? 0))
+const headerText = computed(() => headerTitle(spaceTitle.value, screenIndex.value, screenCount.value))
+
+function goScreen(index: number) {
+  const id = boardRef.value?.screens[index]
+  if (id) void boardRef.value?.switchScreen(id)
 }
 
 const apiLabel = computed(() => {
@@ -80,8 +96,15 @@ async function check() {
   if (result.state === 'ready') {
     spaceId.value = result.spaceId
     void loadPackages(api)
+    void loadTitle(result.spaceId)
   }
   state.value = result.state
+}
+
+// The header shows the space title; connect() yields only the id, so the list is read for the title.
+async function loadTitle(id: string) {
+  const result = await api.spaces()
+  if (result.ok) spaceTitle.value = result.data.find((space) => space.id === id)?.title ?? ''
 }
 
 function onUnauthorized() {
@@ -104,55 +127,70 @@ onMounted(check)
     <div class="space__backdrop" />
     <div class="app">
       <header class="app__header">
-        <h1 class="app__title">LifeDashboard</h1>
-        <template v-if="state === 'ready'">
-          <template v-if="mode !== 'view'">
-            <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.confirm()">
-              Готово
-            </button>
-            <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.cancel()">
-              Отмена
-            </button>
-            <label v-if="mode === 'edit'" class="app__theme">
-              Ряды
-              <input
-                class="app__select app__rows"
-                type="number"
-                required
-                :min="ROWS.min"
-                :max="ROWS.max"
-                step="1"
-                :value="boardRef?.rows"
-                :disabled="boardRef?.saving"
-                @input="setRows"
-              />
-            </label>
+        <p v-if="state === 'ready'" class="app__title">{{ headerText }}</p>
+        <ScreenDots
+          v-if="state === 'ready'"
+          :count="screenCount"
+          :index="screenIndex"
+          :editing="mode === 'edit'"
+          :disabled="mode === 'build' || !!boardRef?.saving"
+          :can-add="screenCount < SPACE_LIMITS.screens"
+          :can-remove="true"
+          remove-title=""
+          @go="goScreen"
+          @add="boardRef?.addScreen()"
+          @remove="boardRef?.removeScreen()"
+        />
+        <div class="app__end">
+          <template v-if="state === 'ready'">
+            <template v-if="mode !== 'view'">
+              <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.confirm()">
+                Готово
+              </button>
+              <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.cancel()">
+                Отмена
+              </button>
+              <label v-if="mode === 'edit'" class="app__theme">
+                Ряды
+                <input
+                  class="app__select app__rows"
+                  type="number"
+                  required
+                  :min="ROWS.min"
+                  :max="ROWS.max"
+                  step="1"
+                  :value="boardRef?.rows"
+                  :disabled="boardRef?.saving"
+                  @input="setRows"
+                />
+              </label>
+            </template>
+            <template v-else>
+              <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
+              <select
+                class="app__select"
+                aria-label="Добавить виджет"
+                :disabled="!boardRef?.loaded"
+                @change="pickWidget"
+              >
+                <option value="" selected>Добавить виджет…</option>
+                <option v-for="entry in entries" :key="entry.key" :value="entry.key">{{ entry.title }}</option>
+              </select>
+              <button type="button" class="app__button" :disabled="!boardRef?.loaded" @click="mode = 'edit'">
+                Изменить
+              </button>
+              <button type="button" class="app__button" @click="packagesOpen = true">Виджеты</button>
+            </template>
           </template>
-          <template v-else>
-            <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
-            <select
-              class="app__select"
-              aria-label="Добавить виджет"
-              :disabled="!boardRef?.loaded"
-              @change="pickWidget"
-            >
-              <option value="" selected>Добавить виджет…</option>
-              <option v-for="entry in entries" :key="entry.key" :value="entry.key">{{ entry.title }}</option>
+          <label class="app__theme">
+            Тема
+            <select class="app__select" :value="themeId" @change="selectTheme">
+              <option v-for="theme in BUILTIN_THEMES" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
             </select>
-            <button type="button" class="app__button" :disabled="!boardRef?.loaded" @click="mode = 'edit'">
-              Изменить
-            </button>
-            <button type="button" class="app__button" @click="packagesOpen = true">Виджеты</button>
-          </template>
-        </template>
-        <label class="app__theme">
-          Тема
-          <select class="app__select" :value="themeId" @change="selectTheme">
-            <option v-for="theme in BUILTIN_THEMES" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
-          </select>
-        </label>
-        <p class="app__notice" role="status">{{ headerNotice }}</p>
-        <p class="app__api">{{ apiLabel }}</p>
+          </label>
+          <p class="app__notice" role="status">{{ headerNotice }}</p>
+          <p class="app__api">{{ apiLabel }}</p>
+        </div>
       </header>
       <main class="app__main">
         <p v-if="state === 'checking'" class="app__status">Подключение…</p>
@@ -165,7 +203,8 @@ onMounted(check)
           v-else-if="spaceId"
           ref="board"
           v-model:mode="mode"
-          :space-id="spaceId"
+          v-model:space-id="spaceId"
+          v-model:screen-id="screenId"
           :theme-id="themeId"
           :draft-source="draftSource"
           @notice="notice = $event"
@@ -177,6 +216,7 @@ onMounted(check)
     </div>
     <PackagesDialog v-if="state === 'ready'" v-model:open="packagesOpen" />
     <ConfirmDialog />
+    <ConfirmDelete />
     <ul class="app__toasts" aria-live="polite">
       <li v-for="toast in toasts" :key="toast.id" class="app__toast">
         <p class="app__toast-source">{{ toast.source }}</p>
@@ -200,16 +240,27 @@ html {
   height: 100dvh;
 }
 
+/* Position context for the absolutely centred ScreenDots; the right padding reserves the corner slot. */
 .app__header {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0 1rem;
+  padding: 0 3.5rem 0 1rem;
 }
 
 .app__title {
   margin: 0;
   font-size: 1.125rem;
+  white-space: nowrap;
+}
+
+/* The controls, theme, notice and API status sit at the right edge. */
+.app__end {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
 }
 
 .app__button {
@@ -272,7 +323,7 @@ html {
 }
 
 .app__api {
-  margin: 0 0 0 auto;
+  margin: 0;
   color: var(--ld-text-muted);
   font-size: 0.875rem;
 }
