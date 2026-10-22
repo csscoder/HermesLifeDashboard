@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, useTemplateRef, watch } from 'vue'
 
 // Screen navigation of the active space. Absolutely centred by the header; hidden for one screen outside edit mode.
 const props = defineProps<{
@@ -13,6 +13,15 @@ const props = defineProps<{
 }>()
 // With one screen, ✕ deletes the whole space.
 const removeLabel = computed(() => (props.count > 1 ? 'Удалить экран' : 'Удалить пространство'))
+
+// The list scrolls inside its capped column; the active dot is kept in view when it moves.
+const list = useTemplateRef<HTMLElement>('list')
+watch(
+  [() => props.index, () => props.count, () => props.editing],
+  () => list.value?.querySelector('.dots__item--on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }),
+  { flush: 'post' },
+)
+onMounted(() => list.value?.querySelector('.dots__item--on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }))
 const emit = defineEmits<{
   go: [index: number]
   add: []
@@ -21,7 +30,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <nav v-if="count > 1 || editing" class="dots" aria-label="Экраны">
+  <nav v-if="count > 1 || editing" class="dots" :class="{ 'dots--edit': editing }" aria-label="Экраны">
     <button
       type="button"
       class="dots__arrow"
@@ -31,8 +40,8 @@ const emit = defineEmits<{
     >
       ‹
     </button>
-    <div class="dots__list">
-      <span v-for="position in count" :key="position" class="dots__item">
+    <div ref="list" class="dots__list">
+      <span v-for="position in count" :key="position" class="dots__item" :class="{ 'dots__item--on': position - 1 === index }">
         <button
           type="button"
           class="dots__dot"
@@ -79,23 +88,42 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+/* The middle column takes no more than the side columns leave: at 1280 px the view-mode controls need
+   33rem, the edit-mode controls 26rem. The list scrolls inside the cap. */
 .dots {
   grid-column: 2;
   display: flex;
   align-items: center;
   gap: 0.375rem;
+  min-width: 0;
+  max-width: 8.5rem;
   padding: 0.25rem 0.375rem;
   border-radius: var(--ld-radius-pill);
+}
+
+.dots--edit {
+  max-width: 22rem;
 }
 
 .dots:hover {
   background: var(--ld-state-hover);
 }
 
+/* Padding keeps the focus rings and the ✕ inside the scroll box; scroll-padding keeps the active dot off the edges. */
 .dots__list {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.25rem;
+  scroll-padding-inline: 1.5rem;
+  scrollbar-width: none;
+}
+
+.dots__list::-webkit-scrollbar {
+  display: none;
 }
 
 .dots__item {
@@ -136,6 +164,7 @@ const emit = defineEmits<{
 
 .dots__arrow,
 .dots__add {
+  flex: none;
   display: grid;
   place-items: center;
   width: 1.5rem;
