@@ -63,22 +63,32 @@ watch(
       aria-label="Переименовать пространство"
       @click="startEdit"
     >
-      <span class="space-title__text">{{ title }}{{ suffix }}</span>
+      <span class="space-title__text">{{ title }}</span><sub v-if="suffix" class="space-title__number">{{ suffix.replace(/[()]/g, '').trim() }}</sub>
       <span class="space-title__pen" aria-hidden="true">✎</span>
     </button>
-    <span v-else class="space-title__text">{{ title }}{{ suffix }}</span>
+    <template v-else><span class="space-title__text">{{ title }}</span><sub v-if="suffix" class="space-title__number">{{ suffix.replace(/[()]/g, '').trim() }}</sub></template>
   </div>
 </template>
 
 <style scoped>
-/* Keeps the width until the status needs the room; capped at half the start column. */
+/* The title and screen number share a quiet pill; the title truncates first. */
 .space-title {
   display: flex;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 50%;
-  font-size: 1.125rem;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: calc(100vw - 7rem);
+  padding: 0.25rem 1rem;
+  border: var(--ld-border-width) solid var(--ld-border-subtle);
+  border-radius: var(--ld-radius-pill);
+  background: var(--ld-state-hover);
+  box-shadow: inset 0 0 0 0.0625rem var(--ld-state-hover);
+  font-size: 1rem;
+  font-weight: var(--ld-weight-strong);
 }
+
+.space-title__number { align-self: flex-end; flex-shrink: 0; padding-bottom: 0.0625rem; color: var(--ld-text-muted); font-size: 0.625rem; }
 
 .space-title__text {
   min-width: 0;

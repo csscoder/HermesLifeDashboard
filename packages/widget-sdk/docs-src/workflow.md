@@ -98,3 +98,7 @@ Give the user the folder `dist/<id>-<version>/`. The user imports it in the dash
 ## Engine checks
 
 For a widget with media, check playback in the target engines before handover: Safari on macOS and GNOME Web on Linux. Both must play the WebM and Opus files the widget uses.
+
+## Check optional modals
+
+Run the same named registry under `ld-widget dev` and in an installed build. Verify independent runtime memory and ordinary props, shared persisted state, permission failures, conflict reload, unconfirmed writes, and caller remount on host ×, SDK close and iframe Escape. Check that controls consuming Escape with `preventDefault()` remain open. Repeat open/close, test a second instance while busy, then edit sources during an open modal to check HMR cleanup. Inspect console errors and verify state after refresh. Use all built-in themes, a narrow window and a short viewport; size modal contents with CSS/container queries.

@@ -1,4 +1,5 @@
 import type { Size } from './grid.ts'
+import type { ModalMount } from './widget-modal.ts'
 import { byteLength, fail, isRecord, unknownKey, type ParseResult } from './parse.ts'
 import type { WidgetPermission } from './widget-package.ts'
 
@@ -336,9 +337,9 @@ export const WIDGET_ERROR_CODES = [
 export type WidgetErrorCode = (typeof WIDGET_ERROR_CODES)[number]
 
 export const SDK_VERSION = 1
-export const SDK_LEVELS = [1, 2, 3] as const
+export const SDK_LEVELS = [1, 2, 3, 4] as const
 export type SdkLevel = (typeof SDK_LEVELS)[number]
-export const SDK_TARGET_LEVEL: SdkLevel = 3
+export const SDK_TARGET_LEVEL: SdkLevel = 4
 
 export interface HelloMessage {
   t: 'ld:hello'
@@ -348,6 +349,7 @@ export interface HelloMessage {
 export interface InitMessage {
   t: 'ld:init'
   context: WidgetContext
+  mount?: ModalMount
 }
 
 export interface RequestMessage {
@@ -371,6 +373,11 @@ export interface ErrorReportMessage {
   message: string
 }
 
+export interface ModalCloseMessage {
+  t: 'modal-close'
+  reason: 'sdk' | 'escape'
+}
+
 export const BRIDGE_LIMITS = {
   maxMessageBytes: 131_072,
   maxInFlight: 16,
@@ -384,8 +391,12 @@ export const BRIDGE_LIMITS = {
 } as const
 
 /** A message from a sandbox frame, or null when it is malformed. */
-export function parseSandboxMessage(raw: unknown): RequestMessage | ErrorReportMessage | null {
+export function parseSandboxMessage(raw: unknown): RequestMessage | ErrorReportMessage | ModalCloseMessage | null {
   if (!isRecord(raw)) return null
+  if (raw.t === 'modal-close') {
+    if (unknownKey(raw, ['t', 'reason']) !== undefined || (raw.reason !== 'sdk' && raw.reason !== 'escape')) return null
+    return { t: 'modal-close', reason: raw.reason }
+  }
   if (raw.t === 'error') return typeof raw.message === 'string' ? { t: 'error', message: raw.message } : null
   if (raw.t !== 'req' || !('input' in raw)) return null
   const { id, op } = raw

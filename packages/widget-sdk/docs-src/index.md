@@ -51,3 +51,5 @@ AGENTS.md            rules for coding agents
 - `sizing`: `min`, `default` and `max` in grid cells. See [design.md](design.md).
 - `settings`: see [settings.md](settings.md).
 - `frame`: `framed` (default) or `frameless`; needs sdk 3. See [design.md](design.md).
+
+Optional named modal workspaces (sdk 4): start with the registry and persistence example in [recipes.md](recipes.md), then read [api.md](api.md) and [runtime.md](runtime.md) for lifecycle, errors and limits.

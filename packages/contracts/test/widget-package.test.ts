@@ -56,14 +56,18 @@ describe('manifest field rules', () => {
     }
   })
 
+  it('accepts sdk 4', () => {
+    expect(parseWidgetManifest(mutatedManifest((m) => { m.sdk = 4 })).ok).toBe(true)
+  })
+
   it('rejects a newer sdk level with an update hint', () => {
-    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 4 }))
-    expect(result).toEqual({ ok: false, error: 'manifest.sdk 4 needs a newer LifeDashboard (this one supports 1–3)' })
+    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 5 }))
+    expect(result).toEqual({ ok: false, error: 'manifest.sdk 5 needs a newer LifeDashboard (this one supports 1–4)' })
   })
 
   it('checks sdk before unknown fields', () => {
-    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 4; m.future = 1 }))
-    expect(result).toEqual({ ok: false, error: 'manifest.sdk 4 needs a newer LifeDashboard (this one supports 1–3)' })
+    const result = parseWidgetManifest(mutatedManifest((m) => { m.sdk = 5; m.future = 1 }))
+    expect(result).toEqual({ ok: false, error: 'manifest.sdk 5 needs a newer LifeDashboard (this one supports 1–4)' })
   })
 
   it('accepts frame at sdk 3 and keeps it', () => {

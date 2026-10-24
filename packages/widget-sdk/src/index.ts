@@ -2,3 +2,5 @@ export { createWidget, provideInProcessWidget, useWidget, WIDGET_KEY, WidgetErro
 export { createPortClient } from './port-client.ts'
 export type { GatewayOp, GatewayInputs, GatewayOutputs, HttpGetInput, HttpOutput, HttpSendInput, SdkLevel, SizeClass, WidgetContext, WidgetErrorCode } from '@lifedashboard/contracts/widget-gateway'
 export type { SettingsSchema } from '@lifedashboard/contracts/widget-settings'
+export { createWidgetModal } from './modal.ts'
+export type { WidgetModal } from './widget.ts'

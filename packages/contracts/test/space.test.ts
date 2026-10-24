@@ -10,6 +10,14 @@ describe('parseSpacePatch', () => {
     expect(parseSpacePatch({ icon: '⭐', color: 'pink' })).toEqual({ ok: true, value: { icon: '⭐', color: 'pink' } })
   })
 
+  it.each([null, 'builtin:paper', 'builtin:future-theme', 'user:00000000-0000-4000-8000-00000000000a'])('accepts theme assignment %j', (themeId) => {
+    expect(parseSpacePatch({ themeId })).toEqual({ ok: true, value: { themeId } })
+  })
+
+  it.each(['builtin:bare', 'paper', 'builtin:', 'user:invalid', 7, {}])('rejects invalid space theme %j', (themeId) => {
+    expect(parseSpacePatch({ themeId })).toEqual({ ok: false, error: 'invalid space themeId' })
+  })
+
   it.each([
     ['an empty patch', {}],
     ['a blank title', { title: '   ' }],

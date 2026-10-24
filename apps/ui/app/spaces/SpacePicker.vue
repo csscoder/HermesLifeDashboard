@@ -1,22 +1,12 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import { SPACE_COLORS, SPACE_ICONS, type SpaceColor, type SpacePatch, type SpaceSummary } from '@lifedashboard/contracts/space'
+import { SPACE_ICONS, type SpacePatch, type SpaceSummary } from '@lifedashboard/contracts/space'
 
-// Icon and colour of one space. The selection is the server state: it changes only when the patch is saved.
-const props = defineProps<{ space: SpaceSummary }>()
+import { BUILTIN_THEMES } from '../theme/builtin'
+
+// Icon and theme of one space. The selection is the server state: it changes only when the patch is saved.
+const props = defineProps<{ space: SpaceSummary; disabled: boolean }>()
 const emit = defineEmits<{ pick: [patch: SpacePatch]; close: [] }>()
-
-const COLOR_NAMES: Record<SpaceColor, string> = {
-  violet: 'фиолетовый',
-  blue: 'синий',
-  teal: 'бирюзовый',
-  green: 'зелёный',
-  amber: 'жёлтый',
-  orange: 'оранжевый',
-  red: 'красный',
-  pink: 'розовый',
-}
-const colors = Object.keys(SPACE_COLORS) as SpaceColor[]
 
 // A click outside the switcher closes the picker. Clicks on the corner button, the fan and the badges do not.
 function onPointerDown(event: PointerEvent) {
@@ -29,7 +19,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', onPointerDown))
 </script>
 
 <template>
-  <div class="space-picker" role="group" :aria-label="`Иконка и цвет: ${space.title}`">
+  <div class="space-picker" role="group" :aria-label="`Иконка и тема: ${space.title}`">
     <h4 class="space-picker__heading">Иконка</h4>
     <div class="space-picker__icons">
       <button
@@ -39,24 +29,25 @@ onUnmounted(() => document.removeEventListener('pointerdown', onPointerDown))
         class="space-picker__icon"
         :aria-label="icon"
         :aria-pressed="icon === space.icon"
+        :disabled="disabled"
         @click="icon !== space.icon && emit('pick', { icon })"
       >
         {{ icon }}
       </button>
     </div>
-    <h4 class="space-picker__heading">Цвет</h4>
-    <div class="space-picker__colors">
-      <button
-        v-for="color in colors"
-        :key="color"
-        type="button"
-        class="space-picker__color"
-        :aria-label="COLOR_NAMES[color]"
-        :aria-pressed="color === space.color"
-        :style="{ background: `oklch(0.6 0.12 ${SPACE_COLORS[color]})` }"
-        @click="color !== space.color && emit('pick', { color })"
-      />
-    </div>
+    <label class="space-picker__heading space-picker__theme">
+      Тема пространства
+      <select
+        aria-label="Тема пространства"
+        :value="space.themeId ?? ''"
+        :disabled="disabled"
+        @change="emit('pick', { themeId: ($event.target as HTMLSelectElement).value || null })"
+      >
+        <option value="">Наследовать тему дашборда</option>
+        <option v-if="space.themeId && !BUILTIN_THEMES.some(theme => theme.id === space.themeId)" :value="space.themeId" disabled>Тема недоступна — наследуется</option>
+        <option v-for="theme in BUILTIN_THEMES" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
+      </select>
+    </label>
   </div>
 </template>
 
@@ -105,28 +96,20 @@ onUnmounted(() => document.removeEventListener('pointerdown', onPointerDown))
   background: var(--ld-accent-subtle);
 }
 
-.space-picker__colors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.space-picker__theme { display: grid; gap: 0.5rem; }
+.space-picker__theme select {
+  width: 100%;
+  padding: 0.5rem;
+  border: var(--ld-border-width) solid var(--ld-border-default);
+  border-radius: var(--ld-radius-control);
+  background: var(--ld-surface-1-solid);
+  color: var(--ld-text-primary);
+  font: inherit;
 }
-
-.space-picker__color {
-  width: 1.75rem;
-  height: 1.75rem;
-  padding: 0;
-  border: 0.125rem solid transparent;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.space-picker__color[aria-pressed='true'] {
-  border-color: var(--ld-text-primary);
-  box-shadow: inset 0 0 0 0.125rem var(--ld-surface-2);
-}
+.space-picker :disabled { opacity: 0.5; cursor: default; }
 
 .space-picker__icon:focus-visible,
-.space-picker__color:focus-visible {
+.space-picker__theme select:focus-visible {
   outline: 0.125rem solid var(--ld-focus-ring);
   outline-offset: 0.125rem;
 }

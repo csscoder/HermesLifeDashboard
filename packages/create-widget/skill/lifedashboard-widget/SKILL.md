@@ -9,7 +9,7 @@ Use this skill in a `lifedashboard-<slug>/` project. `AGENTS.md` holds the rules
 
 ## Steps
 
-1. Edit `src/index.vue` and `widget.json`. Declare every permission and every network origin the code uses.
+1. Edit `src/index.vue` and `widget.json`. For a requested larger workspace, optionally export a named `modals` registry from the entry and add a separate Vue component; follow the recipe, lifecycle and limits in `recipes.md`, `runtime.md` and `api.md`. Keep the default starter compact. Await writes before close and reload persistence on caller mount. Declare every permission and every network origin the code uses.
 2. Run `npx ld-widget dev`. Open the dev shell at min, default and max size, in every theme, framed and frameless. The URL parameters and theme ids are in `workflow.md`. Without a browser, run `npx ld-widget shot` and look at each image in `.ld-widget/shots/`; only if no Chromium-based browser is installed, rely on `check` and `design.md` and say so at handover.
 3. After each change, read `.ld-widget/dev.log` and fix every entry it lists.
 4. Run `npx ld-widget check` and fix every reported problem.

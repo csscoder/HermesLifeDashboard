@@ -87,7 +87,7 @@ describe('GET /api/v1/spaces', () => {
   it('lists the seed space', async () => {
     const response = await call(t.app, { url: '/api/v1/spaces', cookie })
     expect(response.statusCode).toBe(200)
-    expect(response.json().data).toEqual([{ id: SEED_SPACE_ID, title: 'Главная', icon: '🏠', color: 'violet', position: 0, revision: 1 }])
+    expect(response.json().data).toEqual([{ id: SEED_SPACE_ID, title: 'Главная', icon: '🏠', color: 'violet', themeId: null, position: 0, revision: 1 }])
   })
 })
 
@@ -95,8 +95,8 @@ describe('POST /api/v1/spaces', () => {
   it('creates spaces with the next colour, the next position and one empty screen', async () => {
     const first = (await create()).json().data as SpaceSummary
     const second = (await create()).json().data as SpaceSummary
-    expect(first).toEqual({ id: expect.any(String), title: 'Новое пространство', icon: '⭐', color: 'blue', position: 1, revision: 1 })
-    expect(second).toEqual({ id: expect.any(String), title: 'Новое пространство', icon: '⭐', color: 'teal', position: 2, revision: 1 })
+    expect(first).toEqual({ id: expect.any(String), title: 'Новое пространство', icon: '⭐', color: 'blue', themeId: null, position: 1, revision: 1 })
+    expect(second).toEqual({ id: expect.any(String), title: 'Новое пространство', icon: '⭐', color: 'teal', themeId: null, position: 2, revision: 1 })
     expect((await listSpaces()).map((space) => [space.id, space.position])).toEqual([
       [SEED_SPACE_ID, 0],
       [first.id, 1],
@@ -126,7 +126,7 @@ describe('PATCH /api/v1/spaces/:spaceId', () => {
   it('updates title, icon and colour, keeps the revision', async () => {
     const response = await patch(SEED_SPACE_ID, { title: '  Дом ', icon: '💼', color: 'pink' })
     expect(response.statusCode).toBe(200)
-    const expected = { id: SEED_SPACE_ID, title: 'Дом', icon: '💼', color: 'pink', position: 0, revision: 1 }
+    const expected = { id: SEED_SPACE_ID, title: 'Дом', icon: '💼', color: 'pink', themeId: null, position: 0, revision: 1 }
     expect(response.json().data).toEqual(expected)
     expect(await listSpaces()).toEqual([expected])
   })
@@ -679,5 +679,80 @@ describe('widget appearance', () => {
     expect(response.statusCode).toBe(400)
     expect(errorCode(response)).toBe('VALIDATION_ERROR')
     expect(await getBoard()).toEqual({ spaceId: SEED_SPACE_ID, revision: 1, screens: [EMPTY_SCREEN] })
+  })
+})
+
+
+describe('space and screen theme persistence', () => {
+  it('sets and clears a space theme without changing the board or its revision', async () => {
+    const before = (await put({ expectedRevision: 1, screens: [screen] })).json().data as SpaceBoard
+    const saved = await patch(SEED_SPACE_ID, { themeId: 'builtin:paper' })
+    expect(saved.statusCode).toBe(200)
+    expect(saved.json().data).toMatchObject({ themeId: 'builtin:paper', revision: 2 })
+    expect((await listSpaces())[0]!.themeId).toBe('builtin:paper')
+    expect(await getBoard()).toEqual(before)
+    expect((await patch(SEED_SPACE_ID, { title: 'Home' })).json().data.themeId).toBe('builtin:paper')
+    const cleared = await patch(SEED_SPACE_ID, { themeId: null })
+    expect(cleared.statusCode).toBe(200)
+    expect((await listSpaces())[0]).toMatchObject({ themeId: null, revision: 2, title: 'Home' })
+  })
+
+  it.each(['builtin:future-theme', `user:${A}`])('round-trips an unknown valid theme %s at both scopes', async (themeId) => {
+    expect((await patch(SEED_SPACE_ID, { themeId })).statusCode).toBe(200)
+    expect((await listSpaces())[0]!.themeId).toBe(themeId)
+    const response = await put({ expectedRevision: 1, screens: [{ ...EMPTY_SCREEN, themeId }] })
+    expect(response.statusCode).toBe(200)
+    expect((await getBoard()).screens[0]!.themeId).toBe(themeId)
+  })
+
+  it('round-trips screen themes canonically and retains them through widget and row edits', async () => {
+    const themed = { id: screen.id, rows: screen.rows, themeId: 'builtin:paper', instances: screen.instances, layout: screen.layout }
+    themed.instances = structuredClone(themed.instances)
+    themed.instances[0]!.appearance = { themeId: 'builtin:bare', shadow: null }
+    const response = await put({ expectedRevision: 1, screens: [themed] })
+    expect(response.statusCode).toBe(200)
+    expect(JSON.stringify(response.json().data.screens[0])).toBe(JSON.stringify(themed))
+    const loaded = await getBoard()
+    loaded.screens[0]!.rows = 20
+    loaded.screens[0]!.instances[1]!.config = { title: 'Changed' }
+    expect((await put({ expectedRevision: loaded.revision, screens: loaded.screens })).statusCode).toBe(200)
+    const edited = await getBoard()
+    expect(edited.screens[0]).toMatchObject({ themeId: 'builtin:paper', rows: 20 })
+    expect(edited.screens[0]!.instances[0]!.appearance).toEqual({ themeId: 'builtin:bare', shadow: null })
+    expect(edited.screens[0]!.instances[1]!.config).toEqual({ title: 'Changed' })
+    expect((await listSpaces())[0]!.themeId).toBeNull()
+  })
+
+  it.each(['null', 'absent'])('clears the screen theme with %s without changing widgets', async (mode) => {
+    const response = await put({ expectedRevision: 1, screens: [{ ...screen, themeId: 'builtin:paper' }] })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.screens[0].themeId).toBe('builtin:paper')
+    const cleared = await put({ expectedRevision: 2, screens: [{ ...screen, ...(mode === 'null' && { themeId: null }) }] })
+    expect(cleared.statusCode).toBe(200)
+    expect((await getBoard()).screens).toEqual([screen])
+    expect(t.db.prepare('SELECT theme_id FROM screens WHERE id = ?').get(SEED_SCREEN_ID)).toEqual({ theme_id: null })
+  })
+
+  it('rejects a stale screen theme write and preserves the newer theme', async () => {
+    await put({ expectedRevision: 1, screens: [{ ...screen, themeId: 'builtin:paper' }] })
+    const response = await put({ expectedRevision: 1, screens: [{ ...screen, themeId: 'builtin:glass' }] })
+    expect(response.statusCode).toBe(409)
+    expect(errorCode(response)).toBe('REVISION_CONFLICT')
+    expect(await getBoard()).toEqual({ spaceId: SEED_SPACE_ID, revision: 2, screens: [{ ...screen, themeId: 'builtin:paper' }] })
+  })
+
+  it.each(['builtin:bare', 'paper', 'builtin:', 'user:invalid', 7, {}])('rejects invalid theme %j without modifying either scope', async (themeId) => {
+    await patch(SEED_SPACE_ID, { themeId: 'builtin:paper' })
+    await put({ expectedRevision: 1, screens: [{ ...screen, themeId: 'builtin:glass' }] })
+    const beforeSpaces = await listSpaces()
+    const beforeBoard = await getBoard()
+    const space = await patch(SEED_SPACE_ID, { title: 'Rejected', themeId })
+    expect(space.statusCode).toBe(400)
+    expect(errorCode(space)).toBe('VALIDATION_ERROR')
+    const board = await put({ expectedRevision: 2, screens: [{ ...EMPTY_SCREEN, themeId }] })
+    expect(board.statusCode).toBe(400)
+    expect(errorCode(board)).toBe('VALIDATION_ERROR')
+    expect(await listSpaces()).toEqual(beforeSpaces)
+    expect(await getBoard()).toEqual(beforeBoard)
   })
 })

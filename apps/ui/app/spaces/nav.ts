@@ -1,5 +1,3 @@
-import type { ScreenBoard } from '@lifedashboard/contracts/board'
-
 /** The part after the space title: « (2)» of the second of several screens, empty for one screen. */
 export function screenSuffix(index: number, count: number): string {
   return count > 1 ? ` (${index + 1})` : ''
@@ -15,12 +13,4 @@ export function afterDelete(ids: readonly string[], deletedId: string): string |
   const index = ids.indexOf(deletedId)
   const rest = ids.filter((id) => id !== deletedId)
   return rest[Math.max(index - 1, 0)] ?? null
-}
-
-/** Confirmation is needed when the saved or the working screen still holds widgets. */
-export function needsDeleteConfirm(
-  saved: ScreenBoard | undefined,
-  working: ScreenBoard | null,
-): boolean {
-  return (saved?.instances.length ?? 0) > 0 || (working?.instances.length ?? 0) > 0
 }

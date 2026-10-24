@@ -47,6 +47,22 @@ describe('parseScreenBoard', () => {
     expect(parseScreenBoard(structuredClone(valid))).toEqual({ ok: true, value: valid })
   })
 
+  it.each(['builtin:paper', 'builtin:future-theme', `user:${A}`])('keeps screen theme %s in canonical order', (themeId) => {
+    const result = parseScreenBoard({ ...valid, themeId })
+    expect(result.ok && JSON.stringify(result.value)).toBe(JSON.stringify({
+      id: SCREEN, rows: 10, themeId, instances: valid.instances, layout: valid.layout,
+    }))
+  })
+
+  it('omits a null screen theme for inheritance', () => {
+    expect(parseScreenBoard({ ...valid, themeId: null })).toEqual({ ok: true, value: valid })
+  })
+
+  it.each(['builtin:bare', 'paper', 'builtin:', 'user:invalid', 7, {}])('rejects invalid screen theme %j', (themeId) => {
+    const result = parseScreenBoard({ ...valid, themeId })
+    expect(result).toEqual({ ok: false, error: 'invalid screen themeId' })
+  })
+
   it('accepts an unknown source.type', () => {
     expect(parseScreenBoard(mutated((d) => { d.instances[0].source.type = 'weather' })).ok).toBe(true)
   })

@@ -112,3 +112,38 @@ describe('normalized widget config', () => {
     expect(context.config).toEqual({ label: 'Changed', count: 5, apiKey: true })
   })
 })
+
+it('copies theme, config, locale, secret flags and root font size to the modal and follows updates', async () => {
+ const { createDashboardModals } = await import('../app/widgets/modals')
+ const { reactive } = await import('vue')
+ const c = reactive({ size: { w: 3, h: 4 }, sizeClass: 's', frame: 'framed', rootFontSize: 17,
+ theme: { id: 'builtin:paper', scheme: 'light', tokens: { '--ld-text-primary': '#123456' } }, config: { apiKey: { configured: true } }, locale: 'ru', visible: false })
+ const m = createDashboardModals()
+ m.registerCaller({ owner: { widgetId: 'w1', runtimeId: 'w1', packageId: 'dev.test', version: '1', hash: 'hash', title: 'Test' }, context: () => c as any, restart: async () => {} })
+ await m.open('w1', { view: 'workspace' })
+ expect(m.context()).toMatchObject({ size: { w: 3, h: 4 }, frame: 'frameless', rootFontSize: 17, locale: 'ru', config: { apiKey: { configured: true } }, theme: { tokens: { '--ld-text-primary': '#123456' } } })
+ c.rootFontSize = 22; c.locale = 'en'; c.config.apiKey.configured = false; c.theme.tokens['--ld-text-primary'] = '#abcdef'
+ expect(m.context()).toMatchObject({ rootFontSize: 22, locale: 'en', config: { apiKey: { configured: false } }, theme: { tokens: { '--ld-text-primary': '#abcdef' } } }); m.dispose()
+})
+it('keeps modal visible while the caller is offscreen', async () => {
+ const { createDashboardModals } = await import('../app/widgets/modals')
+ const m = createDashboardModals()
+ m.registerCaller({ owner: { widgetId: 'w1', runtimeId: 'w1', packageId: 'dev.test', version: '1', hash: 'hash', title: 'Test' }, context: () => ({ visible: false } as any), restart: async () => {} })
+ await m.open('w1', { view: 'workspace' }); expect(m.context()?.visible).toBe(true); m.dispose()
+})
+it('updates modal document visibility independently of caller intersection', async () => {
+ const { createDashboardModals } = await import('../app/widgets/modals')
+ const { computed } = await import('vue')
+ let visibility!: () => void
+ const document = { visibilityState: 'visible', addEventListener: (_event: string, callback: () => void) => { visibility = callback }, removeEventListener() {} }
+ vi.stubGlobal('document', document)
+ const m = createDashboardModals()
+ try {
+ m.registerCaller({ owner: { widgetId: 'w1', runtimeId: 'w1', hash: 'hash', packageId: 'dev.test', version: '1', title: 'Test' }, context: () => ({ visible: false } as any), restart: async () => {} })
+ await m.open('w1', { view: 'workspace' }); const effective = computed(() => m.context())
+ expect(effective.value?.visible).toBe(true)
+ expect(visibility).toBeTypeOf('function')
+ document.visibilityState = 'hidden'; visibility(); expect(effective.value?.visible).toBe(false)
+ document.visibilityState = 'visible'; visibility(); expect(effective.value?.visible).toBe(true)
+ } finally { m.dispose() }
+})

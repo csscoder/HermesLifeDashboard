@@ -1,6 +1,8 @@
 import { reactive } from 'vue'
 import { WidgetError, type Widget } from '@lifedashboard/widget-sdk'
 
+export const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+
 export function createCounter(storage: Widget['state']) {
   const state = reactive({ count: 0, ready: false, busy: false, error: '' })
   let revision = 0
@@ -12,7 +14,7 @@ export function createCounter(storage: Widget['state']) {
       const data = saved.data
       if (data !== null && (
         typeof data !== 'object' || Array.isArray(data) || !('count' in data)
-        || typeof data.count !== 'number' || !Number.isSafeInteger(data.count) || data.count < 0
+        || !isCount(data.count)
       )) {
         state.error = 'Saved progress is invalid. It has not been changed.'
         return false

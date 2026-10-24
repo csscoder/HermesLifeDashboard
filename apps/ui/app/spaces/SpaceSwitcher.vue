@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import { SPACE_COLORS, SPACE_LIMITS, type SpacePatch, type SpaceSummary } from '@lifedashboard/contracts/space'
+import { SPACE_LIMITS, type SpacePatch, type SpaceSummary } from '@lifedashboard/contracts/space'
 import { FAN_GEOMETRY, fanLayout } from './fan-layout'
 import SpacePicker from './SpacePicker.vue'
+import { BUILTIN_THEME_IDS } from '../theme/builtin'
+import { resolveThemeId, themeClass } from '../theme/resolve'
 
 // The corner button with the fan of space bubbles. Geometry in rem, from the corner button's centre
-// (2 rem from the right edge, 1.75 rem from the top), as the CSS places it.
+// (2 rem from the inset right edge, 1.75 rem from the inset top), as the CSS places it.
 const props = defineProps<{
   spaces: SpaceSummary[]
   currentId: string
   editing: boolean
   disabled: boolean
+  dashboardThemeId: string
 }>()
 const emit = defineEmits<{
   select: [id: string]
@@ -27,7 +30,7 @@ const root = useTemplateRef<HTMLElement>('root')
 const trigger = useTemplateRef<HTMLButtonElement>('trigger')
 const open = ref(false)
 const pointerInside = ref(false)
-// The space whose icon and colour the picker edits. While it is set, the fan stays open.
+// The space whose icon and theme the picker edits. While it is set, the fan stays open.
 const pickerId = ref<string | null>(null)
 let closeTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -174,7 +177,7 @@ onUnmounted(() => {
     ref="root"
     class="space-switcher"
     :class="{ 'space-switcher--open': open }"
-    :style="{ '--scrim-r': rem(outer), '--picker-right': pickerRight }"
+    :style="{ '--scrim-r': rem(outer), '--picker-right': pickerRight, '--bubble-size': rem(FAN_GEOMETRY.size) }"
     @mouseenter="enter"
     @mouseleave="leave"
     @focusout="onFocusOut"
@@ -207,7 +210,7 @@ onUnmounted(() => {
         :aria-label="space.title"
         :aria-current="space.id === currentId ? 'true' : undefined"
         :disabled="disabled"
-        :style="{ '--tint': `oklch(0.6 0.12 ${SPACE_COLORS[space.color]})` }"
+        :class="`space--theme-${themeClass(resolveThemeId([space.themeId, dashboardThemeId], BUILTIN_THEME_IDS))}`"
         @click="choose(space.id)"
       >
         <span class="space-switcher__icon" aria-hidden="true">{{ space.icon }}</span>
@@ -217,8 +220,8 @@ onUnmounted(() => {
         v-if="editing"
         type="button"
         class="space-switcher__edit"
-        :aria-label="`Иконка и цвет: ${space.title}`"
-        title="Иконка и цвет"
+        :aria-label="`Иконка и тема: ${space.title}`"
+        title="Иконка и тема"
         :disabled="disabled"
         @click="openPicker(space.id)"
       >
@@ -239,7 +242,7 @@ onUnmounted(() => {
       <span class="space-switcher__label" aria-hidden="true">Новое пространство</span>
     </div>
     <div v-if="pickerSpace" class="space-switcher__picker">
-      <SpacePicker :space="pickerSpace" @pick="onPickerPick" @close="onPickerClose" />
+      <SpacePicker :space="pickerSpace" :disabled="disabled" @pick="onPickerPick" @close="onPickerClose" />
     </div>
   </div>
 </template>
@@ -247,9 +250,10 @@ onUnmounted(() => {
 <style scoped>
 /* A zero-size box in the top-right corner: the children are placed from that corner. */
 .space-switcher {
+  --corner-inset: 10px;
   position: fixed;
-  top: 0;
-  right: 0;
+  top: var(--corner-inset);
+  right: var(--corner-inset);
   z-index: 10;
   width: 0;
   height: 0;
@@ -257,29 +261,36 @@ onUnmounted(() => {
 
 .space-switcher__trigger {
   position: absolute;
-  top: 0.625rem;
-  right: 0.875rem;
+  top: 0.35rem;
+  right: 0.6rem;
   z-index: 3;
   display: grid;
   place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: var(--bubble-size);
+  height: var(--bubble-size);
   padding: 0;
-  border: var(--ld-border-width) solid var(--ld-border-strong);
+  border: 0;
   border-radius: 50%;
-  background: oklch(0.42 0.1 var(--space-hue));
+  background: var(--ld-surface-1-solid);
   font: inherit;
   font-size: 1.0625rem;
   cursor: pointer;
-  box-shadow: 0 0 0 0.1875rem var(--ld-state-hover);
+  box-shadow: var(--ld-shadow-raised);
   transition:
-    transform var(--ld-duration-base) var(--ld-ease-standard),
+    opacity calc(var(--ld-duration-slow) * 1.5) var(--ld-ease-standard),
     box-shadow var(--ld-duration-base) var(--ld-ease-standard);
 }
 
-.space-switcher--open .space-switcher__trigger {
-  transform: scale(1.12);
-  box-shadow: 0 0 0 0.25rem var(--ld-state-selected);
+.space-switcher__trigger::after {
+  content: '';
+  position: absolute;
+  top: -0.125rem;
+  right: -0.125rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ld-info);
+  box-shadow: 0 0 0.5rem var(--ld-info);
 }
 
 .space-switcher__trigger:disabled {
@@ -302,8 +313,8 @@ onUnmounted(() => {
   opacity: 0;
   background: var(--ld-scrim);
   backdrop-filter: blur(0.375rem);
-  mask: radial-gradient(circle at 100% 0%, #000 0, #000 var(--scrim-r), transparent calc(var(--scrim-r) + 13.75rem));
-  -webkit-mask: radial-gradient(circle at 100% 0%, #000 0, #000 var(--scrim-r), transparent calc(var(--scrim-r) + 13.75rem));
+  mask: radial-gradient(circle at calc(100% - var(--corner-inset)) var(--corner-inset), #000 0, #000 var(--scrim-r), transparent calc(var(--scrim-r) + 13.75rem));
+  -webkit-mask: radial-gradient(circle at calc(100% - var(--corner-inset)) var(--corner-inset), #000 0, #000 var(--scrim-r), transparent calc(var(--scrim-r) + 13.75rem));
   transition: opacity var(--ld-duration-base) var(--ld-ease-standard);
 }
 
@@ -311,7 +322,7 @@ onUnmounted(() => {
   opacity: 1;
 }
 
-/* Dashed guide circle around the corner, one per arc. Centre: 2 rem from the right, 1.75 rem from the top. */
+/* Guide circles share the trigger's centre inside the inset corner. */
 .space-switcher__ring {
   position: absolute;
   top: calc(1.75rem - var(--r));
@@ -334,9 +345,9 @@ onUnmounted(() => {
   position: absolute;
   top: 0;
   right: 0;
-  width: 5rem;
-  height: 5rem;
-  transform: translate(0.5rem, -0.75rem) scale(0.3);
+  width: var(--bubble-size);
+  height: var(--bubble-size);
+  transform: translate(-0.6rem, 0.35rem) scale(0.3);
   opacity: 0;
   visibility: hidden;
   transition:
@@ -362,18 +373,19 @@ onUnmounted(() => {
   position: relative;
   display: grid;
   place-items: center;
-  width: 5rem;
-  height: 5rem;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: var(--ld-border-width) solid var(--ld-border-default);
   border-radius: 50%;
   background: var(--ld-surface-1-solid);
   color: var(--ld-text-primary);
   font: inherit;
-  font-size: 2.125rem;
+  font-size: 1.0625rem;
   line-height: 1;
   cursor: pointer;
   overflow: hidden;
+  transform: scale(0.8);
   transition:
     transform var(--ld-duration-base) var(--ld-ease-standard),
     border-color var(--ld-duration-fast) var(--ld-ease-standard),
@@ -385,7 +397,7 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: var(--tint);
+  background: var(--ld-accent);
   opacity: 0.35;
   pointer-events: none;
 }
@@ -400,8 +412,8 @@ onUnmounted(() => {
   box-shadow: 0 0.375rem 1.25rem oklch(0 0 0 / 0.45);
 }
 
-.space-switcher--open .space-switcher__item:hover .space-switcher__bubble:not(:disabled) {
-  transform: scale(1.1);
+.space-switcher--open .space-switcher__item:is(:hover, :focus-within) .space-switcher__bubble:not(:disabled) {
+  transform: scale(1);
   transition-delay: 0ms;
 }
 
@@ -415,7 +427,7 @@ onUnmounted(() => {
   border-color: var(--ld-border-strong);
   background: var(--ld-surface-2);
   color: var(--ld-text-muted);
-  font-size: 1.875rem;
+  font-size: 1.25rem;
 }
 
 .space-switcher__bubble--add::before {
@@ -482,8 +494,8 @@ onUnmounted(() => {
 
 .space-switcher__picker {
   position: fixed;
-  top: 1rem;
-  right: var(--picker-right);
+  top: calc(1rem + var(--corner-inset));
+  right: calc(var(--picker-right) + var(--corner-inset));
   z-index: 4;
 }
 

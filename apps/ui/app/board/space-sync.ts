@@ -45,11 +45,12 @@ export function useSpaceSync(
 
   async function load(): Promise<LoadOutcome> {
     const requested = spaceId()
+    const snapshot = space.value
     const result = await client.board(requested)
     // An expired session always wins: pairing discards the working copy anyway.
     if (!result.ok && result.kind === 'unauthorized') return 'unauthorized'
     // A switch that started meanwhile owns the board now; so does a mode opened during the load.
-    if (spaceId() !== requested) return 'ignored'
+    if (spaceId() !== requested || space.value !== snapshot) return 'ignored'
     if (space.value !== null && (!idle() || saving.value)) return 'ignored'
     if (!result.ok) return 'unavailable'
     space.value = result.data

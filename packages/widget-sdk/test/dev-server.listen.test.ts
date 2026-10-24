@@ -204,3 +204,26 @@ it('requires the shell session for every source route and rejects foreign origin
   const secret = await fetch(scoped(server, '/@ld/pkg/.env.local'), { headers: { origin: 'null' } })
   expect(await secret.text()).not.toContain('DO_NOT_SERVE_THIS')
 }, 30_000)
+
+it.each(['update', 'full-reload'] as const)('advances the shell revision for source HMR %s without resetting gateway state', async (kind) => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const dir = await mkdtemp(join(tmpdir(), 'ld-dev-modal-hmr-'))
+  await cp(fixture, dir, { recursive: true })
+  await cp(library, join(dir, 'node_modules/fake-vue-lib'), { recursive: true })
+  await writeFile(join(dir, 'index.html'), '<div>before</div>')
+  const server = await startDevServer(dir, { port: 0, poll: true })
+  servers.push(server)
+  const info = async () => (await fetch(scoped(server, '/@ld/api/info'))).json()
+  const call = async (op: string, input: unknown) => (await fetch(scoped(server, '/@ld/api/call'), {
+    method: 'POST', body: JSON.stringify({ op, input, confirm: 'allow' }),
+  })).json()
+  await fetch(scoped(server, '/@ld/pkg/src/index.vue'))
+  expect(await call('state.set', { data: { count: 9 }, expectedRevision: 0 })).toEqual({ ok: true, value: { revision: 1 } })
+  const before = await info()
+  if (kind === 'update') {
+    const path = join(dir, 'src/index.vue')
+    await writeFile(path, (await readFile(path, 'utf8')).replace('const count = ref(0)', 'const count = ref(9)'))
+  } else await writeFile(join(dir, 'index.html'), '<div>after</div>')
+  await expect.poll(async () => (await info()).revision).toBeGreaterThan(before.revision)
+  expect(await call('state.get', {})).toEqual({ ok: true, value: { data: { count: 9 }, revision: 1 } })
+}, 30_000)

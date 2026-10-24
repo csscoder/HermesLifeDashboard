@@ -183,4 +183,37 @@ ALTER TABLE screens RENAME COLUMN room_id TO space_id;
 ALTER TABLE spaces ADD COLUMN icon TEXT NOT NULL DEFAULT '🏠';
 ALTER TABLE spaces ADD COLUMN color TEXT NOT NULL DEFAULT 'violet';
 `,
+  `
+-- Spec 2026-10-23-theme-inheritance: NULL inherits the parent scope.
+ALTER TABLE spaces ADD COLUMN theme_id TEXT;
+ALTER TABLE screens ADD COLUMN theme_id TEXT;
+`,
+  `
+ALTER TABLE screens ADD COLUMN background TEXT;
+CREATE TABLE background_media (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  mime TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  committed INTEGER NOT NULL DEFAULT 0,
+  cleanup_requested INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE background_media_leases (
+  lease_id TEXT NOT NULL,
+  session_hash TEXT NOT NULL,
+  video_id TEXT NOT NULL REFERENCES background_media(id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (lease_id, video_id)
+);
+CREATE INDEX background_media_leases_video ON background_media_leases(video_id, expires_at);
+`,
+  `
+-- Generic media references retain the existing asset ids, files and leases.
+UPDATE screens
+SET background = json_set(json_remove(background, '$.videoId'), '$.mediaId', json_extract(background, '$.videoId'), '$.kind', 'video')
+WHERE CASE WHEN json_valid(background)
+  THEN json_type(background, '$.videoId') = 'text' AND json_type(background, '$.mediaId') IS NULL
+  ELSE 0 END;
+`,
 ]

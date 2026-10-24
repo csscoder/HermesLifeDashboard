@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import type { GatewayOp, HttpSendInput, NotificationInput } from '@lifedashboard/contracts/widget-gateway'
-import { confirmations } from './confirmations'
+import { confirmations, type Confirmation } from './confirmations'
 
 // «Виджет «…» хочет …»; a Record so a new op cannot reach the dialog without its text.
+const props = defineProps<{ applicationModalId?: string }>()
+
 const ACTIONS: Record<GatewayOp, string> = {
   'state.get': 'прочитать свои данные',
   'state.set': 'сохранить свои данные',
@@ -21,6 +23,8 @@ const current = computed(() => confirmations.value[0] ?? null)
 const notification = computed(() => (current.value?.op === 'notifications.send' ? (current.value.input as NotificationInput) : null))
 const request = computed(() => (current.value?.op === 'http.send' ? (current.value.input as HttpSendInput) : null))
 const armed = ref(false)
+let shown: Confirmation | null = null
+let previousFocus: HTMLElement | null = null
 let armTimer: ReturnType<typeof setTimeout> | undefined
 
 // The modal lives in the main document: the frame can neither see nor click it.
@@ -33,17 +37,44 @@ watch(
     if (!box) return
     if (id === undefined) {
       if (box.open) box.close()
+      const target = shown?.returnFocus?.()
+      const fallback = previousFocus?.isConnected ? previousFocus : document.querySelector<HTMLElement>('[data-board-focus]')
+      const returnTarget = target?.isConnected ? target : fallback
+      returnTarget?.focus()
+      shown = null
+      previousFocus = null
       return
     }
-    if (!box.open) box.showModal()
+    if (!box.open) {
+      previousFocus = document.activeElement as HTMLElement | null
+      box.showModal()
+    }
+    shown = current.value
     declineButton.value?.focus()
     armTimer = setTimeout(() => (armed.value = true), ARM_MS)
   },
   { flush: 'post' },
 )
 
-// Esc closes the dialog and declines the shown entry. The close event is queued, so a dialog that
-// was reopened for a new entry before it fired is still open and its entry stays.
+// A later application dialog must not cover an existing permission request.
+watch(() => props.applicationModalId, async (id) => {
+  if (!id) return
+  await nextTick()
+  const box = dialog.value
+  if (props.applicationModalId !== id || !current.value || !box?.open) return
+  box.close()
+  box.showModal()
+  declineButton.value?.focus()
+}, { flush: 'post' })
+
+// Handle Escape here before it can reach the underlying application dialog.
+function onCancel(event: Event) {
+  event.preventDefault()
+  event.stopPropagation()
+  current.value?.answer('declined')
+}
+
+// A queued close event must not decline an entry that has already reopened the dialog.
 function onClose() {
   if (!dialog.value?.open) current.value?.answer('declined')
 }
@@ -52,7 +83,7 @@ onUnmounted(() => clearTimeout(armTimer))
 </script>
 
 <template>
-  <dialog ref="dialogBox" class="confirm" aria-labelledby="confirm-title" @close="onClose">
+  <dialog ref="dialogBox" class="confirm" aria-labelledby="confirm-title" @close="onClose" @cancel="onCancel" @keydown.esc.stop.prevent="current?.answer('declined')">
     <template v-if="current">
       <h2 id="confirm-title" class="confirm__title">Виджет «{{ current.title }}» хочет {{ ACTIONS[current.op] }}</h2>
       <div v-if="notification" class="confirm__preview">

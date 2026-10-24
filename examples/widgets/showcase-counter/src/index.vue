@@ -1,5 +1,9 @@
+<script lang="ts">
+import CounterWorkspace from './CounterWorkspace.vue'
+export const modals = { workspace: CounterWorkspace }
+</script>
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useWidget } from '@lifedashboard/widget-sdk'
 import { createCounter } from './counter.ts'
 
@@ -16,6 +20,12 @@ const summary = computed(() => {
   return state.count >= goal.value ? 'Goal reached' : `${goal.value - state.count} to go`
 })
 
+const modalError = ref('')
+async function openWorkspace() {
+  modalError.value = ''
+  try { await widget.modal.open('workspace', { title: 'Focus sessions' }) }
+  catch { modalError.value = 'Could not open workspace. Please try again.' }
+}
 onMounted(load)
 </script>
 
@@ -75,6 +85,8 @@ onMounted(load)
             <span>Add session</span>
           </button>
         </div>
+        <button class="counter__edit" type="button" @click="openWorkspace">Edit progress</button>
+        <p v-if="modalError" role="alert">{{ modalError }}</p>
         <div v-if="state.error" class="counter__error">
           <p role="alert">{{ state.error }}</p>
           <button v-if="!state.ready" type="button" :disabled="state.busy" @click="load">Reload progress</button>
@@ -220,6 +232,7 @@ h2 {
 .counter__add:active:not(:disabled) { background: var(--ld-accent-active); }
 button:focus-visible { outline: 2px solid var(--ld-focus-ring); outline-offset: 2px; }
 .counter__actions button:disabled { color: var(--ld-text-disabled); background: var(--ld-surface-2); border-color: var(--ld-border-subtle); cursor: default; }
+.counter__edit { border: 0; background: none; color: var(--ld-accent-text); font: inherit; cursor: pointer; }
 .counter__error { display: grid; justify-items: start; gap: calc(var(--ld-gap) / 3); color: var(--ld-danger-text); font-size: 0.6875rem; }
 .counter__error button { padding: 0; border: 0; background: none; color: var(--ld-accent-text); font: inherit; text-decoration: underline; cursor: pointer; }
 .counter__error button:disabled { color: var(--ld-text-disabled); cursor: default; }

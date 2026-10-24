@@ -33,6 +33,8 @@ describe('openDatabase', () => {
     const db = await openDatabase(':memory:', ctx())
     expect(userVersion(db)).toBe(MIGRATIONS.length)
     expect(tables(db)).toEqual([
+      'background_media',
+      'background_media_leases',
       'screens',
       'sessions',
       'spaces',
@@ -275,5 +277,76 @@ describe('migration 9: rooms become spaces', () => {
     db.exec("DELETE FROM spaces WHERE id = 'r2'")
     expect(db.prepare('SELECT count(*) AS n FROM widgets').get()).toEqual({ n: 0 })
     db.close()
+  })
+})
+
+
+describe('migration 10: space and screen themes', () => {
+  it('adds inherited themes without changing existing boards, metadata or widget overrides', async () => {
+    const previous = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 9))
+    previous.exec(`
+      UPDATE spaces SET title = 'Home', icon = '💼', color = 'pink', revision = 7;
+      UPDATE screens SET rows = 20;
+      INSERT INTO widgets (id, screen_id, source_kind, source_type, config, config_version, appearance, x, y, w, h)
+      VALUES ('w1', '${SEED_SCREEN_ID}', 'builtin', 'placeholder', '{"title":"Keep"}', 1, '{"themeId":"builtin:bare","shadow":null}', 1, 2, 3, 4);
+      INSERT INTO widget_state (widget_id, data, revision, updated_at) VALUES ('w1', '{"count":5}', 3, 'x');
+    `)
+    const widgets = previous.prepare('SELECT * FROM widgets').all()
+    const states = previous.prepare('SELECT * FROM widget_state').all()
+    previous.close()
+
+    const db = await openDatabase(file, ctx())
+    expect(db.prepare('SELECT title, icon, color, revision, theme_id FROM spaces').all()).toEqual([
+      { title: 'Home', icon: '💼', color: 'pink', revision: 7, theme_id: null },
+    ])
+    expect(db.prepare('SELECT id, rows, theme_id FROM screens').all()).toEqual([
+      { id: SEED_SCREEN_ID, rows: 20, theme_id: null },
+    ])
+    expect(db.prepare('SELECT * FROM widgets').all()).toEqual(widgets)
+    expect(db.prepare('SELECT * FROM widget_state').all()).toEqual(states)
+    db.close()
+    expect(existsSync(`${file}.bak-v9`)).toBe(true)
+  })
+})
+
+
+describe('migration 11: screen background media', () => {
+  it('adds nullable backgrounds and media leases without changing existing boards', async () => {
+    const previous = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 10))
+    previous.exec("UPDATE screens SET rows = 24, theme_id = 'builtin:obsidian'; UPDATE spaces SET revision = 9")
+    previous.close()
+    const db = await openDatabase(file, ctx())
+    expect(db.prepare('SELECT rows, theme_id, background FROM screens').get()).toEqual({ rows: 24, theme_id: 'builtin:obsidian', background: null })
+    expect(db.prepare('SELECT revision FROM spaces').get()).toEqual({ revision: 9 })
+    expect(db.prepare('SELECT * FROM background_media').all()).toEqual([])
+    expect(db.prepare('SELECT * FROM background_media_leases').all()).toEqual([])
+    db.close()
+    expect(existsSync(`${file}.bak-v10`)).toBe(true)
+  })
+})
+
+
+describe('migration 12: generic background media', () => {
+  it('rewrites video references while preserving media, leases and existing image settings', async () => {
+    const previous = await openDatabase(file, ctx(), MIGRATIONS.slice(0, 11))
+    const mediaId = '00000000-0000-4000-8000-000000000001'
+    const legacy = { videoId: mediaId, opacity: .8, dim: .3, pattern: { shape: 'none', color: '#123456', opacity: .4, scale: 1 } }
+    previous.prepare('UPDATE screens SET background = ?').run(JSON.stringify(legacy))
+    const generic = JSON.stringify({ mediaId, kind: 'image', opacity: .8, dim: .3, pattern: legacy.pattern })
+    previous.prepare('INSERT INTO screens (id,space_id,position,background) VALUES (?,?,?,?)').run('image-screen', SEED_SPACE_ID, 1, generic)
+    previous.prepare('INSERT INTO screens (id,space_id,position,background) VALUES (?,?,?,?)').run('invalid-screen', SEED_SPACE_ID, 2, '{invalid')
+    previous.prepare('INSERT INTO background_media (id,name,size,mime,created_at,committed) VALUES (?,?,?,?,?,?)').run(mediaId, 'keep.mov', 42, 'video/quicktime', 100, 1)
+    previous.prepare('INSERT INTO background_media_leases VALUES (?,?,?,?)').run('lease', 'session', mediaId, 10000)
+    const media = previous.prepare('SELECT * FROM background_media').all()
+    const leases = previous.prepare('SELECT * FROM background_media_leases').all()
+    previous.close()
+    const db = await openDatabase(file, ctx())
+    expect(JSON.parse((db.prepare('SELECT background FROM screens').get() as { background: string }).background)).toEqual({ mediaId, kind: 'video', opacity: .8, dim: .3, pattern: legacy.pattern })
+    expect(db.prepare('SELECT background FROM screens WHERE id = ?').get('image-screen')).toEqual({ background: generic })
+    expect(db.prepare('SELECT background FROM screens WHERE id = ?').get('invalid-screen')).toEqual({ background: '{invalid' })
+    expect(db.prepare('SELECT * FROM background_media').all()).toEqual(media)
+    expect(db.prepare('SELECT * FROM background_media_leases').all()).toEqual(leases)
+    db.close()
+    expect(existsSync(`${file}.bak-v11`)).toBe(true)
   })
 })

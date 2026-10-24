@@ -9,7 +9,7 @@ import { useWidget } from '@lifedashboard/widget-sdk'
 const widget = useWidget() // call inside component setup; throws outside a widget
 ```
 
-`useWidget()` returns a `Widget` with `context`, `state`, `notify`, `http` and `call`.
+`useWidget()` returns a `Widget` with `context`, `state`, `notify`, `http`, `modal` and `call`.
 
 ## Context
 
@@ -96,8 +96,31 @@ Errors are `WidgetError` objects with a `code`. See [errors.md](errors.md).
 
 ## sdk levels
 
-`ld-widget check` and `build` write the `sdk` level into the built manifest. It is the target level of this SDK, 3. Do not set `sdk` in `widget.json`. The dashboard supports the levels 1, 2, 3, so folders built with older SDKs keep working.
+`ld-widget check` and `build` write the `sdk` level into the built manifest. It is the target level of this SDK, 4. Do not set `sdk` in `widget.json`. The dashboard supports the levels 1, 2, 3, 4, so folders built with older SDKs keep working.
 
 - Level 1: `context`, `state`, `notify` and `call`.
 - Level 2: the settings schema (`settings`), typed HTTP (`http.get`, `http.send`) and `context.frame`.
 - Level 3: the manifest `frame` field.
+- Level 4: named modal workspaces through `widget.modal`.
+
+## modal
+
+Since sdk 4. No new permission: calls inside the modal use the caller's existing permissions and shared quotas.
+
+- `await widget.modal.open(view, { title?, props? })` requests a named view exported by the entry. It resolves when accepted, with no return value; it does not wait for the modal to close.
+- `widget.modal.close()` requests close from the modal runtime. Await state writes before calling it.
+- Export `modals = { workspace: Workspace }` from a normal `<script>` in `src/index.vue`; the default export stays the compact component. See [recipes.md](recipes.md).
+- `view` matches `^[a-z][a-z0-9-]{0,63}$` (`constructor` is reserved). `title` is plain text, defaults to the package title, and must not be empty.
+- `props` defaults to `{}` and must be a finite JSON object. It becomes ordinary Vue props, not shared reactive state.
+- One modal can be open globally. Busy, nested opens and unsupported hosts reject with `UNAVAILABLE`; invalid views/options reject with `INVALID_INPUT`; excessive accepted opens reject with `RATE_LIMITED`.
+- Closing returns no data. Persist results through `widget.state` (permission `state`) and read them in the remounted caller.
+
+| Limit | Value |
+| --- | --- |
+| `propsBytes` | 65536 |
+| `propsDepth` | 32 |
+| `titleLength` | 80 |
+| `opens` | 10 |
+| `windowMs` | 60000 |
+
+`propsBytes` is encoded JSON bytes, `propsDepth` counts the root object as depth 1, `titleLength` counts characters, and `opens` counts accepted opens per instance per `windowMs`. The open quota survives caller remounts. The bridge message limit still applies.

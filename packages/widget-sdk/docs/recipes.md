@@ -149,3 +149,87 @@ async function update(change: (data: Data) => Data): Promise<void> {
 ```
 
 Each retry reads the newest state. If your writes can race often, add a limit on attempts.
+
+## Named modal workspace
+
+Keep the starter widget compact. Add a modal only when the user needs a larger workspace.
+
+```vue
+<!-- src/index.vue -->
+<script lang="ts">
+import Workspace from './Workspace.vue'
+export const modals = { workspace: Workspace }
+</script>
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useWidget } from '@lifedashboard/widget-sdk'
+const widget = useWidget()
+const error = ref('')
+async function open() {
+  try { await widget.modal.open('workspace', { title: 'Workspace', props: { heading: 'Details' } }) }
+  catch { error.value = 'Could not open workspace. Try again.' }
+}
+</script>
+<template><button @click="open">Open workspace</button><p role="alert" v-text="error" /></template>
+```
+
+```vue
+<!-- src/Workspace.vue; declare state in widget.json permissions -->
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { useWidget, WidgetError } from '@lifedashboard/widget-sdk'
+defineProps<{ heading: string }>()
+const widget = useWidget()
+const text = ref('')
+const ready = ref(false)
+const busy = ref(false)
+const error = ref('')
+let revision = 0
+async function load() {
+  ready.value = false
+  const saved = await widget.state.get<{ text: string }>()
+  // Validate persisted data before editing it.
+  if (saved.data !== null && (typeof saved.data !== 'object' || typeof saved.data.text !== 'string')) {
+    throw new Error('Invalid saved text')
+  }
+  text.value = saved.data?.text ?? ''
+  revision = saved.revision
+  ready.value = true
+}
+async function reload() {
+  try { await load(); error.value = '' }
+  catch { error.value = 'Could not load saved text.' }
+}
+async function save() {
+  if (busy.value || !ready.value) return
+  busy.value = true
+  try {
+    await widget.state.set({ text: text.value }, revision)
+    widget.modal.close()
+  } catch (cause) {
+    ready.value = false
+    if (cause instanceof WidgetError && cause.code === 'CONFLICT') {
+      try { await load(); error.value = 'Review the reloaded text before saving.' }
+      catch { error.value = 'Could not reload saved text.' }
+    } else { error.value = 'Save not confirmed. Reload before saving again.' }
+  } finally { busy.value = false }
+}
+onMounted(reload)
+</script>
+<template>
+  <main class="workspace">
+    <h1 v-text="heading" />
+    <label>Text <textarea v-model="text" :disabled="busy || !ready" /></label>
+    <p role="alert" v-text="error" />
+    <button :disabled="busy" @click="reload">Reload</button>
+    <button type="button" :disabled="busy || !ready" @click="save">Save</button>
+  </main>
+</template>
+<style scoped>
+.workspace { box-sizing: border-box; width: 100%; min-height: 100%; padding: var(--ld-widget-padding); container-type: inline-size; }
+textarea { box-sizing: border-box; width: 100%; max-width: 40rem; }
+@container (max-width: 24rem) { button { width: 100%; } }
+</style>
+```
+
+Read persistence again when the compact component mounts: the host remounts it on every close. Do not expect an open result or a shared Vue ref to carry the edited value back. See [runtime.md](runtime.md) for close and Escape behavior.

@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { sandboxDocument } from '@lifedashboard/contracts/sandbox-document'
+import { MODAL_LIMITS } from '@lifedashboard/contracts/widget-modal'
 import { GRID_COLS, ROWS } from '@lifedashboard/contracts/grid'
 import { REDACTED, SECRET_MIN_LENGTH } from '@lifedashboard/contracts/widget-secrets'
 import {
@@ -54,6 +55,7 @@ export async function docValues(themeTokens: readonly string[]): Promise<Record<
   const directives = csp.split('; ').map((directive) => directive.replace(/'sha256-[^']+'/, "'sha256-<import map hash>'"))
   const pkg = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')) as { peerDependencies: Record<string, string> }
   return {
+    MODAL_LIMITS: table(['Limit', 'Value'], Object.entries(MODAL_LIMITS).map(([key, value]) => [code(key), String(value)])),
     SDK_TARGET_LEVEL: String(SDK_TARGET_LEVEL),
     SDK_LEVELS: SDK_LEVELS.join(', '),
     PERMISSIONS: WIDGET_PERMISSIONS.map(code).join(', '),

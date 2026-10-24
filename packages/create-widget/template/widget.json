@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "title": "__TITLE__",
   "author": "Автор",
-  "sdk": 3,
+  "sdk": 4,
   "entry": "index.js",
   "styles": ["style.css"],
   "sizing": {

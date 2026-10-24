@@ -1,12 +1,5 @@
-import type { ScreenBoard, WidgetInstance } from '@lifedashboard/contracts/board'
 import { describe, expect, it } from 'vitest'
-import { afterDelete, headerTitle, needsDeleteConfirm } from '../app/spaces/nav'
-
-const instance = { id: 'w1' } as WidgetInstance
-
-function screen(instances: WidgetInstance[]): ScreenBoard {
-  return { id: 's1', rows: 12, instances, layout: [] }
-}
+import { afterDelete, headerTitle } from '../app/spaces/nav'
 
 describe('headerTitle', () => {
   it('omits the index for a single screen', () => {
@@ -31,19 +24,5 @@ describe('afterDelete', () => {
 
   it('returns null when the only id is deleted', () => {
     expect(afterDelete(['a'], 'a')).toBeNull()
-  })
-})
-
-describe('needsDeleteConfirm', () => {
-  it('asks when the saved screen still has widgets', () => {
-    expect(needsDeleteConfirm(screen([instance]), screen([]))).toBe(true)
-  })
-
-  it('asks when the working copy has widgets', () => {
-    expect(needsDeleteConfirm(screen([]), screen([instance]))).toBe(true)
-  })
-
-  it('does not ask for an empty screen with no working copy', () => {
-    expect(needsDeleteConfirm(screen([]), null)).toBe(false)
   })
 })

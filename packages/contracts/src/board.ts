@@ -40,10 +40,45 @@ export interface WidgetPlacement extends Rect {
   instanceId: string
 }
 
+export const BACKGROUND_PATTERN_SIZES = {
+  diagonal: { width: 2, height: 2 },
+  squares: { width: 3, height: 3 },
+  crosses: { width: 3, height: 3 },
+  circles: { width: 6, height: 6 },
+  triangles: { width: 3, height: 3 },
+  diamonds: { width: 3, height: 3 },
+} as const
+
+export interface ScreenBackground {
+  mediaId: string
+  kind: 'video' | 'image'
+  opacity: number
+  dim: number
+  pattern: {
+    shape: 'none' | keyof typeof BACKGROUND_PATTERN_SIZES
+    color: string
+    opacity: number
+    scale: number
+  }
+}
+
+export interface BackgroundMedia {
+  id: string
+  name: string
+  size: number
+  mime: string
+}
+
+export function defaultBackground(mediaId: string, kind: ScreenBackground['kind'] = 'video'): ScreenBackground {
+  return { mediaId, kind, opacity: 1, dim: 0.35, pattern: { shape: 'diagonal', color: '#000000', opacity: 0.25, scale: 1 } }
+}
+
 export interface ScreenBoard {
   id: string
   // Configured rows (ROWS.min..ROWS.max); placements may lie below them (base design §7.4).
   rows: number
+  themeId?: string | null // absent/null: inherit the space theme
+  background?: ScreenBackground | null
   instances: WidgetInstance[]
   layout: WidgetPlacement[]
 }
@@ -87,6 +122,10 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   if (typeof rows !== 'number' || !Number.isInteger(rows) || rows < ROWS.min || rows > ROWS.max) {
     return fail(`rows must be an integer ${ROWS.min}..${ROWS.max}`)
   }
+  const themeId = raw.themeId
+  if (themeId != null && (!isThemeId(themeId) || themeId === BARE_THEME_ID)) return fail('invalid screen themeId')
+  const background = parseScreenBackground(raw.background)
+  if (background === null) return fail('invalid screen background')
   if (!Array.isArray(raw.instances) || !Array.isArray(raw.layout)) return fail('instances and layout must be arrays')
 
   const instances: WidgetInstance[] = []
@@ -127,7 +166,7 @@ export function parseScreenBoard(raw: unknown): ParseResult<ScreenBoard> {
   const unplaced = instances.find((instance) => !placed.has(instance.id))
   if (unplaced) return fail(`instance "${unplaced.id}" has no placement`)
 
-  return { ok: true, value: { id: raw.id, rows, instances, layout } }
+  return { ok: true, value: { id: raw.id, rows, ...(themeId != null && { themeId }), ...(background && { background }), instances, layout } }
 }
 
 export function parseWidgetSource(raw: unknown): WidgetSource | null {
@@ -157,7 +196,7 @@ function parseAppearance(raw: unknown): WidgetAppearance | undefined | null {
 }
 
 // A well-formed unknown id is valid: rendering treats it as unset, the stored reference stays.
-function isThemeId(value: unknown): value is string {
+export function isThemeId(value: unknown): value is string {
   if (typeof value !== 'string') return false
   return BUILTIN_THEME.test(value) || (value.startsWith('user:') && isUuid(value.slice('user:'.length)))
 }
@@ -185,4 +224,21 @@ function toRect(item: Record<string, unknown>): Rect | null {
   if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(w) || !Number.isInteger(h)) return null
   const rect = { x, y, w, h } as Rect
   return inBounds(rect) ? rect : null
+}
+
+export function parseScreenBackground(raw: unknown): ScreenBackground | undefined | null {
+  if (raw == null) return undefined
+  if (!isRecord(raw) || !isRecord(raw.pattern)) return null
+  const legacy = raw.mediaId === undefined && isUuid(raw.videoId)
+  const mediaId = legacy ? raw.videoId : raw.mediaId
+  const kind = legacy ? 'video' : raw.kind
+  if (!isUuid(mediaId) || (kind !== 'video' && kind !== 'image')) return null
+  const finite = (value: unknown, min: number, max: number): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+  const { opacity, dim, pattern } = raw
+  const { shape, color, opacity: patternOpacity, scale } = pattern
+  if (!finite(opacity, 0, 1) || !finite(dim, 0, 1) || !finite(patternOpacity, 0, 1) || !finite(scale, 0.25, 4) ||
+    typeof color !== 'string' || !HEX_COLOR.test(color) ||
+    (shape !== 'none' && (typeof shape !== 'string' || !Object.hasOwn(BACKGROUND_PATTERN_SIZES, shape)))) return null
+  return { mediaId, kind, opacity, dim, pattern: { shape: shape as ScreenBackground['pattern']['shape'], color, opacity: patternOpacity, scale } }
 }

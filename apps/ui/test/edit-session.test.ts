@@ -228,3 +228,51 @@ describe('addInstance', () => {
     expect(next.layout.at(-1)).toStrictEqual({ instanceId: NEW, ...rect })
   })
 })
+
+
+describe('screen theme draft', () => {
+  it('changes the screen theme without mutating the saved board or widget overrides', () => {
+    const source = { ...board, instances: board.instances.map((instance, index) => index === 0 ? { ...instance, appearance: { themeId: 'builtin:glass', shadow: null } } : instance) }
+    const next = edits.withTheme(source, 'builtin:paper')
+    expect(next.themeId).toBe('builtin:paper')
+    expect(source).not.toHaveProperty('themeId')
+    expect(next.instances[0]!.appearance?.themeId).toBe('builtin:glass')
+    expect(isSameBoard(source, next)).toBe(false)
+    expect(parseScreenBoard(next)).toEqual({ ok: true, value: next })
+  })
+
+  it('clears an override canonically and preserves the theme through ordinary edits', () => {
+    const themed = edits.withTheme(board, 'builtin:paper')
+    expect(withRows(themed, 16).themeId).toBe('builtin:paper')
+    expect(setConfig(themed, A, { title: 'Keep theme' }).themeId).toBe('builtin:paper')
+    expect(isSameBoard(edits.withTheme(themed, null), board)).toBe(true)
+    const parsed = parseScreenBoard(themed)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) expect(JSON.stringify(parsed.value)).toBe(JSON.stringify(themed))
+  })
+})
+
+
+describe('screen background draft', () => {
+  const background = { mediaId: '00000000-0000-4000-8000-0000000000aa', kind: 'video' as const, opacity: 0.7, dim: 0.35,
+    pattern: { shape: 'circles' as const, color: '#112233', opacity: 0.25, scale: 1 } }
+  it('previews without mutating the saved screen and keeps canonical theme/background order', () => {
+    const saved = edits.withTheme(board, 'builtin:paper')
+    const next = edits.withBackground(saved, background)
+    expect(next.background).toEqual(background)
+    expect(saved).not.toHaveProperty('background')
+    expect(isSameBoard(next, saved)).toBe(false)
+    const parsed = parseScreenBoard(next)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) expect(JSON.stringify(parsed.value)).toBe(JSON.stringify(next))
+    expect(edits.withTheme(next, 'builtin:glass').background).toEqual(background)
+    expect(withRows(next, 16).background).toEqual(background)
+    expect(setConfig(next, A, { title: 'Keep video' }).background).toEqual(background)
+  })
+  it('removes a draft background canonically without losing widgets or the theme', () => {
+    const saved = edits.withTheme(board, 'builtin:paper')
+    const next = edits.withBackground(saved, background)
+    expect(isSameBoard(edits.withBackground(next, null), saved)).toBe(true)
+    expect(next.instances).toEqual(saved.instances)
+  })
+})

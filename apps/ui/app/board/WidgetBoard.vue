@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import type { ScreenBoard, WidgetAppearance, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
+import type { ScreenBackground, ScreenBoard, WidgetAppearance, WidgetInstance, WidgetSource } from '@lifedashboard/contracts/board'
 import { GRID_COLS, ROWS, findFreeRect, gridRows, type Rect } from '@lifedashboard/contracts/grid'
 import { api } from '../api'
+import { useBackgroundLeases } from '../background/use-media-leases'
 import { askDelete, pendingDelete } from '../spaces/confirm-delete'
-import { afterDelete, needsDeleteConfirm } from '../spaces/nav'
+import { afterDelete } from '../spaces/nav'
 import { resolveWidgetLook } from '../theme/resolve'
 import { describeSource, installedPackages } from '../widgets/catalog'
 import { refreshSecretFlags, useSecretFlags } from '../widgets/secret-flags'
 import WidgetHost from '../widgets/WidgetHost.vue'
-import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPackageVersion, setPlacement, withRows, type BoardMode } from './edit-session'
+import { addInstance, focusAfterRemoval, isSameBoard, readingOrder, removeInstance, setAppearance, setConfig, setPackageVersion, setPlacement, withRows, withTheme, withBackground, type BoardMode } from './edit-session'
 import { isFormControlTarget } from './keyboard'
 import { afterLoad, afterManage, afterSave, afterStaySave, useSpaceSync, type Reaction } from './space-sync'
 import { screenNamed, useScreenModel } from './screen-model'
@@ -86,6 +87,19 @@ const editing = computed(() => mode.value === 'edit')
 const shown = computed(() => (editing.value ? working.value : doc.value))
 // Pending widget edits: the working copy differs from the saved screen.
 const dirty = computed(() => editing.value && !isSameBoard(working.value, doc.value))
+
+const backgroundLeaseError = ref<string | null>(null)
+useBackgroundLeases(() => [
+  ...(space.value?.screens ?? []).flatMap(screen => screen.background ? [screen.background.mediaId] : []),
+  ...(editing.value && working.value.background ? [working.value.background.mediaId] : []),
+], message => { backgroundLeaseError.value = message })
+const background = computed<ScreenBackground | null>(() => shown.value.background ?? null)
+const backgroundKey = computed(() => `${space.value?.spaceId ?? ''}:${shown.value.id}`)
+
+function setBackground(next: ScreenBackground | null) {
+  if (!loaded.value || !editing.value || saving.value || switching.value) return
+  working.value = withBackground(working.value, next)
+}
 
 const placed = computed(() =>
   shown.value.layout.flatMap((placement) => {
@@ -266,9 +280,7 @@ async function removeScreen(): Promise<'deleted' | 'last' | 'cancelled' | 'faile
   if (screens.value.length <= 1) return 'last'
   const id = doc.value.id
   const ids = screens.value
-  const saved = space.value?.screens.find((screen) => screen.id === id)
   const result = await runDeleteScreen({
-    needsConfirm: needsDeleteConfirm(saved, editing.value ? working.value : null),
     ask: () => askDelete('Удалить экран? Виджеты на нём будут удалены.'),
     remove: () => deleteScreenOnServer(id),
   })
@@ -524,6 +536,17 @@ function setRows(value: number) {
   if (editing.value && !saving.value) working.value = withRows(working.value, value)
 }
 
+const screenThemeId = computed(() => shown.value.themeId ?? null)
+const themeSpaceId = computed(() => space.value?.spaceId ?? null)
+
+async function setScreenTheme(themeId: string | null) {
+  if (!loaded.value || saving.value || switching.value || mode.value === 'build') return
+  if (themeId === screenThemeId.value) return
+  const next = withTheme(shown.value, themeId)
+  if (editing.value) working.value = next
+  else await save(next)
+}
+
 defineExpose({
   confirm,
   cancel,
@@ -532,6 +555,13 @@ defineExpose({
   loaded,
   rows,
   setRows,
+  screenThemeId,
+  themeSpaceId,
+  setScreenTheme,
+  background,
+  backgroundKey,
+  backgroundLeaseError,
+  setBackground,
   screens,
   revision,
   dirty,

@@ -51,7 +51,7 @@ describe('createWidgetProject', () => {
     const manifest = await json(join(project, 'widget.json'))
     expect(manifest).toEqual({
       id: 'dev.local.moi-superchasy', version: '0.1.0', title: 'Мои суперчасы', author: 'Автор',
-      sdk: 3, entry: 'index.js', styles: ['style.css'],
+      sdk: 4, entry: 'index.js', styles: ['style.css'],
       sizing: { default: { w: 4, h: 4 }, min: { w: 2, h: 2 }, max: { w: 12, h: 12 } },
       permissions: [],
     })

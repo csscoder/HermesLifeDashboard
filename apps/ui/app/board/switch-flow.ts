@@ -15,13 +15,12 @@ export async function runPreSave(deps: FlowDeps): Promise<FlowResult> {
   return outcome === 'saved' ? { ok: true } : { ok: false, reaction: afterStaySave(outcome) }
 }
 
-/** ✕ on the active screen: never pre-saves; `ask` runs only when `needsConfirm`. */
+/** Deleting the active screen always asks first and never pre-saves. */
 export async function runDeleteScreen(deps: {
-  needsConfirm: boolean
   ask(): Promise<boolean>
   remove(): Promise<SaveOutcome>
 }): Promise<FlowResult | { ok: false; cancelled: true }> {
-  if (deps.needsConfirm && !(await deps.ask())) return { ok: false, cancelled: true }
+  if (!(await deps.ask())) return { ok: false, cancelled: true }
   const outcome = await deps.remove()
   return outcome === 'saved' ? { ok: true } : { ok: false, reaction: afterManage(outcome) }
 }

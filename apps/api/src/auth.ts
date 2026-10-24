@@ -73,7 +73,8 @@ export function registerAuth(app: FastifyInstance, { db, config, now, onPairingC
     if (MUTATING_METHODS.has(request.method)) {
       if (origin === undefined) throw new ApiError('FORBIDDEN', 'Origin is required')
       const type = request.headers['content-type']?.split(';')[0]?.trim().toLowerCase()
-      const required = request.method === 'PUT' && UPLOAD_FILE_PATH.test(path) ? 'application/octet-stream' : 'application/json'
+      const rawUpload = (request.method === 'PUT' && UPLOAD_FILE_PATH.test(path)) || (request.method === 'POST' && path === '/api/v1/background-media')
+      const required = rawUpload ? 'application/octet-stream' : 'application/json'
       if (type !== required) {
         throw new ApiError('FORBIDDEN', required === 'application/json' ? 'A JSON body is required' : 'An application/octet-stream body is required')
       }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, useTemplateRef } from 'vue'
+import { computed, nextTick, onUnmounted, useId, useTemplateRef, watch } from 'vue'
 import type { DropShadow, WidgetSource } from '@lifedashboard/contracts/board'
 import type { Size } from '@lifedashboard/contracts/grid'
 import { normalizeConfig } from '@lifedashboard/contracts/widget-settings'
@@ -11,6 +11,7 @@ import { showToast } from '../toasts'
 import { createGatewayClient } from './broker'
 import { describeSource } from './catalog'
 import { useWidgetContext } from './context'
+import { widgetModals } from './modals'
 import { builtinWidgetRenderers } from './registry'
 import { useSecretFlags } from './secret-flags'
 import SandboxWidget from './SandboxWidget.vue'
@@ -44,6 +45,23 @@ const context = useWidgetContext({
   frameMode: () => (props.skin === 'bare' ? 'frameless' : 'framed'),
 })
 
+const hostId = useId()
+const runtimeId = computed(() => `${props.widgetId}:${hostId}`)
+watch(() => [props.widgetId, props.source.kind === 'package' ? props.source.packageId : '', props.source.kind === 'package' ? props.source.version : '', info.value?.hash] as const,
+  ([widgetId, packageId, version, hash], _old, cleanup) => {
+    if (!widgetId || !packageId || !hash) return
+    const unregister = widgetModals.registerCaller({
+      owner: { widgetId, runtimeId: runtimeId.value, hash, packageId, version, title: title.value },
+      context: () => context,
+      async restart() {
+        await nextTick()
+        // The adapter checks registration again after this boundary before changing the key.
+        if (props.widgetId !== widgetId || props.source.kind !== 'package' || props.source.packageId !== packageId || props.source.version !== version || info.value?.hash !== hash) throw new Error('Caller source changed')
+      },
+    })
+    cleanup(unregister)
+  }, { immediate: true, flush: 'sync' })
+
 // A placed built-in widget runs in-process behind the same broker client as a sandboxed one;
 // its widget session is created on the first gateway call.
 if (props.widgetId && props.source.kind === 'builtin') {
@@ -70,7 +88,7 @@ if (props.widgetId && props.source.kind === 'builtin') {
   <WidgetFrame ref="frameBox" :theme-id="themeId" :skin="skin" :foreign="foreign" :shadow="shadow">
     <div v-if="!widgetId" class="grid place-items-center h-full text-center text-base font-strong text-secondary">{{ title }}</div>
     <component :is="renderer" v-else-if="renderer" />
-    <SandboxWidget v-else-if="info?.hash && source.kind === 'package'" :key="info.hash" :widget-id="widgetId" :hash="info.hash" :title="title" :package-id="source.packageId" :version="source.version" :context="context" />
+    <SandboxWidget v-else-if="info?.hash && source.kind === 'package'" :key="`${info.hash}:${widgetModals.runtimeVersion(widgetId)}`" :surface-id="runtimeId" :widget-id="widgetId" :hash="info.hash" :title="title" :package-id="source.packageId" :version="source.version" :context="context" />
     <div v-else class="grid place-items-center h-full text-center text-sm text-muted">Неизвестный виджет</div>
   </WidgetFrame>
 </template>

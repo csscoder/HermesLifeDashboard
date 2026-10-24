@@ -1,6 +1,6 @@
 # LifeDashboard widget SDK
 
-Docs for `@lifedashboard/widget-sdk`, matched to this version. Target `sdk` level: 3.
+Docs for `@lifedashboard/widget-sdk`, matched to this version. Target `sdk` level: 4.
 Open the page that matches your task:
 
 - [api.md](api.md): `useWidget()`, context fields, `state`, `notify`, `http`, `call`, permissions, limits, `sdk` levels.
@@ -29,7 +29,7 @@ AGENTS.md            rules for coding agents
 
 ## Manifest
 
-`widget.json` example. `ld-widget check` and `build` set `format` and `sdk` (target level 3), so do not write them:
+`widget.json` example. `ld-widget check` and `build` set `format` and `sdk` (target level 4), so do not write them:
 
 ```json
 {
@@ -51,3 +51,5 @@ AGENTS.md            rules for coding agents
 - `sizing`: `min`, `default` and `max` in grid cells. See [design.md](design.md).
 - `settings`: see [settings.md](settings.md).
 - `frame`: `framed` (default) or `frameless`; needs sdk 3. See [design.md](design.md).
+
+Optional named modal workspaces (sdk 4): start with the registry and persistence example in [recipes.md](recipes.md), then read [api.md](api.md) and [runtime.md](runtime.md) for lifecycle, errors and limits.

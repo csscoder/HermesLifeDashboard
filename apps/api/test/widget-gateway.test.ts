@@ -73,6 +73,23 @@ async function pairAgain(): Promise<string> {
 }
 
 describe('POST /widget-sessions', () => {
+  it('serves two concurrent sessions of one widget with shared state and rate limit', async () => {
+    const a = await openSession(PKG_WIDGET)
+    const b = await openSession(PKG_WIDGET)
+    expect(a).not.toBe(b)
+    expect((await gateway('state.set', a, { data: { n: 1 }, expectedRevision: 0 })).json().data).toEqual({ revision: 1 })
+    expect((await gateway('state.get', b)).json().data).toEqual({ data: { n: 1 }, revision: 1 })
+    expect(errorCode(await gateway('state.set', b, { data: { n: 2 }, expectedRevision: 0 }))).toBe('CONFLICT')
+    // The successful write and stale write both consume the shared quota.
+    for (let revision = 1; revision < 59; revision++) {
+      expect((await gateway('state.set', revision % 2 ? a : b, { data: revision, expectedRevision: revision })).statusCode).toBe(200)
+    }
+    expect(errorCode(await gateway('state.set', b, { data: 60, expectedRevision: 59 }))).toBe('RATE_LIMITED')
+    expect((await call(t.app, { method: 'DELETE', url: `/api/v1/widget-sessions/${a}`, cookie, payload: {} })).statusCode).toBe(200)
+    expect(errorCode(await gateway('state.get', a))).toBe('SESSION_EXPIRED')
+    expect((await gateway('state.get', b)).json().data).toEqual({ data: 58, revision: 59 })
+  })
+
   it.each([
     { kind: 'package', packageId: 'dev.test.hello', version: '2.0.0' },
     { kind: 'package', packageId: 'dev.test.other', version: '1.0.0' },

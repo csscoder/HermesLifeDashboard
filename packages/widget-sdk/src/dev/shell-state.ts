@@ -95,3 +95,5 @@ export function appendLogEntry<T extends { message: string }>(entries: readonly 
   const message = entry.message.length > LOG_MESSAGE_LIMIT ? `${entry.message.slice(0, LOG_MESSAGE_LIMIT - 1)}…` : entry.message
   return [...entries, { ...entry, message }].slice(-LOG_ENTRY_LIMIT)
 }
+
+export const DEV_MODAL_DRAIN_MS = 5000

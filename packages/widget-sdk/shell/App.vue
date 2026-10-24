@@ -2,10 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { GRID_COLS } from '@lifedashboard/contracts/grid'
 import { plainConfig } from '@lifedashboard/contracts/widget-settings'
-import { createBridge, createHandshakes, type Bridge } from '../src/host.ts'
+import { createBridge, createHandshakes, createModalHost, type ModalRecord, type Bridge } from '../src/host.ts'
+import { parseModalOpen } from '@lifedashboard/contracts/widget-modal'
+import ModalHost from './ModalHost.vue'
 import { WidgetError } from '../src/widget.ts'
 import {
-  appendLogEntry, createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
+  DEV_MODAL_DRAIN_MS, appendLogEntry, createFrameSession, describeShell, frameSizePx, parseShellState, secretsChanged,
   serializeShellState, shellContext, themeClass, type ShellState,
 } from '../src/dev/shell-state.ts'
 import type { DevInfo } from '../src/dev/server.ts'
@@ -30,7 +32,92 @@ const failure = ref('')
 const entries = ref<{ id: number; time: string; kind: string; message: string; shell: string }[]>([])
 const toasts = ref<{ id: number; title: string }[]>([])
 let sequence = 0
+let generation = 0
 let bridge: Bridge | undefined
+let modalBridge: Bridge | undefined
+const modalFrame = ref<HTMLIFrameElement>()
+const activeModal = shallowRef<ModalRecord | null>(null)
+const modalError = ref('')
+const modalVersion = ref(0)
+const compactPaused = ref(false)
+const modalPaused = ref(false)
+const documentVisible = ref(document.visibilityState !== 'hidden')
+const runtimeId = () => `compact-${generation}-${frameVersion.value}`
+const owner = () => ({ runtimeId: runtimeId(), widgetId: 'dev', hash: String(info.value!.revision), packageId: info.value!.manifest.id, version: info.value!.manifest.version, title: info.value!.manifest.title })
+const controller = createModalHost({
+  drainTimeoutMs: DEV_MODAL_DRAIN_MS,
+  async mount() { await nextTick() },
+  dispose() { modalPaused.value = true; modalBridge?.close(); modalBridge = undefined },
+  async refresh(caller) {
+    const expected = generation
+    if (!owns(caller)) return
+    sessions.dispose()
+    await nextTick()
+    if (expected !== generation || !owns(caller)) return
+    frameVersion.value++
+    compactPaused.value = false
+  },
+  notice: message => report('error', message),
+  onChange(record) {
+    if (record?.state === 'closing') { compactPaused.value = true; modalPaused.value = true; sessions.dispose(); modalBridge?.close(); modalBridge = undefined }
+    activeModal.value = record ? { ...record } : null
+    if (!record) { modalError.value = ''; modalPaused.value = false }
+  },
+})
+const modalContext = computed(() => context.value ? { ...context.value, frame: 'frameless' as const, visible: documentVisible.value } : undefined)
+async function retryModal(id: string) {
+  if (activeModal.value?.id !== id || activeModal.value.state !== 'error' || !modalError.value || modalPaused.value) return
+  modalPaused.value = true
+  modalBridge?.close(); modalBridge = undefined
+  modalError.value = ''
+  const version = ++modalVersion.value
+  await nextTick()
+  if (disposed || activeModal.value?.id !== id || activeModal.value.state !== 'error' || modalVersion.value !== version) return
+  modalPaused.value = false
+}
+function invalidate() {
+  generation++
+  controller.removeCaller('dev')
+  sessions.dispose()
+  compactPaused.value = true
+  return generation
+}
+function owns(caller: ModalRecord['owner']) {
+  return !disposed && !!info.value && caller.runtimeId === runtimeId() && caller.hash === String(info.value.revision) && caller.packageId === info.value.manifest.id && caller.version === info.value.manifest.version
+}
+function updateVisibility() { documentVisible.value = document.visibilityState !== 'hidden' }
+function openBridge(target: Window, surfaceId: string, isModal: boolean) {
+  const expected = generation
+  const channel = new MessageChannel()
+  const current = createBridge(channel.port1, {
+    call: (op, input) => controller.track(surfaceId, async () => {
+      if (disposed || expected !== generation || (isModal ? modalPaused.value : compactPaused.value)) throw new WidgetError('UNAVAILABLE', 'Surface is unavailable')
+      if (op === 'modal.open') {
+        if (isModal) throw new WidgetError('UNAVAILABLE', 'Modal is unavailable')
+        const parsed = parseModalOpen(input)
+        if (!parsed.ok) throw new WidgetError('INVALID_INPUT', parsed.error)
+        await controller.open(owner(), parsed.value)
+        return
+      }
+      return gatewayCall(op, input)
+    }),
+    onError(message) { report('error', message); if (isModal) { modalError.value = message; controller.fail(surfaceId, message) } },
+    onClose() { report('error', 'bridge closed') },
+    onModalClose() { if (isModal) void controller.close(surfaceId) },
+  })
+  target.postMessage({ t: 'ld:init', context: isModal ? modalContext.value : context.value, ...(isModal ? { mount: { view: activeModal.value!.input.view, props: activeModal.value!.input.props } } : {}) }, '*', [channel.port2])
+  return current
+}
+async function gatewayCall(op: string, input: unknown) {
+  const expected = generation
+  let result: DevCallResult
+  try { result = await (await api('call', { op, input, confirm: state.value!.confirm, shell: describeShell(state.value!) })).json() as DevCallResult }
+  catch (error) { if (!disposed && expected === generation) report('error', (error as Error).message); throw new WidgetError('UNAVAILABLE', (error as Error).message) }
+  if (!disposed && expected === generation) append('gateway', result.ok ? `${op} ok: ${JSON.stringify(result.value)}` : `${op} ${result.code}: ${result.message}`)
+  if (!result.ok) throw new WidgetError(result.code, result.message)
+  if (!disposed && expected === generation && op === 'notifications.send') showToast((input as { title: string }).title)
+  return result.value
+}
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let observer: ResizeObserver | undefined
 let disposed = false
@@ -80,39 +167,30 @@ function showToast(title: string) {
 const sessions = createFrameSession(() => {
   const target = frame.value?.contentWindow
   if (!target || !context.value) throw new Error('Missing sandbox frame context. Fix: reload the dev shell.')
-  const channel = new MessageChannel()
-  const current = createBridge(channel.port1, {
-    async call(op, input) {
-      let result: DevCallResult
-      try {
-        result = await (await api('call', { op, input, confirm: state.value!.confirm, shell: describeShell(state.value!) })).json() as DevCallResult
-      } catch (error) {
-        report('error', (error as Error).message)
-        throw new WidgetError('UNAVAILABLE', (error as Error).message)
-      }
-      append('gateway', result.ok ? `${op} ok: ${JSON.stringify(result.value)}` : `${op} ${result.code}: ${result.message}`)
-      if (!result.ok) throw new WidgetError(result.code, result.message)
-      if (op === 'notifications.send') showToast((input as { title: string }).title)
-      return result.value
-    },
-    onError: (message) => report('error', message),
-    onClose: () => report('error', 'bridge closed'),
-  })
+  const current = openBridge(target, runtimeId(), false)
   bridge = current
-  target.postMessage({ t: 'ld:init', context: context.value }, '*', [channel.port2])
   return { close() { current.close(); if (bridge === current) bridge = undefined } }
 })
 const handshakes = createHandshakes()
 
 function onMessage(event: MessageEvent) {
-  if (!frame.value?.contentWindow || event.source !== frame.value.contentWindow) return
+  if (disposed) return
+  const isModal = !!activeModal.value && !modalPaused.value && !!modalFrame.value?.contentWindow && event.source === modalFrame.value.contentWindow
+  const isCompact = !compactPaused.value && !!frame.value?.contentWindow && event.source === frame.value.contentWindow
+  if (!isModal && !isCompact) return
   const data = event.data
   if (typeof data !== 'object' || data === null) return
   if (data.t === 'ld:dev' && data.kind === 'rendered') {
     document.documentElement.dataset.ldRendered = 'true'
   } else if (data.t === 'ld:hello') {
-    handshakes.register(event.source, () => sessions.hello())
+    const unregister = handshakes.register(event.source, () => {
+      if (isModal && activeModal.value) {
+        modalBridge?.close()
+        modalBridge = openBridge(modalFrame.value!.contentWindow!, activeModal.value.id, true)
+      } else { if (bridge) generation++; controller.removeCaller('dev'); sessions.hello() }
+    })
     handshakes.handle(event)
+    unregister()
   } else if (data.t === 'ld:dev' && typeof data.message === 'string'
     && ['gateway', 'error', 'csp', 'overflow', 'manifest', 'secret'].includes(data.kind)) {
     report(data.kind, data.message)
@@ -150,11 +228,20 @@ function measure() {
 }
 
 async function reset() {
+  const expected = invalidate()
   try {
+    await nextTick()
+    if (disposed || expected !== generation) return
     await api('reset', {})
-    sessions.dispose()
-    frameVersion.value++
-  } catch (error) { failure.value = (error as Error).message }
+    if (disposed || expected !== generation) return
+  } catch (error) {
+    if (!disposed && expected === generation) failure.value = (error as Error).message
+  } finally {
+    if (!disposed && expected === generation) {
+      frameVersion.value++
+      compactPaused.value = false
+    }
+  }
 }
 
 async function poll() {
@@ -164,15 +251,16 @@ async function poll() {
     if (next.themes.length === 0) throw new Error('No dev themes found. Fix: rebuild packages/widget-sdk and restart ld-widget dev.')
     const previous = info.value
     if (!previous || previous.revision !== next.revision) {
-      sessions.dispose()
+      const expected = invalidate()
       info.value = next
       state.value = parseShellState(state.value ? serializeShellState(state.value) : location.search, next.manifest, next.themes.map((theme) => theme.id))
       loadConfig(next)
       await nextTick()
-      if (disposed) return
+      if (disposed || expected !== generation) return
       measure()
       if (preview.value) observer?.observe(preview.value)
       frameSrc.value = props.paths.sandbox
+      compactPaused.value = false
     } else if (secretsChanged(previous.secrets, next.secrets)) {
       info.value = next
     }
@@ -181,12 +269,14 @@ async function poll() {
   finally { if (!disposed) pollTimer = setTimeout(poll, 2000) }
 }
 
-watch([state, context], () => {
+watch([state, context, modalContext], () => {
   if (state.value) history.replaceState(null, '', serializeShellState(state.value) + location.hash)
   if (context.value) bridge?.push(context.value)
+  if (modalContext.value) modalBridge?.push(modalContext.value)
 }, { deep: true, flush: 'post' })
 
 onMounted(() => {
+  document.addEventListener('visibilitychange', updateVisibility)
   window.addEventListener('message', onMessage)
   window.addEventListener('resize', measure)
   observer = new ResizeObserver(measure)
@@ -194,10 +284,13 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   disposed = true
+  generation++
   clearTimeout(pollTimer)
   for (const timer of toastTimers) clearTimeout(timer)
   observer?.disconnect()
+  controller.dispose()
   sessions.dispose()
+  document.removeEventListener('visibilitychange', updateVisibility)
   window.removeEventListener('message', onMessage)
   window.removeEventListener('resize', measure)
 })
@@ -215,7 +308,7 @@ onBeforeUnmount(() => {
             <div class="widget__box">
               <div class="widget__body">
                 <div class="sandbox">
-                  <iframe :key="`${info.revision}:${frameVersion}`" ref="frame" class="sandbox__frame" sandbox="allow-scripts" :src="frameSrc" title="Widget preview" />
+                  <iframe v-if="!compactPaused" :key="`${info.revision}:${frameVersion}`" ref="frame" class="sandbox__frame" sandbox="allow-scripts" :src="frameSrc" title="Widget preview" />
                 </div>
               </div>
             </div>
@@ -227,6 +320,9 @@ onBeforeUnmount(() => {
         <LogPanel :entries="entries" />
       </div>
     </template>
+    <ModalHost :record="activeModal" :error="modalError" @close="controller.close" @retry="retryModal">
+      <iframe v-if="activeModal && !modalPaused" :key="`${activeModal.id}:${modalVersion}`" ref="modalFrame" sandbox="allow-scripts" :src="frameSrc" title="Widget modal" />
+    </ModalHost>
     <div class="shell-toasts" aria-live="polite">
       <div v-for="toast in toasts" :key="toast.id" class="shell-toast" role="status">{{ toast.title }}</div>
     </div>

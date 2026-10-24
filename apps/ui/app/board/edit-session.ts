@@ -2,6 +2,7 @@ import {
   BARE_THEME_ID,
   normalizeAppearance,
   type ScreenBoard,
+  type ScreenBackground,
   type WidgetAppearance,
   type WidgetInstance,
   type WidgetPlacement,
@@ -79,6 +80,18 @@ export function setPackageVersion(board: ScreenBoard, id: string, version: strin
     instances: board.instances.map((item) => item.id === id ? { ...item, source: { ...source, version }, config } : item),
     layout: board.layout.map((item) => item.instanceId === id ? next : item),
   } }
+}
+
+/** Rebuild scope keys in the same order as parseScreenBoard and the API. */
+export function withBackground(doc: ScreenBoard, background: ScreenBackground | null): ScreenBoard {
+  const { id, rows, themeId, instances, layout } = doc
+  return { id, rows, ...(themeId != null && { themeId }), ...(background && { background }), instances, layout }
+}
+
+/** Keep inherited themes absent and explicit themes in the API's canonical key order. */
+export function withTheme(doc: ScreenBoard, themeId: string | null): ScreenBoard {
+  const { id, rows, themeId: _old, ...rest } = doc
+  return { id, rows, ...(themeId !== null && { themeId }), ...rest }
 }
 
 /** The board with new configured rows; anything but an integer in ROWS.min..ROWS.max changes nothing. */

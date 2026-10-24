@@ -38,13 +38,13 @@ Widget: add the permission to `widget.json` and rebuild. Do not retry until the 
 
 ### INVALID_INPUT
 
-When it happens: the input breaks a limit or a rule. Examples: a URL longer than the limit or with credentials, a body or state over its byte limit, a header outside the allowed names, a message over the bridge limit, or input that cannot be sent to the host.
+When it happens: the input breaks a limit or a rule. Examples: a URL longer than the limit or with credentials, a body or state over its byte limit, a header outside the allowed names, a message over the bridge limit, or input that cannot be sent to the host. Modal opens also reject invalid options and unknown views.
 
 Widget: fix the input. Retrying the same input fails again. The limits are in [api.md](api.md).
 
 ### RATE_LIMITED
 
-When it happens: the operation exceeded its rate limit, or too many calls are in flight.
+When it happens: the operation exceeded its rate limit, or too many calls are in flight. Accepted modal opens have a per-instance quota that survives caller remount.
 
 Widget: back off before the next call. Do not retry in a loop. The limits are in [api.md](api.md). See [recipes.md](recipes.md) for backoff.
 
@@ -52,7 +52,7 @@ Widget: back off before the next call. Do not retry in a loop. The limits are in
 
 When it happens: `state.set` used a revision that is no longer current, because the state changed after it was read.
 
-Widget: read the state again, apply the change to the new data, and write with the new revision. See [recipes.md](recipes.md).
+Widget: read the state again. For a form, ask the user to review the reloaded value before saving; for an atomic action, apply the change to the new data and write with the new revision. See [recipes.md](recipes.md).
 
 ### TIMEOUT
 
@@ -68,7 +68,7 @@ Widget: stop calling. Do not retry in a loop; the widget must be mounted again.
 
 ### UNAVAILABLE
 
-When it happens: the upstream request failed. Examples: the upstream timed out, the host is unreachable, the response is over its byte limit, or a bound secret is missing. The message names the missing setting when a secret is missing.
+When it happens: a modal is already open, a nested modal is requested, the host lacks modal support, or the upstream request failed. Examples: the upstream timed out, the host is unreachable, the response is over its byte limit, or a bound secret is missing. The message names the missing setting when a secret is missing.
 
 Widget: if the message names a setting, tell the user to set it in the widget settings. Otherwise back off and retry later.
 

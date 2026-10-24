@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, useTemplateRef } from 'vue'
 import type { WidgetSource } from '@lifedashboard/contracts/board'
 import { ROWS } from '@lifedashboard/contracts/grid'
-import { SPACE_COLORS, SPACE_LIMITS, type SpacePatch, type SpaceSummary } from '@lifedashboard/contracts/space'
+import { SPACE_LIMITS, type SpacePatch, type SpaceSummary } from '@lifedashboard/contracts/space'
 import { api } from './api'
+import WidgetModal from './widgets/WidgetModal.vue'
+import SandboxWidget from './widgets/SandboxWidget.vue'
+import { widgetModals } from './widgets/modals'
 import WidgetBoard from './board/WidgetBoard.vue'
+import PixiBackground from './background/PixiBackground.vue'
 import type { BoardMode } from './board/edit-session'
 import { connect, type Reaction } from './board/space-sync'
 import PairingForm from './PairingForm.vue'
+import SettingsPanel from './SettingsPanel.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { askDelete } from './spaces/confirm-delete'
 import ConfirmDelete from './spaces/ConfirmDelete.vue'
@@ -21,12 +26,16 @@ import { toasts } from './toasts'
 import { installedPackages, loadPackages, pickerEntries } from './widgets/catalog'
 import PackagesDialog from './widgets/PackagesDialog.vue'
 import { loadAppearance, saveAppearance } from './theme/appearance'
-import { BUILTIN_THEMES, BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
+import { BUILTIN_THEME_IDS, themeMeta } from './theme/builtin'
 import { resolveThemeId, themeClass } from './theme/resolve'
 
 type AppState = 'checking' | 'pairing' | 'ready' | 'unavailable'
 
 const state = ref<AppState>('checking')
+const { activeModal, error: modalError, retryVersion: modalRetryVersion } = widgetModals
+const modalContext = computed(() => widgetModals.context())
+watch(state, value => { if (value !== 'ready') widgetModals.cancelAll() }, { flush: 'sync' })
+onUnmounted(() => widgetModals.dispose())
 const spaces = ref<SpaceSummary[]>([])
 // The space on display. It changes only after the board confirms a switch.
 const currentId = ref<string | null>(null)
@@ -42,17 +51,15 @@ const startRename = ref(false)
 const apiDown = ref(false)
 const mode = ref<BoardMode>('view')
 const notice = ref<string | null>(null)
-const boardRef = useTemplateRef('board')
+const boardRef = useTemplateRef<InstanceType<typeof WidgetBoard>>('board')
 
 // The widget the next build draft places; set by the «Добавить виджет» picker.
 const draftSource = ref<WidgetSource>({ kind: 'builtin', type: 'placeholder' })
 const packagesOpen = ref(false)
 const entries = computed(() => pickerEntries(installedPackages.value))
 
-function pickWidget(event: Event) {
-  const select = event.target as HTMLSelectElement
-  const entry = entries.value.find((item) => item.key === select.value)
-  select.value = ''
+function pickWidget(key: string) {
+  const entry = entries.value.find((item) => item.key === key)
   if (!entry) return
   draftSource.value = entry.source
   mode.value = 'build'
@@ -67,7 +74,6 @@ const screenCount = computed(() => boardRef.value?.screens.length ?? 0)
 const screenIndex = computed(() => Math.max(0, boardRef.value?.screens.indexOf(screenId.value ?? '') ?? 0))
 const titleSuffix = computed(() => screenSuffix(screenIndex.value, screenCount.value))
 const current = computed(() => spaces.value.find((space) => space.id === currentId.value) ?? null)
-const hue = computed(() => SPACE_COLORS[current.value?.color ?? 'violet'])
 // Build and save block the switcher and the screen controls; so does a switch that is in flight.
 const busy = computed(
   () => mode.value === 'build' || managing.value || !!boardRef.value?.saving || !!boardRef.value?.switching,
@@ -188,20 +194,26 @@ const apiLabel = computed(() => {
   return state.value === 'checking' ? 'API: проверка…' : 'API: работает'
 })
 
-// Workspace theme; Spaces (E2) will put their own id in front of it in the chain.
+// The dashboard default is independent of the theme resolved for the displayed screen.
 const storedThemeId = loadAppearance().themeId
-const themeId = ref(resolveThemeId([storedThemeId], BUILTIN_THEME_IDS))
+const dashboardThemeId = ref(resolveThemeId([storedThemeId], BUILTIN_THEME_IDS))
+const themeId = computed<string>(() => resolveThemeId([
+  boardRef.value?.screenThemeId ?? null,
+  spaces.value.find(space => space.id === boardRef.value?.themeSpaceId)?.themeId ?? null,
+  dashboardThemeId.value,
+], BUILTIN_THEME_IDS))
 // An unknown stored id (deleted theme) is kept as it is; the default theme is shown meanwhile.
+const backgroundNotice = ref<string | null>(null)
 const themeNotice = ref<string | null>(
   storedThemeId !== null && !BUILTIN_THEME_IDS.has(storedThemeId) ? 'Тема не найдена, показана тема по умолчанию' : null,
 )
-const headerNotice = computed(() => [notice.value, themeNotice.value].filter(Boolean).join(' · ') || null)
-const statusText = computed(() => [apiLabel.value, headerNotice.value].filter(Boolean).join(' · '))
+const headerNotice = computed(() => [notice.value, themeNotice.value, backgroundNotice.value, boardRef.value?.backgroundLeaseError].filter(Boolean).join(' · ') || null)
+const statusText = computed(() => [apiDown.value ? apiLabel.value : null, headerNotice.value].filter(Boolean).join(' · '))
 
-function selectTheme(event: Event) {
-  themeId.value = resolveThemeId([(event.target as HTMLSelectElement).value], BUILTIN_THEME_IDS)
+function selectTheme(id: string) {
+  dashboardThemeId.value = resolveThemeId([id], BUILTIN_THEME_IDS)
   // A failed save keeps the theme applied for this session.
-  themeNotice.value = saveAppearance({ schemaVersion: 1, themeId: themeId.value }) ? null : 'Не удалось сохранить тему'
+  themeNotice.value = saveAppearance({ schemaVersion: 1, themeId: dashboardThemeId.value }) ? null : 'Не удалось сохранить тему'
 }
 
 const rootClass = computed(() => [
@@ -245,9 +257,9 @@ onMounted(check)
 </script>
 
 <template>
-  <div :class="rootClass" :style="{ '--space-hue': hue }">
+  <div :class="rootClass">
     <div class="space__backdrop" />
-    <div class="space__tint" />
+    <PixiBackground v-if="state === 'ready'" :background="boardRef?.background ?? null" @error="backgroundNotice = $event" />
     <div class="app">
       <header class="app__header">
         <div class="app__start">
@@ -259,77 +271,12 @@ onMounted(check)
             :start-rename="startRename"
             @rename="rename"
           />
-          <!-- The API status and the notice share one line; the notice is cut first when there is no room. -->
-          <p class="app__meta" role="status" :title="statusText">
-            <span>{{ apiLabel }}</span>
-            <span v-if="headerNotice" class="app__notice"> · {{ headerNotice }}</span>
-          </p>
         </div>
-        <ScreenDots
-          v-if="state === 'ready'"
-          :count="screenCount"
-          :index="screenIndex"
-          :editing="mode === 'edit'"
-          :disabled="busy"
-          :can-add="screenCount < SPACE_LIMITS.screens"
-          :can-remove="canRemove"
-          :remove-title="removeTitle"
-          @go="goScreen"
-          @add="addScreen"
-          @remove="removeScreen"
-        />
-        <div class="app__end">
-          <template v-if="state === 'ready'">
-            <template v-if="mode !== 'view'">
-              <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.confirm()">
-                Готово
-              </button>
-              <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.cancel()">
-                Отмена
-              </button>
-              <label v-if="mode === 'edit'" class="app__theme">
-                Ряды
-                <input
-                  class="app__select app__rows"
-                  type="number"
-                  required
-                  :min="ROWS.min"
-                  :max="ROWS.max"
-                  step="1"
-                  :value="boardRef?.rows"
-                  :disabled="boardRef?.saving"
-                  @input="setRows"
-                />
-              </label>
-            </template>
-            <template v-else>
-              <!-- Disabled until the board is loaded: a draft on an empty placeholder board could not be saved. -->
-              <select
-                class="app__select"
-                aria-label="Добавить виджет"
-                :disabled="!boardRef?.loaded"
-                @change="pickWidget"
-              >
-                <option value="" selected>Добавить виджет…</option>
-                <option v-for="entry in entries" :key="entry.key" :value="entry.key">{{ entry.title }}</option>
-              </select>
-              <button type="button" class="app__button" :disabled="!boardRef?.loaded" @click="mode = 'edit'">
-                Изменить
-              </button>
-              <button type="button" class="app__button" @click="packagesOpen = true">Виджеты</button>
-            </template>
-          </template>
-          <label class="app__theme">
-            Тема
-            <select class="app__select" :value="themeId" @change="selectTheme">
-              <option v-for="theme in BUILTIN_THEMES" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
-            </select>
-          </label>
-        </div>
-        <!-- Fixed in the corner slot the header reserves on the right. -->
+        <!-- Keep the existing space fan anchored to its corner. -->
         <SpaceSwitcher
           v-if="state === 'ready' && spaces.length > 0"
           :spaces="spaces"
+          :dashboard-theme-id="dashboardThemeId"
           :current-id="currentId ?? ''"
           :editing="mode === 'edit'"
           :disabled="busy"
@@ -338,7 +285,7 @@ onMounted(check)
           @edit="edit"
         />
       </header>
-      <main class="app__main">
+      <main class="app__main" data-board-focus tabindex="-1">
         <p v-if="state === 'checking'" class="app__status">Подключение…</p>
         <PairingForm v-else-if="state === 'pairing'" @paired="check" />
         <div v-else-if="state === 'unavailable'" class="app__status">
@@ -359,9 +306,66 @@ onMounted(check)
           @unavailable="onUnavailable"
         />
       </main>
+      <footer v-if="state === 'ready'" class="app__footer">
+        <ScreenDots
+          :count="screenCount"
+          :index="screenIndex"
+          :editing="mode === 'edit'"
+          :disabled="!boardRef?.loaded || busy"
+          :theme-id="boardRef?.screenThemeId ?? null"
+          :background="boardRef?.background ?? null"
+          :screen-key="boardRef?.backgroundKey ?? ''"
+          :can-add="screenCount < SPACE_LIMITS.screens"
+          :can-remove="canRemove"
+          :remove-title="removeTitle"
+          @go="goScreen"
+          @add="addScreen"
+          @remove="removeScreen"
+          @theme="boardRef?.setScreenTheme($event)"
+          @background="boardRef?.setBackground($event)"
+        />
+        <div v-if="mode !== 'view'" class="app__edit-controls" role="group" aria-label="Редактирование доски">
+          <label v-if="mode === 'edit'" class="app__theme">
+            Ряды
+            <input class="app__select app__rows" type="number" required :min="ROWS.min" :max="ROWS.max" step="1"
+              :value="boardRef?.rows" :disabled="boardRef?.saving" @input="setRows" />
+          </label>
+          <button type="button" class="app__button app__button--primary" :disabled="boardRef?.saving" @click="boardRef?.confirm()">Готово</button>
+          <button type="button" class="app__button" :disabled="boardRef?.saving" @click="boardRef?.cancel()">Отмена</button>
+        </div>
+      </footer>
+      <SettingsPanel
+        v-if="state === 'ready'"
+        :entries="entries"
+        :loaded="!!boardRef?.loaded"
+        :viewing="mode === 'view'"
+        :space-title="current?.title ?? ''"
+        :space-icon="current?.icon ?? ''"
+        :screen-index="screenIndex"
+        :screen-count="screenCount"
+        :rows="boardRef?.rows ?? null"
+        :theme-id="dashboardThemeId"
+        :api-label="apiLabel"
+        :api-down="apiDown"
+        @pick="pickWidget"
+        @edit="mode = 'edit'"
+        @library="packagesOpen = true"
+        @theme="selectTheme"
+      />
+      <p v-if="statusText" class="app__notice" role="status">{{ statusText }}</p>
     </div>
     <PackagesDialog v-if="state === 'ready'" v-model:open="packagesOpen" />
-    <ConfirmDialog />
+    <WidgetModal :record="activeModal" :error="modalError" @close="widgetModals.close" @retry="widgetModals.retry">
+      <template #default="{ ready }">
+        <SandboxWidget v-if="activeModal && modalContext && activeModal.state !== 'refreshing'"
+          :key="activeModal.id + ':' + modalRetryVersion" surface="modal" :surface-id="activeModal.id"
+          :widget-id="activeModal.owner.widgetId" :hash="activeModal.owner.hash"
+          :title="activeModal.owner.title" :package-id="activeModal.owner.packageId" :version="activeModal.owner.version"
+          :mount="{ view: activeModal.input.view, props: activeModal.input.props }" :context="modalContext" @ready="ready"
+        />
+      </template>
+    </WidgetModal>
+    <ConfirmDialog :application-modal-id="activeModal?.id" />
     <ConfirmDelete />
     <ul class="app__toasts" aria-live="polite">
       <li v-for="toast in toasts" :key="toast.id" class="app__toast">
@@ -382,57 +386,70 @@ html {
 
 .app {
   display: grid;
-  grid-template-rows: 3.5rem 1fr;
+  grid-template-rows: 3.5rem minmax(0, 1fr) 3.5rem;
   height: 100dvh;
 }
 
-/* Three columns: title and status (column 1), screen dots (column 2, centred by the equal side columns),
-   controls (column 3). The right padding reserves the corner slot. */
 .app__header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 3.5rem 0 1rem;
-}
-
-.app__start {
-  grid-column: 1;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
+  padding: 0 5rem 0 1rem;
 }
 
-/* API status first, then the notice; the notice is cut first. Full text in the title attribute. */
-.app__meta {
-  flex: 1 1 0;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--ld-text-muted);
-  font-size: 0.875rem;
+.app__start { min-width: 0; }
+
+@media (hover: hover) and (pointer: fine) {
+  .app:not(:hover) :is(.dots, .settings .settings__trigger, .space-switcher .space-switcher__trigger) {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .app:hover :is(.dots, .settings .settings__trigger, .space-switcher .space-switcher__trigger) {
+    opacity: 0.25;
+    pointer-events: auto;
+  }
+
+  .app :is(
+    .dots:is(:hover, :focus-within, :has(:popover-open)),
+    .settings__trigger:is(:hover, :focus, [aria-expanded='true']),
+    .space-switcher:is(:hover, :focus-within, .space-switcher--open) .space-switcher__trigger
+  ) {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .app__notice {
+  position: fixed;
+  top: 3.5rem;
+  left: 50%;
+  z-index: 10;
+  max-width: calc(100vw - 10rem);
+  max-height: 25dvh;
+  overflow-y: auto;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.5rem 0.875rem;
+  border: var(--ld-border-width) solid var(--ld-danger);
+  border-radius: var(--ld-radius-control);
+  background: var(--ld-surface-1-solid);
   color: var(--ld-danger-text);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
 }
 
-/* The controls and the theme select sit at the right edge, before the corner slot. */
-.app__end {
-  grid-column: 3;
+.app__footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.375rem;
+  justify-content: center;
+  gap: 0.75rem;
   min-width: 0;
+  padding: 0.25rem 5.5rem;
 }
 
-.app__end > * {
-  flex-shrink: 0;
-}
+.app__edit-controls { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+
+.app__button--primary { border-color: var(--ld-info); color: var(--ld-info-text); }
 
 .app__button {
   height: var(--ld-control-height);
@@ -506,7 +523,8 @@ html {
 .app__toasts {
   position: fixed;
   right: 1rem;
-  bottom: 1rem;
+  bottom: 5.25rem;
+  z-index: 10;
   display: grid;
   gap: 0.5rem;
   width: 20rem;

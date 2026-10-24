@@ -32,15 +32,6 @@
     pointer-events: none;
   }
 
-  /* The space colour: a subtle layer over the theme backdrop, not a replacement for it. */
-  .space__tint {
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    background: radial-gradient(circle at 20% 10%, oklch(0.6 0.12 var(--space-hue, 280) / 0.18), transparent 60%);
-    pointer-events: none;
-  }
-
   .widget,
   .widget__wrapper {
     height: 100%;

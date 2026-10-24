@@ -9,7 +9,7 @@ import { BUILTIN_THEMES, checkDocs, docValues, freshDocs, renderDocs, themeToken
 const root = fileURLToPath(new URL('..', import.meta.url))
 const PAGES = ['index', 'api', 'runtime', 'errors', 'design', 'settings', 'recipes', 'workflow'].map((name) => `${name}.md`)
 const DOC_KEYS = [
-  'SDK_TARGET_LEVEL', 'SDK_LEVELS', 'PERMISSIONS', 'GATEWAY_OPS', 'RATE_LIMITS', 'STATE_MAX_BYTES',
+  'MODAL_LIMITS', 'SDK_TARGET_LEVEL', 'SDK_LEVELS', 'PERMISSIONS', 'GATEWAY_OPS', 'RATE_LIMITS', 'STATE_MAX_BYTES',
   'NOTIFICATION_TITLE_MAX', 'NOTIFICATION_BODY_MAX', 'HTTP_URL_LENGTH', 'HTTP_HEADER_VALUE_LENGTH',
   'HTTP_BODY_BYTES', 'HTTP_RESPONSE_BYTES', 'HTTP_TIMEOUT_MS', 'HTTP_ANSWER_BYTES', 'HTTP_SEND_METHODS',
   'NETWORK_ORIGINS_MAX', 'BRIDGE_MAX_MESSAGE_BYTES', 'BRIDGE_REQUEST_TIMEOUT_MS', 'BRIDGE_CONFIRM_TIMEOUT_MS',

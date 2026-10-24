@@ -2,7 +2,23 @@
 
 The rules a LifeDashboard theme must satisfy. `apps/ui/app/theme/contract.ts` is the canonical
 token list; `validateThemeCss()` in `apps/ui/app/theme/validate-theme.ts` enforces this document.
-The AI theme skill writes themes against it. Design: `docs/superpowers/specs/2026-10-04-theme-engine-design.md`.
+The AI theme skill writes themes against it. Design: [archived theme-engine design](../.project-history/features/2026-10-09-theme-engine/spec.md).
+
+## Assignment and inheritance
+
+The resolved dashboard scope uses the first available theme in this order: screen, space, dashboard default, built-in Glass. A widget can override that resolved theme; `builtin:bare` only removes the widget frame and keeps the resolved screen tokens. It cannot be assigned to a space or screen.
+
+Space assignments use nullable `SpaceSummary.themeId` and `SpacePatch.themeId`. Screen assignments use optional `ScreenBoard.themeId`; absent or null inherits, and inherited IDs are omitted in canonical board responses. Space and screen assignments persist in SQLite; the dashboard default uses browser appearance storage. Unknown, syntactically valid IDs inherit without rewriting the stored reference. The current selector lists built-in themes; theme imports remain planned.
+
+In board edit mode, the gear beside the active screen bullet opens screen-theme selection above that bullet, together with confirmed deletion. The choice is part of the draft: Done saves it through the revision-checked board API, Cancel restores the loaded theme. The general settings panel only selects the dashboard default. A stale background refresh cannot replace a newer saved board snapshot.
+
+## Screen media backgrounds
+
+`ScreenBoard.background` stores a generic `mediaId`, `kind` (`video` or `image`), opacity, dimming and a PNG-pattern configuration. The background is independent of theme tokens; theme backdrop remains underneath and becomes visible as media opacity decreases or the renderer falls back. Legacy `videoId` documents normalize to video backgrounds, and an additive migration preserves references/files.
+
+The existing screen settings popover handles import and draft adjustments. Local files are copied into application-owned storage and served through authenticated, range-capable media routes. Saved references and renewable leases protect current drafts/playback from cleanup; Cancel/replacement releases unused imports. Originals remain untouched.
+
+A selected binary-alpha PNG repeats at its native cell size: diagonal 2×2 px, squares/crosses/triangles/diamonds 3×3 px, circles 6×6 px. The default is diagonal at scale 1. The UI offers integer enlargement from 1× to 4× and a grid on/off switch. The renderer rounds legacy fractional scale to an integer with minimum 1, uses nearest sampling and disables pattern mipmaps. Pattern colour/opacity, media opacity and uniform dimming are independent. Background video is muted/looped and pauses when hidden; static images have no playback loop. Unsupported browser codecs or renderer errors retain a usable theme fallback. This is not automatic contrast analysis or transcoding.
 
 ## Format
 

@@ -37,7 +37,7 @@ describe('sandbox document', () => {
     expect(dev.html).toBe(prod.html.replace(sdk, added + sdk))
   })
 
-  it('declares exactly the six differences', () => {
+  it('adds no new allowlist entry for modal support', () => {
     expect(DEV_SANDBOX_DIFFERENCES.map(({ id }) => id)).toEqual([
       'vue-dev-build', 'vite-client', 'probe', 'hmr-websocket', 'styles-via-vite', 'frame-reload',
     ])

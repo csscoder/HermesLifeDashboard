@@ -283,3 +283,18 @@ describe('createPortClient', () => {
     }
   })
 })
+
+it('exposes an unavailable modal without transport support', async () => {
+  const call = vi.fn(async () => null)
+  const widget = createWidget(call, CONTEXT)
+  await expect(widget.modal.open('x')).rejects.toMatchObject({ code: 'UNAVAILABLE' })
+  expect(() => widget.modal.close()).toThrow(expect.objectContaining({ code: 'UNAVAILABLE' }))
+  let provided: Widget
+  await renderToString(createSSRApp(defineComponent({ setup() {
+    provided = provideInProcessWidget({ call, context: CONTEXT })
+    return () => h('div')
+  } })))
+  await expect(provided!.modal.open('x')).rejects.toMatchObject({ code: 'UNAVAILABLE' })
+  expect(() => provided!.modal.close()).toThrow(expect.objectContaining({ code: 'UNAVAILABLE' }))
+  expect(call).not.toHaveBeenCalled()
+})

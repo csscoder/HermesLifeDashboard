@@ -90,6 +90,15 @@ describe('parseGatewayInput', () => {
 })
 
 describe('parseSandboxMessage', () => {
+  it('parses a modal-close control', () => {
+    for (const reason of ['sdk', 'escape']) {
+      expect(parseSandboxMessage({ t: 'modal-close', reason })).toEqual({ t: 'modal-close', reason })
+    }
+    for (const input of [{ t: 'modal-close', reason: 'other' }, { t: 'modal-close' }, { t: 'modal-close', reason: 'sdk', widgetId: 'x' }]) {
+      expect(parseSandboxMessage(input)).toBeNull()
+    }
+  })
+
   it('accepts a request and an error report', () => {
     expect(parseSandboxMessage({ t: 'req', id: 0, op: 'state.get', input: {} })).toEqual({ t: 'req', id: 0, op: 'state.get', input: {} })
     expect(parseSandboxMessage({ t: 'error', message: 'boom' })).toEqual({ t: 'error', message: 'boom' })

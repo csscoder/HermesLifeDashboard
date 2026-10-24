@@ -45,7 +45,7 @@ export interface Bridge {
 /** The host end of one widget's port, with the limits of spec «RPC bridge» step 4. */
 export function createBridge(
   port: MessagePort,
-  deps: { call: WidgetCall; onError(message: string): void; onClose(): void },
+  deps: { call: WidgetCall; onError(message: string): void; onClose(): void; onModalClose?(reason: 'sdk' | 'escape'): void },
 ): Bridge {
   const encoder = new TextEncoder()
   const timers = new Set<ReturnType<typeof setTimeout>>()
@@ -125,6 +125,7 @@ export function createBridge(
       return
     }
     if (message.t === 'error') deps.onError(message.message)
+    else if (message.t === 'modal-close') deps.onModalClose?.(message.reason)
     else run(message.id, message.op, message.input)
   }
 
@@ -135,3 +136,5 @@ export function createBridge(
     close,
   }
 }
+
+export { createModalHost, type ModalOwner, type ModalRecord } from './modal-host.ts'

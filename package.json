@@ -9,7 +9,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --parallel -r run dev",
+    "dev": "pnpm --parallel -r --filter '!./examples/**' run dev",
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r --if-present run test"

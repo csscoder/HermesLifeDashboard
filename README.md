@@ -21,7 +21,7 @@ These three examples use the public SDK and the dashboard's theme tokens. Each b
 | Widget | Demonstrates | Source and build instructions |
 | --- | --- | --- |
 | [Analog clock](docs/images/widget-showcase-clock.png) | Frameless SVG, local time and date, visibility and reduced-motion support. | [showcase-clock](examples/widgets/showcase-clock) |
-| [Focus sessions](docs/images/widget-showcase-counter.png) | Interactive progress, configurable goal and saved state across reloads. | [showcase-counter](examples/widgets/showcase-counter) |
+| [Focus sessions](docs/images/widget-showcase-counter.png) | Interactive progress, configurable goal, named modal workspace and saved state across reloads. | [showcase-counter](examples/widgets/showcase-counter) |
 | [Live weather](docs/images/widget-showcase-weather.png) | Real weather data through the permission-controlled HTTP gateway; no API key. | [showcase-weather](examples/widgets/showcase-weather) |
 
 Weather data: [Open-Meteo](https://open-meteo.com/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), with [provider attribution](https://open-meteo.com/en/licence). Displayed values are rounded model estimates at the captured time. The example uses the free endpoint for non-commercial use under [Open-Meteo's terms](https://open-meteo.com/en/terms).
@@ -33,7 +33,7 @@ LifeDashboard is a **widget platform first**. It is not a fixed productivity das
 The user owns the workspace:
 
 - **Compose:** select widgets from a growing library and arrange them on a customizable board.
-- **Personalize:** adjust widget sizes, themes, frames, shadows, and eventually backgrounds and animations.
+- **Personalize:** adjust widget sizes, themes, frames, shadows, screen backgrounds, and overlays.
 - **Extend:** install independently distributed widget packages without modifying the application.
 - **Create:** build custom widgets manually or with an AI coding agent using a documented SDK.
 - **Connect:** add optional AI, data sources, and device integrations as the platform evolves.
@@ -48,16 +48,16 @@ The following describes the implementation in the repository as of **October 202
 | --- | --- |
 | Widget board | 24-column fluid grid; configurable number of rows; add, move, resize, and remove widgets; pointer and keyboard controls. |
 | Persistence | Boards and widget instances saved through the local Fastify API to SQLite, with revision-based conflict detection. |
-| Appearance | Glass, Obsidian, and Paper themes; per-widget theme selection, a frameless style, and custom shadows are implemented in source. |
+| Appearance | Glass, Obsidian, and Paper themes; dashboard, space and screen defaults with inheritance; per-widget overrides, a frameless style, and custom shadows. |
 | Built-in widgets | Animated analog clock and a placeholder. The built-in library is still small. |
 | Installable widgets | Widget folders built by ld-widget build: code up to 10 MB, unlimited media, bundled sources; installed through the UI into the userwidgets library with permission review. |
 | Widget SDK | Initial `useWidget()` API, `ld-widget build` CLI, reactive widget context, persisted state, and host notifications. |
 | Isolation | Third-party widget packages run in sandboxed iframes with a restricted bridge to the host and API. |
 | Local access | Pairing code, authenticated browser sessions, and local API origin checks. |
-| Spaces and screens | Spaces are managed from the corner switcher (create, rename, icon and colour, delete); screens are added and deleted in edit mode; the last open space and screen are remembered per browser. |
+| Spaces and screens | Spaces are managed from the corner switcher (create, rename, icon and theme, delete); screens are added and deleted in edit mode; the last open space and screen are remembered per browser. |
 | Hermes Agent | Planned; no Hermes adapter or chat UI is implemented in the current application. |
 | Desktop app | Local macOS (Apple Silicon) build with Tauri: the app runs the same API and UI; ad-hoc signed, not notarized or distributed. |
-| Animated backgrounds | Planned; there is no animated-background system yet. |
+| Screen backgrounds | Import a local video (MP4/M4V/MOV/WebM) or image (PNG/JPEG/WebP/AVIF); Pixi cover rendering, independent background/grid opacity, dimming, and an optional pixel PNG microtexture. Codec support depends on the browser. |
 
 The newest appearance features have not yet completed the full documented browser-acceptance checks. Treat the current code as a development build.
 
@@ -101,7 +101,7 @@ my-widget/
     └── index.vue     # Vue single-file component
 ```
 
-`widget.json` may set `"frame": "framed"` (default) or `"frameless"`; `frame` needs `"sdk": 3`. `ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`, `"sdk": 3`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, an allow-list of project files: `widget.json`, `package.json`, lock files (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), `tsconfig*.json`, `widget-env.d.ts`, `AGENTS.md`, `CLAUDE.md`, `README*`, `src/` and `test/`. Dotfiles at any depth and `node_modules/` are excluded. The build prints the included source files. `--no-source` leaves `source/` out.
+`widget.json` may set `"frame": "framed"` (default) or `"frameless"`; `frame` needs `"sdk": 3`. `ld-widget build` writes `dist/<id>-<version>/`: `widget.json` (`"format": 2`, `"sdk": 4`), compiled code (`.js`, `.mjs`, `.css`, `.wasm`, up to **10 MB** in total), `assets/` copied from the project (images, video, audio, fonts, models — **no size limit**) and `source/`, an allow-list of project files: `widget.json`, `package.json`, lock files (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), `tsconfig*.json`, `widget-env.d.ts`, `AGENTS.md`, `CLAUDE.md`, `README*`, `src/` and `test/`. Dotfiles at any depth and `node_modules/` are excluded. The build prints the included source files. `--no-source` leaves `source/` out.
 
 Reference media by URL, for example `<video src="assets/bg.mp4">` or `fetch('assets/model.glb')`; importing a video, audio or a media file over 100 KB into code fails the build. Template `src` attributes are never bundled (`transformAssetUrls: false`), so an image used as `<img src="./x.png">` must live in `assets/` and be referenced by URL. Workers start from a `blob:` URL. A widget loads files only from its own folder; network requests go through `http.get` and `http.send`.
 
@@ -180,12 +180,19 @@ LifeDashboard treats visual design as a first-class feature:
 
 - A responsive-to-window-width board with square grid cells and explicit drag/resize editing.
 - Built-in **Glass**, **Obsidian**, and **Paper** themes.
-- Per-widget appearance: inherit the board theme, use another theme, or remove the frame.
+- Theme priority: widget override → screen → space → dashboard default. An unset or unavailable theme inherits from the next scope.
+- Set a space theme in its icon/theme editor; set the dashboard default in the settings panel. In board edit mode, the gear beside the active screen bullet opens a panel above it with screen-theme selection and confirmed deletion. Screen theme choices preview with the board draft and follow Done/Cancel. Every screen deletion asks for confirmation, including empty screens.
+- Space and screen assignments persist in SQLite. The dashboard default remains local to the browser.
+- The active-screen gear also imports video or image backgrounds. Background settings preview in the draft and follow Done/Cancel. A copy of the file lives in the application data directory; the original file is not modified.
+- Background controls include dimming, background opacity, and a separate optional pixel PNG microtexture: diagonal, squares, crosses, circles, triangles or diamonds. Native repeating cells are 2×2 px for diagonal, 3×3 px for squares/crosses/triangles/diamonds, and 6×6 px for circles, with integer enlargement from 1× to 4× and no smoothing. Colour and grid opacity are independent. Turning the grid off preserves its other settings during editing.
+- One Pixi canvas displays the active screen only. Video loops muted, pauses when the page is hidden, and respects reduced motion. Static images render on settings/size changes. Browser codec/GPU failures restore the theme backdrop with a notice. No transcoding is performed.
+- Files are streamed rather than buffered in API memory. Saved screen references and renewable leases protect active drafts/playback across tabs; unused app copies are reclaimed after release, with a 24-hour fallback expiry for abandoned imports/leases.
+- Per-widget appearance: inherit the resolved screen theme, use another theme, or remove the frame.
 - Configurable widget shadows, including shadows that can follow the shape of frameless content.
 - A shared design-token vocabulary for consistent UI across widgets.
 - Animations where they improve the experience, with consideration for reduced-motion preferences.
 
-**Planned:** static and animated backgrounds, additional skins and themes, richer visual widgets, themed widget packs, and more flexible personalization. A frameless clock is one example of the intended direction: widgets should be able to feel like objects on a desktop, not just rectangles in a grid.
+**Planned:** theme imports, richer background effects, additional skins and themes, richer visual widgets, themed widget packs, and more flexible personalization. A frameless clock is one example of the intended direction: widgets should be able to feel like objects on a desktop, not just rectangles in a grid.
 
 Theme contracts and token rules are documented in [`docs/theme-contract.md`](docs/theme-contract.md).
 
@@ -306,7 +313,7 @@ The build is ad-hoc signed and not notarized; it is meant for the machine that b
 
 The roadmap describes intended directions rather than release promises or delivery dates.
 
-1. **Widget experience:** polish the board editor, broaden the built-in library, improve animations and appearance controls, and support static/animated backgrounds.
+1. **Widget experience:** polish the board editor, broaden the built-in library, improve animations and appearance controls, and extend image/video background effects.
 2. **Widget SDK developer experience:** stable versioned contracts and richer asset support.
 3. **Workspace organization:** multiple editable spaces/screens, presets, portable layouts, and import/export of configurations.
 4. **Widget ecosystem:** practical and decorative widget collections, themed packs, easier package discovery and updates, and optional independently sold premium packs.

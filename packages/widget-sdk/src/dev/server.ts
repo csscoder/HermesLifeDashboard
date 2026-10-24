@@ -163,6 +163,7 @@ export async function startDevServer(dir: string, options: { port?: number; poll
       const send = hot.send as (...args: unknown[]) => void
       hot.send = ((...args: unknown[]) => {
         const [payload] = args
+        if (typeof payload === 'object' && payload !== null && ['update', 'full-reload'].includes((payload as { type?: string }).type ?? '')) revision++
         if (typeof payload === 'object' && payload !== null && (payload as { type?: unknown }).type === 'error' && !loggedInTick) {
           log.write('error', (payload as { err: { message: string } }).err.message)
         }

@@ -6,6 +6,8 @@ export type ConfirmationAnswer = 'approved' | 'declined' | 'expired'
 export interface ConfirmationRequest {
   // Keys the entry: two instances of one package share a title.
   widgetId: string
+  ownerId?: string
+  returnFocus?: () => HTMLElement | null
   // Shown only.
   title: string
   op: GatewayOp
@@ -47,4 +49,9 @@ export function requestConfirmation(request: ConfirmationRequest): Promise<Confi
 /** Widget teardown and unmount: its entries leave the queue declined. */
 export function cancelConfirmations(widgetId: string): void {
   for (const item of confirmations.value.filter((entry) => entry.widgetId === widgetId)) item.answer('declined')
+}
+
+/** Surface teardown leaves other surfaces of the widget queued. */
+export function cancelSurfaceConfirmations(ownerId: string): void {
+  for (const item of confirmations.value.filter((entry) => entry.ownerId === ownerId)) item.answer('declined')
 }

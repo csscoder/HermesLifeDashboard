@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'n
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildWidget, keepInSource } from '../src/build.ts'
 
@@ -36,15 +36,28 @@ describe('buildWidget', () => {
     expect(await readFile(join(target, 'index.js'), 'utf8')).toMatch(/from\s*["']@lifedashboard\/widget-sdk["']/)
   }, 30_000)
 
-  it('builds sdk 1 sources at sdk 3 without changing the copied source manifest', async () => {
+  it('builds sdk 1 sources at sdk 4 without changing the copied source manifest', async () => {
     const dir = await copyOf('counter')
     const source = await readFile(join(dir, 'widget.json'), 'utf8')
     const manifest = JSON.parse(source)
     expect(manifest.sdk).toBe(1)
     const target = await buildWidget(dir)
-    expect(JSON.parse(await readFile(join(target, 'widget.json'), 'utf8'))).toEqual({ ...manifest, format: 2, sdk: 3 })
+    expect(JSON.parse(await readFile(join(target, 'widget.json'), 'utf8'))).toEqual({ ...manifest, format: 2, sdk: 4 })
     expect(await readFile(join(target, 'source', 'widget.json'), 'utf8')).toBe(source)
     expect(await readFile(join(dir, 'widget.json'), 'utf8')).toBe(source)
+  }, 30_000)
+
+  it('preserves the modals export, imported components, styles and assets', async () => {
+    const target = await buildWidget(await copyOf('modal'))
+    // Resolve Vue from this workspace for the emitted external import.
+    await writeFile(join(target, 'package.json'), '{"type":"module"}')
+    await symlink(fileURLToPath(new URL('../node_modules', import.meta.url)), join(target, 'node_modules'))
+    const mod = await import(/* @vite-ignore */ pathToFileURL(join(target, 'index.js')).href)
+    expect(typeof mod.default).toBe('object')
+    expect(Object.keys(mod.modals)).toEqual(['workspace'])
+    expect(typeof mod.modals.workspace.setup).toBe('function')
+    expect(await readFile(join(target, 'style.css'), 'utf8')).toContain('modal-child')
+    expect(await filesOf(target)).toContain('assets/icon.svg')
   }, 30_000)
 
   it('emits a chunk for a dynamic import', async () => {

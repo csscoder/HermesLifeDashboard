@@ -1,3 +1,4 @@
+import type { JsonValue } from '@lifedashboard/contracts/widget-modal'
 import { inject, provide, readonly, type DeepReadonly, type InjectionKey } from 'vue'
 import type { GatewayInputs, GatewayOp, GatewayOutputs, HttpOutput, HttpSendInput, StateSetOutput, WidgetContext, WidgetErrorCode } from '@lifedashboard/contracts/widget-gateway'
 
@@ -21,7 +22,18 @@ export class WidgetError extends Error {
   }
 }
 
+export interface WidgetModal {
+  open(view: string, options?: { title?: string; props?: Record<string, JsonValue> }): Promise<void>
+  close(): void
+}
+
+const unavailableModal: WidgetModal = {
+  async open() { throw new WidgetError('UNAVAILABLE') },
+  close() { throw new WidgetError('UNAVAILABLE') },
+}
+
 export interface Widget {
+  readonly modal: WidgetModal
   /**
    * Reactive, read-only context owned by the host; secret config values are set/unset booleans.
    * Requires no permission; has no operation limits and never rejects.
@@ -110,8 +122,9 @@ export interface Widget {
 export const WIDGET_KEY: InjectionKey<Widget> = Symbol('lifedashboard.widget')
 
 /** The same Widget over any transport: the in-process broker client or the sandbox port. */
-export function createWidget(call: WidgetCall, context: WidgetContext): Widget {
+export function createWidget(call: WidgetCall, context: WidgetContext, modal: WidgetModal = unavailableModal): Widget {
   return {
+    modal,
     context: readonly(context) as Widget['context'],
     state: {
       get: async <T>() => (await call('state.get', {})) as { data: T | null; revision: number },

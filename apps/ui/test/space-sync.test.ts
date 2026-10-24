@@ -89,6 +89,20 @@ describe('load', () => {
     expect(sync.space.value).toBeNull()
   })
 
+  it('ignores a refresh snapshot superseded by a completed theme save', async () => {
+    const { client, sync } = await loaded(1)
+    const pending = deferred<ReturnType<typeof ok<SpaceBoard>>>()
+    client.board.mockReturnValueOnce(pending.promise)
+    const refreshing = sync.load()
+    const themed = { ...screen([]), themeId: 'builtin:paper' }
+    client.saveBoard.mockResolvedValueOnce(ok({ ...board(2), screens: [themed, board(2).screens[1]!] }))
+    expect(await sync.save(themed)).toBe('saved')
+    pending.resolve(ok(board(1)))
+    expect(await refreshing).toBe('ignored')
+    expect(sync.space.value?.revision).toBe(2)
+    expect(sync.space.value?.screens[0]?.themeId).toBe('builtin:paper')
+  })
+
   it('replaces the board on a later load in view mode', async () => {
     const { client, sync } = await loaded(1)
     client.board.mockResolvedValueOnce(ok(board(2, [A])))

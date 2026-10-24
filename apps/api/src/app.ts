@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import Fastify, { type FastifyInstance } from 'fastify'
+import { registerBackgroundMedia } from './background-media.ts'
 import { registerAuth } from './auth.ts'
 import type { ApiConfig } from './config.ts'
 import { newRequestId, registerErrorHandling } from './errors.ts'
@@ -25,7 +26,8 @@ export function buildApp({ db, config, onPairingCode, now = () => new Date(), lo
   app.get('/health', async () => ({ status: 'ok' as const }))
   registerAuth(app, { db, config, now, onPairingCode })
   const invalidateWidgetSessions = registerWidgetGateway(app, { db, now })
-  registerSpaces(app, { db, now, invalidateWidgetSessions })
+  const backgroundMedia = registerBackgroundMedia(app, { db, now, dataDir: config.dataDir })
+  registerSpaces(app, { db, now, invalidateWidgetSessions, backgroundMedia })
   registerWidgetPackages(app, { db, now, dataDir: config.dataDir })
   registerWidgetUploads(app, { db, now, dataDir: config.dataDir })
   registerWidgetSecrets(app, { db, now })

@@ -95,7 +95,7 @@ describe('createBridge', () => {
   })
 
   // The frame's end of the channel: sends raw messages, reads answers in order.
-  function connect(call: WidgetCall) {
+  function connect(call: WidgetCall, onModalClose?: (reason: 'sdk' | 'escape') => void) {
     const { port1, port2 } = new MessageChannel()
     ports.push(port1, port2)
     const inbox: unknown[] = []
@@ -107,7 +107,7 @@ describe('createBridge', () => {
     }
     const onError = vi.fn()
     const onClose = vi.fn()
-    const bridge = createBridge(port1, { call, onError, onClose })
+    const bridge = createBridge(port1, { call, onError, onClose, onModalClose })
     bridges.push(bridge)
     return {
       bridge,
@@ -117,6 +117,26 @@ describe('createBridge', () => {
       next: () => (inbox.length > 0 ? Promise.resolve(inbox.shift()) : new Promise<unknown>((resolve) => waiting.push(resolve))),
     }
   }
+
+  it('routes modal-close to onModalClose and counts malformed controls', async () => {
+    const onModalClose = vi.fn()
+    const call = vi.fn(async () => null)
+    const frame = connect(call, onModalClose)
+    frame.send({ t: 'modal-close', reason: 'escape' })
+    await vi.waitFor(() => expect(onModalClose).toHaveBeenCalledExactlyOnceWith('escape'))
+    for (let index = 0; index < 19; index++) frame.send({ t: 'modal-close', reason: 'bad' })
+    frame.send({ t: 'req', id: 1, op: 'state.get', input: {} })
+    expect(await frame.next()).toMatchObject({ id: 1, ok: true })
+    expect(onModalClose).toHaveBeenCalledTimes(1)
+    expect(frame.onClose).not.toHaveBeenCalled()
+    frame.send({ t: 'modal-close', reason: 'sdk', extra: true })
+    await vi.waitFor(() => expect(frame.onClose).toHaveBeenCalledTimes(1))
+    const ignored = connect(call)
+    ignored.send({ t: 'modal-close', reason: 'sdk' })
+    ignored.send({ t: 'req', id: 2, op: 'state.get', input: {} })
+    expect(await ignored.next()).toMatchObject({ id: 2, ok: true })
+    expect(call).toHaveBeenCalledTimes(2)
+  })
 
   it('answers a request with the call result', async () => {
     const call = vi.fn(async () => ({ revision: 1 }))

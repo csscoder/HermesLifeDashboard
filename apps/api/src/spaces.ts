@@ -3,9 +3,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { FastifyInstance } from 'fastify'
 import {
   parseScreenBoard,
+  parseScreenBackground,
   type SpaceBoard,
   type SaveBoardRequest,
   type ScreenBoard,
+  type ScreenBackground,
   type WidgetAppearance,
   type WidgetPlacement,
   type WidgetSource,
@@ -25,6 +27,7 @@ import {
   type SpaceColor,
   type SpaceSummary,
 } from '@lifedashboard/contracts/space'
+import type { BackgroundMediaStore } from './background-media.ts'
 import { ApiError, ok } from './errors.ts'
 
 interface WidgetRow {
@@ -63,15 +66,16 @@ const REVISION_SCHEMA = {
   },
 } as const
 
-const SPACE_COLUMNS = 'SELECT id, title, icon, color, position, revision FROM spaces'
+const SPACE_COLUMNS = 'SELECT id, title, icon, color, theme_id AS themeId, position, revision FROM spaces'
 
 export interface SpacesDeps {
   db: DatabaseSync
   now: () => Date
+  backgroundMedia?: BackgroundMediaStore
   invalidateWidgetSessions(widgetIds: readonly string[]): void
 }
 
-export function registerSpaces(app: FastifyInstance, { db, now, invalidateWidgetSessions }: SpacesDeps): void {
+export function registerSpaces(app: FastifyInstance, { db, now, invalidateWidgetSessions, backgroundMedia }: SpacesDeps): void {
   app.get('/api/v1/spaces', async (request) => ok(request, listSpaces(db)))
 
   app.post('/api/v1/spaces', async (request) => ok(request, createSpace(db, now())))
@@ -83,7 +87,11 @@ export function registerSpaces(app: FastifyInstance, { db, now, invalidateWidget
   app.delete<{ Params: { spaceId: string }; Body: DeleteRequest }>(
     '/api/v1/spaces/:spaceId',
     { schema: REVISION_SCHEMA },
-    async (request) => ok(request, deleteSpace(db, request.params.spaceId, request.body.expectedRevision, invalidateWidgetSessions)),
+    async (request) => {
+      const result = deleteSpace(db, request.params.spaceId, request.body.expectedRevision, invalidateWidgetSessions)
+      backgroundMedia?.cleanup()
+      return ok(request, result)
+    },
   )
 
   app.post<{ Params: { spaceId: string }; Body: AddScreenRequest }>(
@@ -95,8 +103,11 @@ export function registerSpaces(app: FastifyInstance, { db, now, invalidateWidget
   app.delete<{ Params: { spaceId: string; screenId: string }; Body: DeleteRequest }>(
     '/api/v1/spaces/:spaceId/screens/:screenId',
     { schema: REVISION_SCHEMA },
-    async (request) =>
-      ok(request, deleteScreen(db, request.params.spaceId, request.params.screenId, request.body.expectedRevision, now(), invalidateWidgetSessions)),
+    async (request) => {
+      const result = deleteScreen(db, request.params.spaceId, request.params.screenId, request.body.expectedRevision, now(), invalidateWidgetSessions)
+      backgroundMedia?.cleanup()
+      return ok(request, result)
+    },
   )
 
   app.get<{ Params: { spaceId: string } }>('/api/v1/spaces/:spaceId/board', async (request) =>
@@ -106,7 +117,11 @@ export function registerSpaces(app: FastifyInstance, { db, now, invalidateWidget
   app.put<{ Params: { spaceId: string }; Body: SaveBoardRequest }>(
     '/api/v1/spaces/:spaceId/board',
     { schema: SAVE_SCHEMA },
-    async (request) => ok(request, saveBoard(db, request.params.spaceId, request.body, now(), invalidateWidgetSessions)),
+    async (request) => {
+      const result = saveBoard(db, request.params.spaceId, request.body, now(), invalidateWidgetSessions, backgroundMedia)
+      backgroundMedia?.cleanup()
+      return ok(request, result)
+    },
   )
 }
 
@@ -151,10 +166,10 @@ function createSpace(db: DatabaseSync, now: Date): SpaceSummary {
 function updateSpace(db: DatabaseSync, spaceId: string, raw: unknown, now: Date): SpaceSummary {
   const result = parseSpacePatch(raw)
   if (!result.ok) throw new ApiError('VALIDATION_ERROR', result.error)
-  const { title = null, icon = null, color = null } = result.value
+  const { title = null, icon = null, color = null, themeId } = result.value
   spaceRevision(db, spaceId)
-  const sql = 'UPDATE spaces SET title = COALESCE(?, title), icon = COALESCE(?, icon), color = COALESCE(?, color), updated_at = ? WHERE id = ?'
-  db.prepare(sql).run(title, icon, color, now.toISOString(), spaceId)
+  const sql = 'UPDATE spaces SET title = COALESCE(?, title), icon = COALESCE(?, icon), color = COALESCE(?, color), theme_id = CASE WHEN ? THEN ? ELSE theme_id END, updated_at = ? WHERE id = ?'
+  db.prepare(sql).run(title, icon, color, Number(themeId !== undefined), themeId ?? null, now.toISOString(), spaceId)
   return readSpace(db, spaceId)
 }
 
@@ -237,16 +252,18 @@ function readBoard(db: DatabaseSync, spaceId: string): SpaceBoard {
     .prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.space_id = ? ORDER BY w.rowid')
     .all(spaceId) as unknown as WidgetRow[]
   const screens = db
-    .prepare('SELECT id, rows FROM screens WHERE space_id = ? ORDER BY position')
-    .all(spaceId) as unknown as { id: string; rows: number }[]
+    .prepare('SELECT id, rows, theme_id, background FROM screens WHERE space_id = ? ORDER BY position')
+    .all(spaceId) as unknown as { id: string; rows: number; theme_id: string | null; background: string | null }[]
   return {
     spaceId,
     revision,
-    screens: screens.map(({ id, rows }) => {
+    screens: screens.map(({ id, rows, theme_id, background }) => {
       const placed = widgets.filter((row) => row.screen_id === id)
       return {
         id,
         rows,
+        ...(theme_id !== null && { themeId: theme_id }),
+        ...(background !== null && { background: parseScreenBackground(JSON.parse(background)) as ScreenBackground }),
         instances: placed.map((row) => ({
           id: row.id,
           source: sourceOf(row),
@@ -312,18 +329,19 @@ function reconcileWidgetData(db: DatabaseSync, previous: WidgetRow, source: Widg
 }
 
 // One transaction: 404, then 409, then 400, then the replacement (spec «PUT /spaces/:spaceId/board»).
-function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, now: Date, invalidate: SpacesDeps['invalidateWidgetSessions']): SpaceBoard {
+function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, now: Date, invalidate: SpacesDeps['invalidateWidgetSessions'], backgroundMedia?: BackgroundMediaStore): SpaceBoard {
   const changed = transaction(db, () => {
     if (spaceRevision(db, spaceId) !== body.expectedRevision) {
       throw new ApiError('REVISION_CONFLICT', 'The board changed since it was loaded')
     }
     const screens = validateScreens(body.screens as unknown[], screenIds(db, spaceId))
     checkPackagesInstalled(db, screens)
+    backgroundMedia?.validate(screens)
     const previous = new Map((db.prepare('SELECT w.* FROM widgets w JOIN screens s ON s.id = w.screen_id WHERE s.space_id = ?')
       .all(spaceId) as unknown as WidgetRow[]).map((row) => [row.id, row]))
     const changedIds = new Set(previous.keys())
-    const setRows = db.prepare('UPDATE screens SET rows = ? WHERE id = ?')
-    for (const screen of screens) setRows.run(screen.rows, screen.id)
+    const setScreen = db.prepare('UPDATE screens SET rows = ?, theme_id = ?, background = ? WHERE id = ?')
+    for (const screen of screens) setScreen.run(screen.rows, screen.themeId ?? null, screen.background ? JSON.stringify(screen.background) : null, screen.id)
     db.prepare('DELETE FROM widgets WHERE screen_id IN (SELECT id FROM screens WHERE space_id = ?)').run(spaceId)
     const insert = db.prepare(
       'INSERT INTO widgets (id, screen_id, source_kind, source_type, source_version, config, config_version, appearance, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -364,6 +382,7 @@ function saveBoard(db: DatabaseSync, spaceId: string, body: SaveBoardRequest, no
     }
     dropOrphanWidgetData(db)
     db.prepare('UPDATE spaces SET revision = revision + 1, updated_at = ? WHERE id = ?').run(now.toISOString(), spaceId)
+    backgroundMedia?.commit(screens)
     return [...changedIds]
   })
   invalidate(changed)

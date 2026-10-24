@@ -100,7 +100,7 @@ onUnmounted(stop)
 
     <image :href="face" x="0" y="0" width="1254" height="1254" />
 
-    <g :transform="`translate(${CX} ${CY})`">
+    <g transform="translate(625 600)">
       <!-- The shadow sits outside the rotating group, so the light stays top-left. -->
       <g :filter="`url(#${id}-shadow)`">
         <g ref="hour">

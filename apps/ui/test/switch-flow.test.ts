@@ -43,7 +43,7 @@ describe('runDeleteScreen', () => {
   it('asks and cancels without removing when the user declines', async () => {
     const ask = vi.fn().mockResolvedValue(false)
     const remove = vi.fn()
-    expect(await runDeleteScreen({ needsConfirm: true, ask, remove })).toEqual({ ok: false, cancelled: true })
+    expect(await runDeleteScreen({ ask, remove })).toEqual({ ok: false, cancelled: true })
     expect(ask).toHaveBeenCalledTimes(1)
     expect(remove).not.toHaveBeenCalled()
   })
@@ -51,22 +51,34 @@ describe('runDeleteScreen', () => {
   it('removes after the user confirms', async () => {
     const ask = vi.fn().mockResolvedValue(true)
     const remove = vi.fn().mockResolvedValue('saved')
-    expect(await runDeleteScreen({ needsConfirm: true, ask, remove })).toEqual({ ok: true })
+    expect(await runDeleteScreen({ ask, remove })).toEqual({ ok: true })
     expect(remove).toHaveBeenCalledTimes(1)
   })
 
-  it('removes without asking when no confirmation is needed', async () => {
-    const ask = vi.fn()
+  it('waits for confirmation before removing any screen, including an empty one', async () => {
+    let confirm!: (accepted: boolean) => void
+    const ask = vi.fn(() => new Promise<boolean>((resolve) => { confirm = resolve }))
     const remove = vi.fn().mockResolvedValue('saved')
-    expect(await runDeleteScreen({ needsConfirm: false, ask, remove })).toEqual({ ok: true })
-    expect(ask).not.toHaveBeenCalled()
+    const result = runDeleteScreen({ ask, remove })
+
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(remove).not.toHaveBeenCalled()
+    confirm(true)
+    expect(await result).toEqual({ ok: true })
+    expect(remove).toHaveBeenCalledTimes(1)
   })
 
-  it('reports a conflict with the space action reaction and no leave or reload', async () => {
-    const remove = vi.fn().mockResolvedValue('conflict')
-    const result = await runDeleteScreen({ needsConfirm: false, ask: vi.fn(), remove })
-    expect(result).toEqual({ ok: false, reaction: afterManage('conflict') })
-    expect(result).not.toHaveProperty('reaction.leaveMode')
-    expect(result).not.toHaveProperty('reaction.reload')
-  })
+  it.each(['conflict', 'invalid', 'unavailable', 'skipped'] as const)(
+    'reports %s with the space action reaction and no leave or reload',
+    async (outcome) => {
+      const ask = vi.fn().mockResolvedValue(true)
+      const remove = vi.fn().mockResolvedValue(outcome)
+      const result = await runDeleteScreen({ ask, remove })
+      expect(result).toEqual({ ok: false, reaction: afterManage(outcome) })
+      expect(ask).toHaveBeenCalledTimes(1)
+      expect(remove).toHaveBeenCalledTimes(1)
+      expect(result).not.toHaveProperty('reaction.leaveMode')
+      expect(result).not.toHaveProperty('reaction.reload')
+    },
+  )
 })

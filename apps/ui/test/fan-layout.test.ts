@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { fanLayout } from '../app/spaces/fan-layout'
+import { FAN_GEOMETRY, fanLayout } from '../app/spaces/fan-layout'
 
 const g = { r0: 9.125, step: 6.75, size: 5, gap: 1.5 }
 
 describe('fanLayout', () => {
+  it('fits all 21 production slots inside a compact corner without overlapping hovered bubbles', () => {
+    const { r0, step, size } = FAN_GEOMETRY
+    const points = fanLayout(21, FAN_GEOMETRY).map(({ ring, angle }) => {
+      const radius = r0 + ring * step
+      // Include the 10 px inset at the minimum viewport's 16 px/rem scale.
+      return { x: 2.625 + radius * Math.cos(angle * Math.PI / 180), y: 2.375 + radius * Math.sin(angle * Math.PI / 180) }
+    })
+    for (const point of points) {
+      expect(point.x - size / 2).toBeGreaterThanOrEqual(0)
+      expect(point.y - size / 2).toBeGreaterThanOrEqual(0)
+      expect(point.x + size / 2).toBeLessThanOrEqual(20)
+      expect(point.y + size / 2).toBeLessThanOrEqual(20)
+    }
+    for (let i = 0; i < points.length; i++)
+      for (let j = i + 1; j < points.length; j++)
+        expect(Math.hypot(points[i]!.x - points[j]!.x, points[i]!.y - points[j]!.y)).toBeGreaterThanOrEqual(size)
+  })
+
   it('places three items on the first ring', () => {
     const layout = fanLayout(3, g)
     expect(layout.map((p) => p.ring)).toEqual([0, 0, 0])

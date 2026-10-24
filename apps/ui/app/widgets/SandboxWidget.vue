@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import type { ModalMount } from '@lifedashboard/contracts/widget-modal'
+import { widgetModals } from './modals'
 import { BRIDGE_LIMITS, type WidgetContext } from '@lifedashboard/contracts/widget-gateway'
 import { api } from '../api'
-import { cancelConfirmations, requestConfirmation } from '../confirmations'
+import { cancelSurfaceConfirmations, requestConfirmation } from '../confirmations'
 import { showToast } from '../toasts'
 import { createBridge, createGatewayClient, listenForHello, type Bridge, type GatewayClient } from './broker'
 
-const props = defineProps<{ widgetId: string; hash: string; title: string; packageId: string; version: string; context: WidgetContext }>()
+const props = defineProps<{ widgetId: string; hash: string; title: string; packageId: string; version: string; context: WidgetContext; surface?: 'widget' | 'modal'; surfaceId?: string; mount?: ModalMount }>()
+const emit = defineEmits<{ ready: []; error: [message: string] }>()
+const surfaceId = props.surfaceId ?? props.widgetId
+let unmounted = false
+let paused = false
+let unregisterSurface: (() => void) | undefined
 
 const state = ref<'loading' | 'ready' | 'error'>('loading')
 const showFrame = ref(false)
@@ -24,14 +31,19 @@ function snapshot(): WidgetContext {
 }
 
 // Spec «Sandbox host» step 4: close the port, end the session, remove the iframe.
-function teardown() {
+function pause() {
+  paused = true
+  showFrame.value = false
   clearTimeout(helloTimer)
   stopWaiting?.()
   stopWaiting = null
   bridge?.close()
   bridge = null
-  // An open or queued dialog of this widget closes; its id dies with the session.
-  cancelConfirmations(props.widgetId)
+  cancelSurfaceConfirmations(surfaceId)
+}
+
+function teardown() {
+  pause()
   void client?.close()
   client = null
   showFrame.value = false
@@ -39,7 +51,11 @@ function teardown() {
 
 function fail(message = 'Не удалось запустить виджет или потеряно соединение с ним') {
   failure.value = message.slice(0, 1000)
-  teardown()
+  if (props.surface === 'modal') {
+    pause()
+    widgetModals.fail(surfaceId, failure.value)
+    emit('error', failure.value)
+  } else teardown()
   state.value = 'error'
 }
 
@@ -52,7 +68,9 @@ async function copyFailure() {
 }
 
 async function start() {
+  if (unmounted) return
   teardown()
+  paused = false
   state.value = 'loading'
   failure.value = ''
   loads = 0
@@ -60,7 +78,7 @@ async function start() {
     api,
     widgetId: props.widgetId,
     source: { kind: 'package', packageId: props.packageId, version: props.version },
-    confirm: (op, input) => requestConfirmation({ widgetId: props.widgetId, title: props.title, op, input }),
+    confirm: (op, input) => paused ? Promise.resolve('declined') : requestConfirmation({ widgetId: props.widgetId, ownerId: surfaceId, returnFocus: () => iframe.value, title: props.title, op, input }),
     onNotify: (message) => showToast({ source: props.title, ...message }),
     onSessionLost: () => {
       if (client === current) fail()
@@ -68,15 +86,16 @@ async function start() {
   })
   client = current
   const started = await current.start()
-  if (client !== current) {
+  if (unmounted || client !== current) {
     // Unmounted or restarted while the session was created.
     void current.close()
     return
   }
+  if (paused) return
   if (!started) return fail()
   showFrame.value = true
   await nextTick()
-  if (client !== current) return
+  if (paused || unmounted || client !== current) return
   const frameWindow = iframe.value?.contentWindow
   if (!frameWindow) return fail()
   helloTimer = setTimeout(fail, BRIDGE_LIMITS.helloTimeoutMs)
@@ -84,17 +103,31 @@ async function start() {
 }
 
 function connect(frameWindow: Window, current: GatewayClient) {
+  if (unmounted || paused || current !== client) return
   clearTimeout(helloTimer)
   stopWaiting = null
   const channel = new MessageChannel()
-  frameWindow.postMessage({ t: 'ld:init', context: snapshot() }, '*', [channel.port2])
-  bridge = createBridge(channel.port1, { call: current.call, onError: fail, onClose: () => fail() })
+  const initial = { t: 'ld:init', context: snapshot(), ...(props.surface === 'modal' && props.mount ? { mount: props.mount } : {}) }
+  frameWindow.postMessage(initial, '*', [channel.port2])
+  bridge = createBridge(channel.port1, {
+    call(op, input) {
+      return widgetModals.track(surfaceId, async () => {
+        if (op === 'modal.open') return widgetModals.open(surfaceId, input)
+        return current.call(op, input)
+      })
+    },
+    onError: fail, onClose: () => fail(),
+    onModalClose() { if (props.surface === 'modal') void widgetModals.close(surfaceId) },
+  })
   state.value = 'ready'
+  widgetModals.ready(surfaceId)
+  emit('ready')
 }
 
 // The first load is the package document; another one means the frame navigated itself.
 // ponytail: not audited; the API has no host-event route in this slice (spec «RPC bridge» step 6).
 function onLoad() {
+  if (paused) return
   loads += 1
   if (loads > 1) fail()
 }
@@ -104,8 +137,14 @@ watch(
   (json) => bridge?.push(JSON.parse(json) as WidgetContext),
 )
 
-onMounted(start)
-onUnmounted(teardown)
+onMounted(() => {
+  unregisterSurface = widgetModals.registerSurface(surfaceId, { pause, dispose: teardown, focus: () => {
+    const target = state.value === 'ready' ? iframe.value : document.querySelector<HTMLElement>('[data-board-focus]')
+    target?.focus()
+  } })
+  void start()
+})
+onUnmounted(() => { unmounted = true; unregisterSurface?.(); teardown() })
 </script>
 
 <template>
@@ -123,7 +162,7 @@ onUnmounted(teardown)
       @load="onLoad"
     />
     <p v-if="state === 'loading'" class="sandbox__status">Загрузка…</p>
-    <div v-else-if="state === 'error'" class="sandbox__status sandbox__status--error" role="alert" tabindex="0">
+    <div v-else-if="state === 'error' && surface !== 'modal'" class="sandbox__status sandbox__status--error" role="alert" tabindex="0">
       <p class="sandbox__text">Ошибка виджета</p>
       <details class="sandbox__details">
         <summary>Подробности</summary>
